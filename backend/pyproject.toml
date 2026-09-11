@@ -1,0 +1,45 @@
+[project]
+name = "ai-solution-builder-backend"
+version = "1.0.0"
+description = "AI Solution Builder — FastAPI backend for generating working software systems"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["B008", "E501"]  # B008: FastAPI Depends() in defaults is idiomatic; E501: enforced by `ruff format`
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+warn_unused_ignores = false
+files = ["app"]
+
+[[tool.mypy.overrides]]
+module = [
+  "langchain.*",
+  "langchain_groq.*",
+  "langchain_core.*",
+  "langgraph.*",
+  "jose.*",
+  "passlib.*",
+  "sse_starlette.*",
+  "pgvector.*",
+  "slowapi.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+addopts = "-ra --cov=app --cov-report=term-missing --cov-fail-under=80"

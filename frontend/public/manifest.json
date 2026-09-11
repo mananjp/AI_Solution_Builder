@@ -1,0 +1,37 @@
+{
+  "name": "AI Solution Builder OS",
+  "short_name": "AI Builder",
+  "description": "Autonomous Multi-Agent Solution Architect & Workable System Runtime",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#070a13",
+  "theme_color": "#6366f1",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "developer", "productivity"],
+  "shortcuts": [
+    {
+      "name": "AI Architect Chat",
+      "url": "/chat",
+      "description": "Launch AI Architect conversation"
+    },
+    {
+      "name": "Dashboard",
+      "url": "/dashboard",
+      "description": "View active solutions"
+    }
+  ]
+}

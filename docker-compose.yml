@@ -1,0 +1,70 @@
+services:
+  # PostgreSQL 16 + pgvector (mapped to 5433 to avoid clashing with any native install)
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ai_solution_builder_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_solution_builder}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ai_solution_builder}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Redis 7 (rate limiting, cache, queues)
+  redis:
+    image: redis:7-alpine
+    container_name: ai_solution_builder_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # Backend API (buildable, optional for local dev — uvicorn usually runs on host)
+  backend:
+    build:
+      context: ./backend
+    container_name: ai_solution_builder_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_solution_builder}
+      REDIS_URL: redis://redis:6379/0
+      APP_ENV: ${APP_ENV:-production}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GROQ_MODEL_NAME: ${GROQ_MODEL_NAME:-openai/gpt-oss-120b}
+      LLM_PROVIDER: ${LLM_PROVIDER:-groq}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local

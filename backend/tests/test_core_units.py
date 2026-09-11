@@ -1,0 +1,307 @@
+"""Unit tests for core services: async Redis, credit metering, document
+parser, and JWT/password security."""
+
+import asyncio
+from datetime import timedelta
+from uuid import uuid4
+
+import pytest
+from fastapi import HTTPException
+from redis import asyncio as aioredis
+from sqlalchemy import select
+
+from app.core.credits import (
+    action_cost,
+    check_credits,
+    credit_usage,
+    require_and_deduct_credit,
+)
+from app.core.security import (
+    create_access_token,
+    decode_token,
+    hash_password,
+    verify_password,
+)
+from app.ingestion.parser import (
+    parse_csv_excel,
+    parse_document,
+    parse_pdf,
+    parse_text,
+)
+from app.models.organization import Organization
+from app.models.user import User
+
+
+# ── Async Redis ─────────────────────────────────────
+def _redis_reachable() -> bool:
+    async def probe():
+        client = aioredis.from_url(
+            "redis://localhost:6379/0",
+            encoding="utf-8",
+            decode_responses=True,
+            socket_connect_timeout=1,
+        )
+        try:
+            return bool(await client.ping())
+        except Exception:
+            return False
+        finally:
+            await client.aclose()
+
+    try:
+        return asyncio.run(probe())
+    except Exception:
+        return False
+
+
+REDIS_OK = _redis_reachable()
+redis_required = pytest.mark.skipif(not REDIS_OK, reason="Redis not reachable")
+
+
+@redis_required
+async def test_redis_lifecycle_and_ping():
+    from app.core.redis import close_redis, init_redis, ping_redis, redis_client
+
+    await close_redis()
+    assert redis_client() is None
+    assert await ping_redis() is False  # degraded mode before init
+
+    await init_redis()
+    assert redis_client() is not None
+    assert await ping_redis() is True
+    await close_redis()
+
+
+@redis_required
+async def test_redis_sliding_window_enforces_limit():
+    from app.core.redis import init_redis, sliding_window_count
+
+    await init_redis()
+    key = "test-ratelimit-" + uuid4().hex
+    results = [await sliding_window_count(key, 3, 60) for _ in range(4)]
+    assert all(ok for ok, _ in results[:3])
+    assert results[0][1] == 1
+    allow, count = results[3]
+    assert allow is False
+    assert count == 4
+    await sliding_window_count(key, 3, 60)  # keeps working
+    from app.core.redis import close_redis
+
+    await close_redis()
+
+
+@redis_required
+async def test_redis_json_cache_roundtrip():
+    from app.core.redis import (
+        close_redis,
+        init_redis,
+        redis_del,
+        redis_get_json,
+        redis_set_json,
+    )
+
+    await init_redis()
+    key = "test-cache-" + uuid4().hex
+    assert await redis_set_json(key, {"a": 1, "b": [2]}, ttl_seconds=30) is True
+    assert await redis_get_json(key) == {"a": 1, "b": [2]}
+    assert await redis_get_json("does-not-exist") is None
+    await redis_del(key)
+    assert await redis_get_json(key) is None
+    await close_redis()
+
+
+async def test_redis_functions_fail_open_when_client_none():
+    from app.core.redis import (
+        close_redis,
+        ping_redis,
+        redis_del,
+        redis_get_json,
+        redis_set_json,
+        sliding_window_count,
+    )
+
+    await close_redis()
+    assert await ping_redis() is False
+    assert await sliding_window_count("kw", 5, 60) == (True, 0)
+    assert await redis_set_json("k", {"x": 1}) is False
+    assert await redis_get_json("k") is None
+    await redis_del("k")  # no-op, must not raise
+
+
+# ── Credit metering ─────────────────────────────────
+def test_action_cost_known_and_unknown():
+    assert action_cost("generation") > 0
+    assert action_cost("export") == 2
+    assert action_cost("no_such_action") == action_cost("generation")
+
+
+async def test_check_credits_returns_org_balance(auth_client, session_factory):
+    async with session_factory() as db:
+        user = (
+            await db.execute(select(User).where(User.email == auth_client["email"]))
+        ).scalar_one()
+        assert await check_credits(db, user.org_id) == 200
+        with pytest.raises(HTTPException) as exc:
+            await check_credits(db, uuid4())
+        assert exc.value.status_code == 404
+
+
+async def test_require_and_deduct_credit(auth_client, session_factory):
+    async with session_factory() as db:
+        user = (
+            await db.execute(select(User).where(User.email == auth_client["email"]))
+        ).scalar_one()
+        org = (
+            await db.execute(select(Organization).where(Organization.id == user.org_id))
+        ).scalar_one()
+
+        result = await require_and_deduct_credit(db, user, "generation", "Test deduction")
+        assert result["cost"] == action_cost("generation")
+        assert org.credits_remaining == 200 - result["cost"]
+
+        # 'regenerate' aliases to regeneration metering
+        regen = await require_and_deduct_credit(db, user, "regenerate", "Regen")
+        assert regen["cost"] == action_cost("regeneration")
+
+
+async def test_require_and_deduct_credit_402(auth_client, session_factory):
+    async with session_factory() as db:
+        user = (
+            await db.execute(select(User).where(User.email == auth_client["email"]))
+        ).scalar_one()
+        org = (
+            await db.execute(select(Organization).where(Organization.id == user.org_id))
+        ).scalar_one()
+        org.credits_remaining = 1
+        await db.flush()
+        with pytest.raises(HTTPException) as exc:
+            await require_and_deduct_credit(db, user, "generation")
+        assert exc.value.status_code == 402
+        assert exc.value.detail["code"] == "INSUFFICIENT_CREDITS"
+
+
+async def test_require_and_deduct_credit_org_missing(auth_client, session_factory):
+    from types import SimpleNamespace
+
+    async with session_factory() as db:
+        with pytest.raises(HTTPException) as exc:
+            await require_and_deduct_credit(db, SimpleNamespace(org_id=uuid4()), "generation")
+        assert exc.value.status_code == 404
+
+
+async def test_require_and_deduct_credit_free_when_zero_cost(
+    auth_client, session_factory, monkeypatch
+):
+    imported = __import__("app.core.credits", fromlist=["action_cost"])
+    monkeypatch.setattr(imported, "action_cost", lambda action: 0)
+    async with session_factory() as db:
+        user = (
+            await db.execute(select(User).where(User.email == auth_client["email"]))
+        ).scalar_one()
+        out = await require_and_deduct_credit(db, user, "generation")
+        assert out == {"credits_remaining": None, "deducted": 0, "cost": 0}
+
+
+async def test_credit_usage_aggregates(auth_client, session_factory):
+    from app.core.credits import require_and_deduct_credit
+
+    async with session_factory() as db:
+        user = (
+            await db.execute(select(User).where(User.email == auth_client["email"]))
+        ).scalar_one()
+        await require_and_deduct_credit(db, user, "generation", "Setup")
+        usage = await credit_usage(db, user.org_id)
+        assert usage["balance"] == 200 - action_cost("generation")
+        assert usage["total_spent"] == action_cost("generation")
+        assert usage["by_action"]["generation"] == action_cost("generation")
+        assert usage["recent_transactions"][0]["action_type"] == "generation"
+
+
+# ── Document parser ─────────────────────────────────
+async def test_parse_text_utf8_and_fallback():
+    assert await parse_text("héllo".encode()) == "héllo"
+    assert await parse_text(b"\xff\xfe invalid utf8") == "\xff\xfe invalid utf8"
+
+
+async def test_parse_document_routes_by_extension():
+    assert await parse_document(b"plain", "notes.txt") == "plain"
+    assert "PDF parsing error" in await parse_document(b"%PDF-1.4 broken", "file.pdf")
+    assert "DOCX parsing error" in await parse_document(b"not a docx", "file.docx")
+    assert "CSV/Excel parsing error" in await parse_document(b"not excel", "file.xlsx")
+    # Unknown extension falls back to text parsing
+    assert await parse_document(b"anything", "file.foo") == "anything"
+
+
+async def test_parse_pdf_missing_input_errors_gracefully():
+    out = await parse_pdf(b"\x00junk")
+    assert "PDF parsing error" in out
+
+
+async def test_parse_csv_excel_ok():
+    csv_bytes = b"email,name\nq@example.com,Quinn\nz@example.com,Zed\n"
+    out = await parse_csv_excel(csv_bytes, "catalog.csv")
+    assert "Columns (2): email, name" in out
+    assert "First 5 rows" in out
+
+
+async def test_parse_document_json_yaml_text():
+    assert await parse_document(b'{"a": 1}', "data.json") == '{"a": 1}'
+    assert await parse_document(b"# Title", "notes.md") == "# Title"
+
+
+# ── Security ────────────────────────────────────────
+def test_password_hashing_roundtrip():
+    hashed = hash_password("S3cret!")
+    assert verify_password("S3cret!", hashed)
+    assert not verify_password("wrong", hashed)
+
+
+def test_decode_token_expired_raises():
+    token = create_access_token({"sub": "x"}, expires_delta=timedelta(seconds=-60))
+    with pytest.raises(HTTPException) as exc:
+        decode_token(token)
+    assert exc.value.status_code == 401
+
+
+def test_decode_token_invalid_signature_raises():
+    with pytest.raises(HTTPException) as exc:
+        decode_token("garbage.token.here")
+    assert exc.value.status_code == 401
+
+
+async def test_get_current_user_token_missing_subject(client):
+    token = create_access_token({"other": "claim"})
+    resp = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 401
+    assert "subject" in resp.json()["error"]["message"]
+
+
+async def test_get_current_user_token_unknown_user(client):
+    token = create_access_token({"sub": str(uuid4())})
+    resp = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 401
+    assert resp.json()["error"]["message"] == "User not found"
+
+
+async def test_get_current_user_deactivated(auth_client, session_factory):
+    client = auth_client["client"]
+    async with session_factory() as db:
+        user = (
+            await db.execute(select(User).where(User.email == auth_client["email"]))
+        ).scalar_one()
+        user.is_active = False
+        await db.commit()
+    resp = await client.get("/api/v1/auth/me", headers=auth_client["headers"])
+    assert resp.status_code == 403
+    assert "deactivated" in resp.json()["error"]["message"]
+
+
+def test_create_access_token_sets_expiry():
+    import jwt as pyjwt
+
+    from app.core.config import settings
+
+    token = create_access_token({"sub": "abc"})
+    payload = pyjwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+    assert payload["sub"] == "abc"
+    assert "exp" in payload
