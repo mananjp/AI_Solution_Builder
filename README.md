@@ -19,6 +19,66 @@ Unlike tools that merely produce mockups or static documentation, AI Solution Bu
 
 ---
 
+## 🏗 System Architecture
+
+```mermaid
+flowchart TB
+    subgraph Clients["Clients"]
+        Web["Web · PWA · Mobile<br/>(Next.js 16 + Capacitor)"]
+    end
+
+    subgraph Backend["Backend — FastAPI :8000"]
+        MW["Middleware: RequestID · Audit Log · Rate Limit · Metrics · Language"]
+        Ingest["Ingestion<br/>text · PDF · DOCX · CSV · URL · OpenAPI"]
+        Agents["LangGraph Multi-Agent Core<br/>BA → Recommendation → Architect → UX → Process → DB/API → Code Synth"]
+        Workable["Workable Runtime<br/>schema provisioning + RLS<br/>dynamic headless REST + interactive sandbox"]
+        MVPAPI["OpenCode MVP Builder API<br/>templates · build · configure · deploy"]
+        Export["Exporters<br/>PDF · DOCX · XLSX · PPTX · Figma"]
+    end
+
+    subgraph Sidecar["OpenCode Sidecar — Docker :4096"]
+        OC["headless opencode serve<br/>agent: mvp-builder<br/>model: opencode/big-pickle"]
+    end
+
+    subgraph Vol["Shared Docker Volume · mvp_workspace"]
+        WS[".data/mvp_builds/&lt;solution&gt;/build_&lt;n&gt;/"]
+    end
+
+    subgraph Data["Data Stores"]
+        PG[("PostgreSQL 16 + pgvector<br/>tenant RLS")]
+        Redis[("Redis 7<br/>rate limit · cache · queues")]
+    end
+
+    GH["GitHub — fresh repo<br/>render.yaml · CI · ..."]
+    Render["Render.com<br/>blueprint auto-deploy"]
+
+    Web -->|"HTTPS /api/v1 · JWT · RBAC"| Backend
+    Ingest --> Agents
+    Agents -->|"ai_state (HLD · LLD · ER · API · DDL)"| Workable
+    Agents --> PG
+    Workable --> PG
+    Export --> PG
+    Backend --> Redis
+    MVPAPI -->|httpx /session| OC
+    OC -->|writes generated source| WS
+    WS -->|"read · download · deploy"| MVPAPI
+    MVPAPI -->|"POST /mvp/builds/{id}/deploy (user GitHub PAT)"| GH
+    GH --> Render
+```
+
+### Container layout (`docker-compose.yml`)
+
+| Service | Port | Role |
+|---|---|---|
+| `postgres` | `5433→5432` | pgvector/PostgreSQL 16, tenant RLS, AI + build metadata |
+| `redis` | `6379` | rate limiting, caching, queues |
+| `backend` | `8000` | FastAPI app (all `/api/v1` routes) |
+| `opencode` | `4096` | headless OpenCode agent sidecar; mounts `mvp_workspace` |
+
+The backend and the OpenCode sidecar share the `mvp_workspace` Docker volume: the sidecar writes generated source there (`/workspace/<solution_id>/build_<n>/`), and the backend reads it directly from `.data/mvp_builds/` — no network hop between generation and download/deploy.
+
+---
+
 ## 🚀 Key Architecture & Capabilities
 
 ### 1. Multi-Agent Intelligence Core (LangGraph)
@@ -56,6 +116,93 @@ Unlike tools that merely produce mockups or static documentation, AI Solution Bu
 - Installable PWA with service worker offline caching.
 - Capacitor wrapper for Android (`@capacitor/android`) and iOS distribution.
 
+### 7. OpenCode MVP Builder
+- **Template presets**: `todo`, `calculator`, `portfolio` — small, deployable starters listed by `GET /api/v1/mvp/templates`.
+- **Custom builds**: generates a full functional app from any validated solution's artifacts (HLD, LLD, ER, API spec, DDL, wireframes).
+- **OpenCode sidecar**: a headless `opencode serve` container whose `mvp-builder` agent (model `opencode/big-pickle` — free on OpenCode Zen) "slot-fills" a pre-scaffolded FastAPI + Next.js project with the artifact-specific models, schemas, routers, and pages.
+- **GitHub deploy**: `POST /api/v1/mvp/builds/{id}/deploy` pushes the workspace (with `render.yaml`, Dockerfile, CI workflow remapped to the repo root) to a fresh GitHub repository using the user's saved PAT, ready for a Render blueprint auto-deploy.
+
+---
+
+## 🔄 End-to-End Workflow
+
+From a raw business idea to a deployed, working web app in eight phases.
+
+### Phase 0 — Account & credentials
+1. Register / log in to get a JWT (`POST /api/v1/auth/register`, `POST /api/v1/auth/login`).
+2. (Optional, needed only for Phase 7) Save a GitHub Personal Access Token on your profile:
+   ```bash
+   PATCH /api/v1/auth/me/settings        {"github_token": "ghp_…", "render_api_key": "…"}
+   ```
+   Tokens are stored per-user in `user.settings` and never returned by profile endpoints.
+
+### Phase 1 — Ingestion
+Feed the system any loose business material — raw text, PRD/BRD, PDF, DOCX, CSV schema, OpenAPI spec, or a website URL. The ingestion layer parses every format, chunks the content, and stores embeddings in the `pgvector` extension so the agents share a common semantic context.
+
+### Phase 2 — Agentic design
+A `POST` to the solutions/chat API runs the **LangGraph multi-agent pipeline**. Each node writes into the shared `ai_state`:
+
+| Agent | Produces |
+|---|---|
+| Business Analyst | domain discovery, gap analysis, stakeholders |
+| Business Recommendation | module suggestions from the industry template library |
+| Solutions Architect | HLD + LLD, infrastructure spec |
+| Process Intelligence | executable BPMN 2.0 workflows |
+| UX | navigation flows + responsive screen wireframes |
+| Database & API | normalized relational schema, ER diagram, DDL, OpenAPI 3.1 |
+| Full-Stack Code Synthesizer | operational schemas, CRUD endpoints, live UI components |
+
+### Phase 3 — Workable system runtime
+For every **confirmed module**, the runtime provisions a tenant-isolated PostgreSQL schema (Row-Level Security), mounts a generic headless REST engine at `/api/v1/workable/{workspace_id}/{module_name}/…` that validates against those models on the fly, and seeds synthetic data.
+
+### Phase 4 — Artifacts & export
+All design artifacts become downloadable deliverables — **PDF / DOCX / XLSX / PPTX**, Figma-ready UX bundles, and full code/ infra packaging with Dockerfiles, GitHub Actions, and Terraform scaffolding.
+
+### Phase 5 — Build an MVP
+Two ways to start a functional build:
+- **Template** — pick a small starter (`GET /api/v1/mvp/templates` → `todo` / `calculator` / `portfolio`) and pass `{"template": "todo", "app_name": "…"}`.
+- **Custom** — let the full `ai_state` (from Phase 2) drive the build for an open-ended request.
+
+Either way you call:
+```bash
+POST /api/v1/mvp/{solution_id}/build    # deducts MVP-build credits, runs async
+GET  /api/v1/mvp/{solution_id}/builds   # poll build list
+GET  /api/v1/mvp/builds/{id}/status     # status + generated file tree
+```
+
+### Phase 6 — What happens inside a build
+1. The backend **scaffolds** a complete FastAPI + Next.js + infra project into the shared volume (`scaffold_build` substitutes app name / slug / title).
+2. It compiles a **compact "slot-fill" prompt** from the HLD, LLD, ER entities, API endpoints, wireframe screens, and DDL — deliberately small so it fits the model's token limits.
+3. The **OpenCode sidecar agent** (`opencode/big-pickle`) edits only these slots: `models.py`, `schemas.py`, `routers.py`, Alembic migration, and one CRUD page per module.
+4. You can **download** the project as a ZIP (`GET …/download`) or **tune it** before shipping via a config overlay (`POST …/configure` with env values / app name).
+
+### Phase 7 — One-click deploy to GitHub + Render
+```bash
+POST /api/v1/mvp/builds/{id}/deploy     {"repo_name": "quick-todos", "description": "…", "private": false}
+```
+- The workspace is flattened to a repo file map, with `infra/render.yaml`, `infra/docker-compose.yml`, and `infra/.github/**` remapped to the repository root.
+- The deployer creates a fresh GitHub repo via the GitHub REST API using **your** saved PAT and pushes all files (`repo_url` is stored on the build; redeploys require `force: true`).
+- Because the repo ships a **Render blueprint + CI workflow**, connecting the repo to Render auto-deploys the app on green CI.
+
+### Phase 8 — Operate
+Prometheus metrics (`/metrics`), health/ready probes, audit logs, and credit metering track usage across all tenants.
+
+---
+
+## 🗺 MVP Builder API Summary
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/mvp/templates` | List deployable starter templates |
+| `POST` | `/api/v1/mvp/{solution_id}/build` | Start an async build (template or custom) |
+| `GET` | `/api/v1/mvp/{solution_id}/builds` | List builds for a solution |
+| `GET` | `/api/v1/mvp/builds/{id}/status` | Status + generated file tree |
+| `GET` | `/api/v1/mvp/builds/{id}/download` | Download the project as ZIP |
+| `POST` | `/api/v1/mvp/builds/{id}/deploy` | Push to a fresh GitHub repo (Render-ready) |
+| `POST` | `/api/v1/mvp/builds/{id}/configure` | Apply env/app-name config overlay |
+| `DELETE` | `/api/v1/mvp/builds/{id}` | Cancel / destroy a build |
+| `PATCH` | `/api/v1/auth/me/settings` | Save GitHub token / Render API key |
+
 ---
 
 ## 🛠 Tech Stack
@@ -65,6 +212,7 @@ Unlike tools that merely produce mockups or static documentation, AI Solution Bu
 | **Backend** | Python 3.12, FastAPI, SQLAlchemy 2.0 (Async), Pydantic v2, LangGraph, LangChain, pgvector, Redis, PyMuPDF, python-docx |
 | **Frontend** | Next.js 16 (App Router, Turbopack), React 19, TypeScript 5, Tailwind CSS v4, `@xyflow/react`, Lucide Icons |
 | **Mobile & PWA** | Capacitor 8 (Android/iOS shell), PWA Service Worker |
+| **MVP Builder** | OpenCode headless sidecar (`opencode serve`), agent `mvp-builder` on model `opencode/big-pickle` (OpenCode Zen, free), HTTP proxy client (`httpx`) |
 | **Data & Cache** | PostgreSQL 16 with `vector` extension, Redis 7 |
 | **DevOps & Tooling**| Docker & Docker Compose, GitHub Actions, Ruff, Mypy, Pytest (Asyncio + Coverage), ESLint |
 
@@ -76,32 +224,55 @@ Unlike tools that merely produce mockups or static documentation, AI Solution Bu
 AI_Solution_Builder/
 ├── .github/
 │   └── workflows/
-│       └── ci.yml                 # Automated CI: lint, typecheck, test, build
+│       └── ci.yml                    # Automated CI: lint, typecheck, test, build
 ├── backend/
 │   ├── app/
-│   │   ├── agents/                # LangGraph state machine & multi-agent nodes
-│   │   ├── api/                   # FastAPI route handlers (auth, workspaces, chat, workable...)
-│   │   ├── core/                  # Configuration, database, redis, security, credits
-│   │   ├── ingestion/             # Universal parser (PDF, DOCX, CSV, URLs)
-│   │   ├── models/                # SQLAlchemy ORM models
-│   │   ├── schemas/               # Pydantic validation schemas
-│   │   ├── services/              # Export engine, synthetic data, deployer
-│   │   └── workable/              # Dynamic schema provisioner & runtime engine
-│   ├── tests/                     # 100+ unit and integration tests (pytest)
+│   │   ├── agents/                   # LangGraph state machine & multi-agent nodes
+│   │   ├── api/                      # FastAPI route handlers
+│   │   │   ├── auth.py               #   login / register / user settings
+│   │   │   ├── mvp.py                #   MVP build, download, deploy, configure
+│   │   │   ├── workable.py           #   dynamic runtime schema + REST engine
+│   │   │   └── ...
+│   │   ├── core/                     # Config, database, redis, security, credits
+│   │   ├── ingestion/                # Universal parser (PDF, DOCX, CSV, URLs)
+│   │   ├── models/                   # SQLAlchemy ORM models
+│   │   │   ├── mvp_build.py          #   MVPBuild (status, workspace_path, repo_url)
+│   │   │   ├── solution.py
+│   │   │   ├── user.py               #   includes settings JSONB for deploy creds
+│   │   │   └── ...
+│   │   ├── schemas/                  # Pydantic validation schemas (incl. MVP*)
+│   │   ├── services/
+│   │   │   ├── deployer.py           # GitHub REST API repo creation + file push
+│   │   │   ├── mvp_builder.py        # OpenCode sidecar proxy, prompt builder, scaffold
+│   │   │   ├── templates.py          # Starter template presets (todo/calculator/portfolio)
+│   │   │   ├── synthetic.py          # Synthetic data generator
+│   │   │   └── exporters.py          # PDF / DOCX / XLSX / PPTX / Figma exporters
+│   │   └── workable/                 # Dynamic schema provisioner & runtime engine
+│   ├── opencode/                     # OpenCode sidecar — built into Docker image
+│   │   ├── Dockerfile
+│   │   ├── config.json               # model: opencode/big-pickle
+│   │   ├── agents/
+│   │   │   └── mvp-builder.md        # Agent instructions (slot-fill workflow)
+│   │   └── templates/mvp/            # Pre-scaffolded MVP project base
+│   │       ├── backend/              #   FastAPI boilerplate + Alembic + auth
+│   │       ├── frontend/             #   Next.js 16 boilerplate + Tailwind
+│   │       └── infra/                #   render.yaml, docker-compose, CI, README
+│   ├── scripts/
+│   │   └── seed_demo.py              # Seeds demo user/org/workspace (dev convenience)
+│   ├── tests/                        # 146+ async tests (pytest + coverage ≥ 80%)
 │   ├── Dockerfile
 │   ├── pyproject.toml
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
-│   │   ├── app/                   # Next.js App Router (auth, dashboard, chat, admin...)
-│   │   ├── components/            # UI components (BPMN viewer, Sandpack, artifacts...)
-│   │   └── lib/                   # API clients, auth helpers, utilities
-│   ├── android/                   # Capacitor Android native project
+│   │   ├── app/                      # Next.js App Router (auth, dashboard, chat, …)
+│   │   ├── components/               # BPMN viewer, Sandpack, wireframe viewer, …
+│   │   └── lib/                      # API client, auth helpers, utilities
+│   ├── android/                      # Capacitor Android native project
 │   ├── capacitor.config.ts
-│   ├── package.json
-│   └── tsconfig.json
-├── docker-compose.yml             # Postgres (pgvector) + Redis + Backend + Frontend
-├── .env.example                   # Environment configuration template
+│   └── package.json
+├── docker-compose.yml                # postgres · redis · backend · opencode
+├── .env.example                      # Environment configuration template
 └── README.md
 ```
 
@@ -121,7 +292,9 @@ cd AI_Solution_Builder
 
 # Copy environment template
 cp .env.example .env
-# Edit .env with your LLM API keys (Groq or OpenAI)
+# Edit .env with your LLM API keys (Groq or OpenAI). For the MVP builder,
+# OPENCODE_MODEL=opencode/big-pickle is used by the sidecar's own config.json
+# (free via OpenCode Zen) — no extra key needed.
 ```
 
 ### 2. Run with Docker Compose
@@ -131,6 +304,27 @@ docker compose up --build
 - Frontend: `http://localhost:3000`
 - Backend API: `http://localhost:8000`
 - Interactive API Docs: `http://localhost:8000/docs`
+- OpenCode sidecar health: `http://localhost:4096/global/health` (`{"healthy":true}`)
+
+This starts four cooperating services: `postgres` (pgvector), `redis`, `backend`,
+and the `opencode` sidecar (which shares the `mvp_workspace` volume with the backend
+so generated code is visible to the API instantly). The Next.js frontend runs
+separately with `npm run dev` (see Development & Testing below).
+
+### 3. (Optional) Seed a demo account
+```bash
+cd backend
+python scripts/seed_demo.py
+# demo@aibuilder.example / DemoPass123!  — a Free-plan demo org + workspace
+```
+
+### 4. Try an MVP build end-to-end
+1. Log in and create a workspace/solution, then generate its artifacts (Phases 1–3).
+2. `GET /api/v1/mvp/templates` → pick a template (`todo`, `calculator`, `portfolio`).
+3. `POST /api/v1/mvp/{solution_id}/build` with `{"template": "todo", "app_name": "…"}`.
+4. Poll `GET /api/v1/mvp/builds/{id}/status` until `complete`, then download the ZIP.
+5. To deploy: `PATCH /api/v1/auth/me/settings` with a **GitHub PAT**, then
+   `POST /api/v1/mvp/builds/{id}/deploy` → connect the repo to Render.
 
 ---
 
