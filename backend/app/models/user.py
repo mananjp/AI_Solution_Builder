@@ -9,7 +9,7 @@ import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -25,6 +25,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(
         String(50), nullable=False, default="member"
     )  # admin, member, viewer
+    settings: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=True, default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     org_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=True

@@ -1,0 +1,50 @@
+# Render Blueprint — https://render.com/docs/blueprints-spec
+# Push this file to your repo's root; Render auto-detects it and offers
+# one-click "Deploy with Render". The GitHub Action .github/workflows/ci.yml
+# runs lint+test on every push; when CI is green on `main`, Render auto-deploys.
+
+services:
+  # ── PostgreSQL ────────────────────────────────────────────────────────
+  - name: __APP_SLUG__-db
+    type: pgsql
+    plan: starter
+    database: __APP_SLUG__
+    ipAllowList: []
+
+  # ── Backend ──────────────────────────────────────────────────────────
+  - name: __APP_SLUG__-backend
+    type: web
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./backend/Dockerfile
+    envVars:
+      - key: APP_NAME
+        value: __APP_NAME__
+      - key: APP_TITLE
+        value: __APP_TITLE__
+      - key: APP_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: __APP_SLUG__-db
+          property: connectionString
+      - key: CORS_ORIGINS
+        value: https://__APP_SLUG__-frontend.onrender.com
+    healthCheckPath: /api/v1/health
+
+  # ── Frontend ─────────────────────────────────────────────────────────
+  - name: __APP_SLUG__-frontend
+    type: web
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./frontend/Dockerfile
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        value: https://__APP_SLUG__-backend.onrender.com/api/v1
+      - key: NEXT_PUBLIC_APP_NAME
+        value: __APP_TITLE__
+    healthCheckPath: /

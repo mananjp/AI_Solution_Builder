@@ -1,0 +1,16 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "opencode/big-pickle",
+  "provider": {
+    "groq": {
+      "apiKey": "{env:GROQ_API_KEY}"
+    }
+  },
+  "agent": {
+    "mvp-builder": {
+      "description": "Builds full-stack functional MVP prototypes (Next.js + FastAPI) from AI Solution Builder artifacts",
+      "mode": "primary",
+      "model": "opencode/big-pickle"
+    }
+  }
+}

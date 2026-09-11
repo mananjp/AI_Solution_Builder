@@ -42,6 +42,13 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 
+class UserSettingsUpdate(BaseModel):
+    """Profile settings used for deployments (tokens kept server-side only)."""
+
+    github_token: str | None = Field(None, min_length=1, max_length=1000)
+    render_api_key: str | None = Field(None, min_length=1, max_length=1000)
+
+
 # ── Organization ──────────────────────────────────
 
 
@@ -171,3 +178,61 @@ class ProvisionRequest(BaseModel):
     """Payload to trigger provisioning of a solution's workable schema."""
 
     force: bool = False
+
+
+# ── OpenCode MVP Builder ────────────────────────
+
+
+class MVPBuildRequest(BaseModel):
+    """Payload to trigger an OpenCode MVP build for a solution."""
+
+    app_name: str | None = Field(None, min_length=1, max_length=255)
+    template: str | None = Field(None, min_length=1, max_length=64)
+    config: dict[str, Any] = Field(default_factory=dict)
+    force: bool = False
+
+
+class MVPTemplateResponse(BaseModel):
+    """A deployable starter template the user can pick as their project."""
+
+    slug: str
+    title: str
+    description: str
+    app_name: str
+    industry: str
+
+
+class MVPDeployRequest(BaseModel):
+    """Payload to deploy a finished MVP build to GitHub (+ Render blueprint)."""
+
+    repo_name: str = Field(..., min_length=1, max_length=100)
+    description: str = ""
+    private: bool = True
+    force: bool = False
+
+
+class MVPFileEntry(BaseModel):
+    """A single generated file in an MVP build workspace."""
+
+    path: str
+    size: int
+    is_dir: bool = False
+
+
+class MVPBuildResponse(BaseModel):
+    build_id: UUID
+    solution_id: UUID
+    build_number: int
+    status: str
+    workspace_path: str
+    file_count: int = 0
+    error_message: str | None = None
+    repo_url: str | None = None
+    files: list[MVPFileEntry] = []
+
+
+class MVPConfigUpdate(BaseModel):
+    """Apply user-supplied configuration overlays to a finished build."""
+
+    app_name: str | None = None
+    env: dict[str, Any] = Field(default_factory=dict)

@@ -25,6 +25,7 @@ CREDIT_COSTS = {
     "generation": settings.GENERATION_CREDIT_COST,
     "regeneration": settings.REGENERATION_CREDIT_COST,
     "export": settings.EXPORT_CREDIT_COST,
+    "mvp_build": settings.MVP_BUILD_CREDIT_COST,
 }
 
 

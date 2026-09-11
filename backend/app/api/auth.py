@@ -19,7 +19,13 @@ from app.core.security import (
 from app.models.credit import Plan
 from app.models.organization import Organization
 from app.models.user import User
-from app.schemas import TokenResponse, UserLogin, UserRegister, UserResponse
+from app.schemas import (
+    TokenResponse,
+    UserLogin,
+    UserRegister,
+    UserResponse,
+    UserSettingsUpdate,
+)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -92,3 +98,24 @@ async def login(payload: UserLogin, db: AsyncSession = Depends(get_db)) -> Token
 async def get_me(current_user: User = Depends(get_current_user)) -> User:
     """Return the currently authenticated user's profile."""
     return current_user
+
+
+@router.patch("/me/settings", response_model=dict[str, bool])
+async def update_settings(
+    payload: UserSettingsUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    """Persist deploy credentials (e.g. GitHub PAT) on the user's profile."""
+    settings = dict(current_user.settings or {})
+    if payload.github_token is not None:
+        settings["github_token"] = payload.github_token.strip()
+    if payload.render_api_key is not None:
+        settings["render_api_key"] = payload.render_api_key.strip()
+    if (payload.github_token is not None and not payload.github_token.strip()) or (
+        payload.render_api_key is not None and not payload.render_api_key.strip()
+    ):
+        settings = {k: v for k, v in settings.items() if v}
+    current_user.settings = settings
+    await db.commit()
+    return {"updated": True}

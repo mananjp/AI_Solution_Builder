@@ -49,13 +49,20 @@ services:
       GROQ_MODEL_NAME: ${GROQ_MODEL_NAME:-openai/gpt-oss-120b}
       LLM_PROVIDER: ${LLM_PROVIDER:-groq}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me}
+      OPENCODE_SERVER_URL: http://opencode:4096
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
+      MVP_BUILD_DIR: .data/mvp_builds
     ports:
       - "8000:8000"
+    volumes:
+      - mvp_workspace:/app/.data/mvp_builds
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      opencode:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')\""]
       interval: 10s
@@ -63,8 +70,33 @@ services:
       retries: 12
       start_period: 15s
 
+  # OpenCode sidecar — headless AI coding agent that generates MVP source code
+  # from solution artifacts. The /workspace volume is shared with the backend's
+  # MVP_BUILD_DIR so the API can read generated files directly without a network hop.
+  opencode:
+    build:
+      context: ./backend/opencode
+    container_name: ai_solution_builder_opencode
+    restart: unless-stopped
+    environment:
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GROQ_MODEL_NAME: ${GROQ_MODEL_NAME:-openai/gpt-oss-120b}
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
+    ports:
+      - "4096:4096"
+    volumes:
+      - mvp_workspace:/workspace
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:4096/global/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
 volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  mvp_workspace:
     driver: local

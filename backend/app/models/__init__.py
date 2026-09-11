@@ -8,6 +8,7 @@ from app.models.artifact import ArtifactComment, SolutionArtifact
 from app.models.audit import AuditLog
 from app.models.context import ContextChunk
 from app.models.credit import CreditTransaction, Plan
+from app.models.mvp_build import MVPBuild
 from app.models.organization import Organization
 from app.models.recommendation import RecommendationEvent
 from app.models.solution import Solution
@@ -28,4 +29,5 @@ __all__ = [
     "AuditLog",
     "WorkableSchema",
     "ContextChunk",
+    "MVPBuild",
 ]

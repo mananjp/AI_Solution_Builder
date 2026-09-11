@@ -67,6 +67,16 @@ class Settings(BaseSettings):
     # ── Row-Level Security ────────────────────────
     RLS_ENABLED: bool = False
 
+    # ── OpenCode MVP Builder (sidecar) ────────────
+    OPENCODE_SERVER_URL: str = "http://opencode:4096"
+    OPENCODE_SERVER_PASSWORD: str = ""
+    OPENCODE_MODEL: str = "groq/openai/gpt-oss-120b"
+    OPENCODE_AGENT: str = "mvp-builder"
+    MVP_BUILD_TIMEOUT: int = 600  # seconds
+    MVP_BUILD_DIR: str = ".data/mvp_builds"
+    MVP_BUILD_CREDIT_COST: int = 30
+    MVP_TEMPLATE_DIR: str = "opencode/templates/mvp"
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
