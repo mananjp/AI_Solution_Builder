@@ -5,11 +5,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .core.config import settings
-from .routers import router
-
 # Import database engine so lifespan can reach the pool.
 from . import db  # noqa: E402
+from .core.config import settings
+from .routers import router
 
 
 @asynccontextmanager

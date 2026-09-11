@@ -30,7 +30,9 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = Field(default=["http://localhost:3000"], alias="CORS_ORIGINS")
 
     # ── Database ───────────────────────────────────────────────────────
-    DATABASE_URL: str = Field(default="postgresql+asyncpg://postgres:postgres@localhost:5432/app_db", alias="DATABASE_URL")
+    DATABASE_URL: str = Field(
+        default="postgresql+asyncpg://postgres:postgres@localhost:5432/app_db", alias="DATABASE_URL"
+    )
 
     # ── Security ───────────────────────────────────────────────────────
     JWT_SECRET: str = Field(default="__JWT_SECRET__", alias="JWT_SECRET")

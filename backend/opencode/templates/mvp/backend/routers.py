@@ -1,10 +1,10 @@
-from __future__ import annotations
-
 """API routers.
 
 The MVP Build Agent adds one CRUD router per module here and wires them
 into the app in main.py. A health router is provided as the base.
 """
+
+from __future__ import annotations
 
 from fastapi import APIRouter
 from sqlalchemy import text
