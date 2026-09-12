@@ -10,7 +10,7 @@ deducts credits via the credit metering service.
 import json
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents.graph import discovery_graph, generation_graph
+from app.agents.state import DiscoveryState
 from app.core.credits import require_and_deduct_credit
 from app.core.database import async_session_factory, get_db
 from app.core.i18n import translate_text
@@ -199,7 +200,7 @@ async def send_message(
                     },
                 }
 
-                final_state = await discovery_graph.ainvoke(initial_state)
+                final_state = await discovery_graph.ainvoke(cast(DiscoveryState, initial_state))
 
                 for msg in final_state.get("agent_messages", []):
                     yield {"event": msg.get("type", "agent_progress"), "data": json.dumps(msg)}
@@ -295,7 +296,7 @@ async def confirm_recommendations(
                     }
                 )
 
-                final_state = await generation_graph.ainvoke(initial_state)
+                final_state = await generation_graph.ainvoke(cast(DiscoveryState, initial_state))
 
                 for msg in final_state.get("agent_messages", []):
                     yield {"event": msg.get("type", "agent_progress"), "data": json.dumps(msg)}

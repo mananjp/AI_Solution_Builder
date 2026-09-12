@@ -28,7 +28,7 @@ module = [
   "langchain_groq.*",
   "langchain_core.*",
   "langgraph.*",
-  "jose.*",
+  "jwt.*",
   "passlib.*",
   "sse_starlette.*",
   "pgvector.*",
