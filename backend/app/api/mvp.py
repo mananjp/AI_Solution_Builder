@@ -97,8 +97,11 @@ def _build_response(build: MVPBuild, include_files: bool = False) -> MVPBuildRes
             ]
     # Only expose a project-relative workspace slug (solution/build), never the
     # server filesystem path.
-    workspace_path = str(Path(build.workspace_path).relative_to(Path(build.workspace_path).parent.parent)) \
-        if build.workspace_path else ""
+    workspace_path = (
+        str(Path(build.workspace_path).relative_to(Path(build.workspace_path).parent.parent))
+        if build.workspace_path
+        else ""
+    )
     return MVPBuildResponse(
         build_id=build.id,
         solution_id=build.solution_id,

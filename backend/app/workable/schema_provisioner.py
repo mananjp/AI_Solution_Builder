@@ -176,9 +176,7 @@ async def provision_workable_schema(db: AsyncSession, solution: Solution) -> Wor
             from app.services.rls import enable_org_rls
 
             is_super = (
-                await conn.execute(
-                    sa_text("SELECT current_setting('is_superuser', true)::boolean")
-                )
+                await conn.execute(sa_text("SELECT current_setting('is_superuser', true)::boolean"))
             ).scalar()
             if is_super:
                 logger.warning(

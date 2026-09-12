@@ -22,6 +22,7 @@ _PATH_PARAM_RE = re.compile(r"/[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{
 def _metric_path(path: str) -> str:
     return _PATH_PARAM_RE.sub("/:id", path)
 
+
 REQUESTS_TOTAL = Counter("http_requests_total", "Total HTTP requests", ["method", "path", "status"])
 REQUESTS_INFLIGHT = Gauge("http_requests_inflight", "In-flight HTTP requests")
 REQUEST_DURATION = Histogram(
