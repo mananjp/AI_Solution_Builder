@@ -115,7 +115,7 @@ class CloudinaryStorage(StorageBackend):
             api_key=self._api_key,
             api_secret=self._api_secret,
         )
-        return url
+        return str(url) if url else None
 
     async def delete_file(self, key: str) -> None:
         import cloudinary.uploader
