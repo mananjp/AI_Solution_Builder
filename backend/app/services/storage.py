@@ -100,12 +100,17 @@ class CloudinaryStorage(StorageBackend):
         return str(result.get("public_id", key))
 
     async def get_download_url(self, key: str, expires_in: int = 3600) -> str | None:
+        import time
+
         import cloudinary.utils
 
-        url, _ = cloudinary.utils.cloudinary_url(
-            key,
+        expires_at = int(time.time()) + expires_in
+        url = cloudinary.utils.private_download_url(
+            public_id=key,
+            format="",
             resource_type="raw",
-            secure=True,
+            type="upload",
+            expires_at=expires_at,
             cloud_name=self._cloud_name,
             api_key=self._api_key,
             api_secret=self._api_secret,

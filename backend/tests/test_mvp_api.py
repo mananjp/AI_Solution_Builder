@@ -437,6 +437,7 @@ async def test_download_redirects_when_storage_key_set(workspace_solution, monke
         # Use a separate client that does NOT follow redirects to inspect the 307
         import httpx
         from httpx import ASGITransport
+
         from main import app
 
         transport = ASGITransport(app=app)
@@ -449,4 +450,3 @@ async def test_download_redirects_when_storage_key_set(workspace_solution, monke
 
     assert dl.status_code == 307, f"Expected 307, got {dl.status_code}: {dl.text}"
     assert dl.headers["location"] == download_url
-

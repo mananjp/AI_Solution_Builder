@@ -55,9 +55,13 @@ async def run_live_test() -> int:
                 "[WARN] STORAGE_BACKEND was set to 'cloudinary' but missing credentials "
                 "caused fallback to LocalStorage."
             )
-            print(f"  CLOUDINARY_CLOUD_NAME: {'SET' if settings.CLOUDINARY_CLOUD_NAME else 'EMPTY'}")
+            print(
+                f"  CLOUDINARY_CLOUD_NAME: {'SET' if settings.CLOUDINARY_CLOUD_NAME else 'EMPTY'}"
+            )
             print(f"  CLOUDINARY_API_KEY   : {'SET' if settings.CLOUDINARY_API_KEY else 'EMPTY'}")
-            print(f"  CLOUDINARY_API_SECRET: {'SET' if settings.CLOUDINARY_API_SECRET else 'EMPTY'}")
+            print(
+                f"  CLOUDINARY_API_SECRET: {'SET' if settings.CLOUDINARY_API_SECRET else 'EMPTY'}"
+            )
             print("\nTo test real Cloudinary uploads, fill in these values in .env")
         else:
             print("[OK] Local storage fallback is functioning as expected.")
@@ -66,7 +70,9 @@ async def run_live_test() -> int:
     if isinstance(storage, CloudinaryStorage):
         print("\n[INFO] Running in CLOUDINARY mode.")
         print(f"  Cloud Name : {settings.CLOUDINARY_CLOUD_NAME}")
-        print(f"  API Key    : {'*' * (len(settings.CLOUDINARY_API_KEY) - 4) + settings.CLOUDINARY_API_KEY[-4:] if len(settings.CLOUDINARY_API_KEY) >= 4 else '***'}")
+        print(
+            f"  API Key    : {'*' * (len(settings.CLOUDINARY_API_KEY) - 4) + settings.CLOUDINARY_API_KEY[-4:] if len(settings.CLOUDINARY_API_KEY) >= 4 else '***'}"
+        )
 
         # Create temporary ZIP file on disk
         with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
@@ -91,7 +97,7 @@ async def run_live_test() -> int:
                 print("      [FAIL] No URL returned!")
                 return 1
 
-            # 3. HTTP GET to verify public/signed access
+            # 3. HTTP GET to verify signed access
             print("\n[3/4] Verifying HTTP download from Cloudinary CDN...")
             async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
                 resp = await client.get(download_url)
@@ -106,13 +112,9 @@ async def run_live_test() -> int:
                         test_content = check_zf.read("test_file.txt").decode("utf-8")
                         print(f"      test_file.txt content: {test_content.strip()}")
                 else:
-                    print(f"      [WARN] CDN returned status {resp.status_code}. Response: {resp.text[:200]}")
-                    print("      Note: If your Cloudinary account restricts raw delivery, signed delivery is required.")
-
-            # 4. Clean up test file on Cloudinary
-            print("\n[4/4] Cleaning up remote test file from Cloudinary...")
-            await storage.delete_file(test_key)
-            print("      Remote file deleted successfully!")
+                    raise RuntimeError(
+                        f"CDN download failed with status {resp.status_code}: {resp.text[:200]}"
+                    )
 
             print("\n" + "=" * 60)
             print(" ALL CLOUDINARY STORAGE CHECKS PASSED! ")
@@ -122,10 +124,21 @@ async def run_live_test() -> int:
         except Exception as exc:
             print(f"\n[ERROR] Test failed with exception: {exc}")
             import traceback
+
             traceback.print_exc()
+            print("\n" + "=" * 60)
+            print(" CLOUDINARY STORAGE CHECKS FAILED ")
+            print("=" * 60)
             return 1
         finally:
+            # Always clean up: local temp file and remote test artifact
             tmp_path.unlink(missing_ok=True)
+            print("\n[cleanup] Deleting remote test file from Cloudinary...")
+            try:
+                await storage.delete_file(test_key)
+                print("         Remote file deleted successfully!")
+            except Exception as cleanup_exc:  # noqa: BLE001
+                print(f"         Remote cleanup failed (best-effort): {cleanup_exc}")
 
     return 0
 

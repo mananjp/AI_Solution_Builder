@@ -11,7 +11,6 @@ import pytest
 
 from app.services.storage import CloudinaryStorage, LocalStorage, get_storage
 
-
 # ── LocalStorage ─────────────────────────────────────────────────────────────
 
 
@@ -75,24 +74,29 @@ async def test_cloudinary_storage_upload_calls_uploader(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_cloudinary_storage_download_url():
-    """get_download_url calls cloudinary_url with resource_type='raw' and secure=True."""
+    """get_download_url calls private_download_url with an actual expiration."""
     storage = CloudinaryStorage(
         cloud_name="test-cloud",
         api_key="AKID",
         api_secret="SECRET",
     )
 
-    expected_url = "https://res.cloudinary.com/test-cloud/raw/upload/builds/abc/build_1.zip"
-    mock_url_func = MagicMock(return_value=(expected_url, {}))
+    expected_url = "https://api.cloudinary.com/v1_1/test-cloud/raw/upload/builds/abc/build_1.zip?expires_at=1000001800&signature=abc123"
+    mock_private_dl = MagicMock(return_value=expected_url)
 
-    with patch("cloudinary.utils.cloudinary_url", mock_url_func):
+    with (
+        patch("cloudinary.utils.private_download_url", mock_private_dl),
+        patch("time.time", return_value=1000000000.0),
+    ):
         url = await storage.get_download_url("builds/abc/build_1.zip", expires_in=1800)
 
     assert url == expected_url
-    mock_url_func.assert_called_once_with(
-        "builds/abc/build_1.zip",
+    mock_private_dl.assert_called_once_with(
+        public_id="builds/abc/build_1.zip",
+        format="",
         resource_type="raw",
-        secure=True,
+        type="upload",
+        expires_at=1000001800,
         cloud_name="test-cloud",
         api_key="AKID",
         api_secret="SECRET",

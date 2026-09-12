@@ -42,8 +42,8 @@ from app.schemas import (
 )
 from app.services import mvp_builder as builder
 from app.services import templates
-from app.services.storage import LocalStorage, get_storage
 from app.services.deployer import DeployError, deploy_to_github
+from app.services.storage import LocalStorage, get_storage
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +182,20 @@ async def _run_build_job(build_id: UUID) -> None:
                     title = seeded.get("solution_title", title)
 
             result = await builder.run_build(solution.id, ai_state, build.build_number, title=title)
+
+            # Re-fetch under row lock to guard against concurrent cancellation
+            # (destroy_build may have set status='cancelled' in a separate session).
+            locked = await db.execute(
+                select(MVPBuild).where(MVPBuild.id == build_id).with_for_update()
+            )
+            build = locked.scalar_one_or_none()
+            if build is None or build.status == "cancelled":
+                logger.info(
+                    "Build %s was cancelled during execution — aborting completion",
+                    build_id,
+                )
+                return
+
             build.status = "complete"
             build.opencode_session_id = result["session_id"]
             build.file_count = result["file_count"]
@@ -190,7 +204,7 @@ async def _run_build_job(build_id: UUID) -> None:
             # Upload to Cloudinary if configured
             storage = get_storage()
             if not isinstance(storage, LocalStorage):
-                key = f"builds/{build.solution_id.hex[:8]}/build_{build.build_number}.zip"
+                key = f"builds/{build.solution_id}/build_{build.build_number}.zip"
                 zip_file = builder.zip_path_for_build(result["local_dir"])
                 try:
                     await storage.upload_file(zip_file, key)
@@ -432,6 +446,21 @@ async def configure_build(
 
     merged = {**(build.app_config or {}), **overlay}
     build.app_config = merged
+
+    # Invalidate stale remote artifact — the workspace on disk has changed,
+    # so the previously-uploaded ZIP no longer reflects the configured state.
+    if build.storage_key:
+        try:
+            storage = get_storage()
+            await storage.delete_file(build.storage_key)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to delete stale storage object %s after configure: %s",
+                build.storage_key,
+                exc,
+            )
+        build.storage_key = None
+
     await db.commit()
     return {"applied": overlay, "build_id": str(build.id)}
 
