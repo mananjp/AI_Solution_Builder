@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/mananjp/AI_Solution_Builder/actions/workflows/ci.yml/badge.svg)](https://github.com/mananjp/AI_Solution_Builder/actions)
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg)](https://fastapi.tiangolo.com/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.141+-009688.svg)](https://fastapi.tiangolo.com/)
 [![Next.js](https://img.shields.io/badge/Next.js-16.3-black.svg)](https://nextjs.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%20%2B%20pgvector-336791.svg)](https://www.postgresql.org/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://www.docker.com/)
@@ -97,8 +97,9 @@ The backend and the OpenCode sidecar share the `mvp_workspace` Docker volume: th
 - **Synthetic Data Generator**: Auto-populates tenant databases with realistic, localized dummy records.
 
 ### 3. Universal Input Ingestion
-- Ingests raw text, PRDs, BRDs, PDFs (`PyMuPDF`), Word documents (`python-docx`), CSV schemas, OpenAPI specs, and website URLs.
-- Chunks and stores semantic context via `pgvector` embeddings (`all-MiniLM-L6-v2`).
+- Ingests raw text, PRDs, BRDs, PDFs (`PyMuPDF`), Word documents (`python-docx`), CSV/Excel schemas (`openpyxl`/`pandas`), OpenAPI specs (JSON/YAML, auto-detected), and website URLs (`httpx` + BeautifulSoup).
+- Every format is normalized to readable text and injected into the agent pipeline as `uploaded_context` via `POST /api/v1/upload/document` and `POST /api/v1/upload/url`.
+- *Planned:* vectorized semantic retrieval. The `context_chunks` table reserves a pgvector `embedding` column (`all-MiniLM-L6-v2`, dim 384), but nothing populates it yet — content reaches agents as plain text today.
 
 ### 4. Enterprise Governance & Admin
 - **Credit & Plan Metering**: Granular credit deductions for generation, regeneration, and exports across Free, Pro, and Enterprise tiers.
@@ -137,7 +138,7 @@ From a raw business idea to a deployed, working web app in eight phases.
    Tokens are stored per-user in `user.settings` and never returned by profile endpoints.
 
 ### Phase 1 — Ingestion
-Feed the system any loose business material — raw text, PRD/BRD, PDF, DOCX, CSV schema, OpenAPI spec, or a website URL. The ingestion layer parses every format, chunks the content, and stores embeddings in the `pgvector` extension so the agents share a common semantic context.
+Feed the system any loose business material — raw text, PRD/BRD, PDF, DOCX, CSV/Excel schema, OpenAPI spec, or a website URL. The ingestion layer parses every format into readable text and feeds it to the agents as `uploaded_context`, so every phase works from the same source material. (Vectorized semantic retrieval over `pgvector` is planned but not yet wired up.)
 
 Ingest via the workspace UI (file dropzone or "paste a URL"), or directly:
 - `POST /api/v1/upload/document` (multipart `file`) — PDF, DOCX, CSV/XLSX, TXT/MD, and OpenAPI JSON/YAML (auto-detected)
@@ -213,7 +214,7 @@ Prometheus metrics (`/metrics`), health/ready probes, audit logs, and credit met
 
 | Layer | Technologies |
 |---|---|
-| **Backend** | Python 3.12, FastAPI, SQLAlchemy 2.0 (Async), Pydantic v2, LangGraph, LangChain, pgvector, Redis, PyMuPDF, python-docx |
+| **Backend** | Python 3.12, FastAPI, SQLAlchemy 2.0 (Async), Pydantic v2, LangGraph, LangChain, pgvector, Redis, PyMuPDF, python-docx, python-pptx, openpyxl/pandas, beautifulsoup4, PyYAML |
 | **Frontend** | Next.js 16 (App Router, Turbopack), React 19, TypeScript 5, Tailwind CSS v4, `@xyflow/react`, Lucide Icons |
 | **Mobile & PWA** | Capacitor 8 (Android/iOS shell), PWA Service Worker |
 | **MVP Builder** | OpenCode headless sidecar (`opencode serve`), agent `mvp-builder` on model `opencode/big-pickle` (OpenCode Zen, free), HTTP proxy client (`httpx`) |
@@ -238,7 +239,7 @@ AI_Solution_Builder/
 │   │   │   ├── workable.py           #   dynamic runtime schema + REST engine
 │   │   │   └── ...
 │   │   ├── core/                     # Config, database, redis, security, credits
-│   │   ├── ingestion/                # Universal parser (PDF, DOCX, CSV, URLs)
+│   │   ├── ingestion/                # Universal parser (PDF, DOCX, CSV/Excel, OpenAPI, URLs)
 │   │   ├── models/                   # SQLAlchemy ORM models
 │   │   │   ├── mvp_build.py          #   MVPBuild (status, workspace_path, repo_url)
 │   │   │   ├── solution.py
@@ -263,7 +264,7 @@ AI_Solution_Builder/
 │   │       └── infra/                #   render.yaml, docker-compose, CI, README
 │   ├── scripts/
 │   │   └── seed_demo.py              # Seeds demo user/org/workspace (dev convenience)
-│   ├── tests/                        # 146+ async tests (pytest + coverage ≥ 80%)
+│   ├── tests/                        # 150+ async tests (pytest + coverage ≥ 80%)
 │   ├── Dockerfile
 │   ├── pyproject.toml
 │   └── requirements.txt
