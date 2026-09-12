@@ -139,6 +139,10 @@ From a raw business idea to a deployed, working web app in eight phases.
 ### Phase 1 — Ingestion
 Feed the system any loose business material — raw text, PRD/BRD, PDF, DOCX, CSV schema, OpenAPI spec, or a website URL. The ingestion layer parses every format, chunks the content, and stores embeddings in the `pgvector` extension so the agents share a common semantic context.
 
+Ingest via the workspace UI (file dropzone or "paste a URL"), or directly:
+- `POST /api/v1/upload/document` (multipart `file`) — PDF, DOCX, CSV/XLSX, TXT/MD, and OpenAPI JSON/YAML (auto-detected)
+- `POST /api/v1/upload/url` (`{"url": "https://…"}`) — fetches a page and extracts readable text
+
 ### Phase 2 — Agentic design
 A `POST` to the solutions/chat API runs the **LangGraph multi-agent pipeline**. Each node writes into the shared `ai_state`:
 

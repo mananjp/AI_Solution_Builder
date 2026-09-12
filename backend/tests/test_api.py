@@ -247,3 +247,45 @@ async def test_upload_document(auth_client):
         headers=headers,
     )
     assert resp.status_code == 413
+
+
+async def test_upload_url_endpoint_parses(auth_client, monkeypatch):
+    import app.api.upload as upload_module
+
+    async def fake_parse_url(url):
+        return f"Fetched content from {url}"
+
+    monkeypatch.setattr(upload_module, "parse_url", fake_parse_url)
+    client = auth_client["client"]
+    headers = auth_client["headers"]
+
+    resp = await client.post(
+        "/api/v1/upload/url",
+        json={"url": "https://example.com/page"},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["url"] == "https://example.com/page"
+    assert "Fetched content" in body["extracted_text"]
+    assert body["character_count"] == len(body["extracted_text"])
+
+
+async def test_upload_url_unreachable_returns_422(auth_client, monkeypatch):
+    import app.api.upload as upload_module
+
+    async def bad_parse_url(url):
+        raise ValueError(f"Failed to fetch {url}: boom")
+
+    monkeypatch.setattr(upload_module, "parse_url", bad_parse_url)
+    client = auth_client["client"]
+    headers = auth_client["headers"]
+
+    resp = await client.post(
+        "/api/v1/upload/url",
+        json={"url": "https://unreachable.example"},
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "UNPROCESSABLE_ENTITY"
+    assert "Failed to fetch" in resp.json()["error"]["message"]

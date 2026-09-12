@@ -23,10 +23,13 @@ from app.core.security import (
     verify_password,
 )
 from app.ingestion.parser import (
+    extract_readable_html,
     parse_csv_excel,
     parse_document,
+    parse_openapi,
     parse_pdf,
     parse_text,
+    parse_url,
 )
 from app.models.organization import Organization
 from app.models.user import User
@@ -247,6 +250,87 @@ async def test_parse_csv_excel_ok():
 async def test_parse_document_json_yaml_text():
     assert await parse_document(b'{"a": 1}', "data.json") == '{"a": 1}'
     assert await parse_document(b"# Title", "notes.md") == "# Title"
+
+
+def test_extract_readable_html_strips_markup():
+    html = (
+        "<html><head><title>t</title></head><body>"
+        "<nav>Skip me</nav><script>var a = 1;</script><style>.c{}</style>"
+        "<h1>Hello</h1><p>World</p></body></html>"
+    )
+    out = extract_readable_html(html)
+    assert "Hello" in out
+    assert "World" in out
+    assert "Skip me" not in out
+    assert "var a" not in out
+    assert ".c" not in out
+
+
+async def test_parse_url_rejects_invalid_target():
+    with pytest.raises(ValueError):
+        await parse_url("not a url")
+
+
+OPENAPI_JSON = b"""
+{
+  "openapi": "3.0.3",
+  "info": {"title": "Pets API", "version": "1.0.0", "description": "Pet store"},
+  "servers": [{"url": "https://api.example.com/v1"}],
+  "tags": [{"name": "pets"}],
+  "paths": {
+    "/pets": {
+      "get": {"summary": "List pets", "operationId": "listPets"},
+      "post": {"summary": "Create pet"}
+    }
+  },
+  "components": {
+    "schemas": {
+      "Pet": {"type": "object", "properties": {"id": {"type": "integer"}, "name": {"type": "string"}}}
+    }
+  }
+}
+"""
+
+
+async def test_parse_openapi_json_summary():
+    out = await parse_openapi(OPENAPI_JSON, "openapi.json")
+    assert "OpenAPI Specification: Pets API (v1.0.0)" in out
+    assert "GET /pets — List pets" in out
+    assert "POST /pets — Create pet" in out
+    assert "https://api.example.com/v1" in out
+    assert "Tags: pets" in out
+    assert "- Pet: id, name" in out
+
+
+async def test_parse_openapi_yaml_summary():
+    yaml_bytes = (
+        b'swagger: "2.0"\n'
+        b'info: {title: Legacy API, version: "0.9"}\n'
+        b"basePath: /api\n"
+        b"paths:\n"
+        b"  /users:\n"
+        b"    get: {summary: List users}\n"
+        b"definitions:\n"
+        b"  User:\n"
+        b"    type: object\n"
+        b"    properties:\n"
+        b"      id: {type: integer}\n"
+    )
+    out = await parse_openapi(yaml_bytes, "spec.yaml")
+    assert "Legacy API" in out
+    assert "Base path: /api" in out
+    assert "GET /users — List users" in out
+    assert "- User: id" in out
+
+
+async def test_parse_openapi_returns_none_for_plain_json():
+    assert await parse_openapi(b'{"a": 1}', "data.json") is None
+
+
+async def test_parse_document_routes_openapi_json():
+    out = await parse_document(OPENAPI_JSON, "openapi.json")
+    assert "OpenAPI Specification: Pets API" in out
+    assert "GET /pets — List pets" in out
 
 
 # ── Security ────────────────────────────────────────

@@ -22,8 +22,8 @@ from main import app
 async def db_engine():
     engine = create_async_engine(settings.DATABASE_URL, echo=False)
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
         await conn.execute(sa_text("CREATE EXTENSION IF NOT EXISTS vector"))
+        await conn.run_sync(Base.metadata.create_all)
     yield engine
     await engine.dispose()
     # The engine introspection path uses the app's module-level engine; clear
