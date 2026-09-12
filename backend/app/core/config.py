@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""
 
+    # Only honor X-Forwarded-For when a trusted reverse proxy sits in front;
+    # otherwise clients can forge it to dodge rate limits / audit attribution.
+    TRUST_PROXY_HEADERS: bool = False
+
     # ── Credits ───────────────────────────────────
     GENERATION_CREDIT_COST: int = 20
     REGENERATION_CREDIT_COST: int = 5

@@ -20,10 +20,10 @@ from app.agents.nodes.database_api_agent import database_api_agent_node
 from app.agents.nodes.solutions_architect import solutions_architect_node
 from app.agents.nodes.ux_agent import ux_agent_node
 from app.agents.state import DiscoveryState
+from app.core.credits import require_and_deduct_credit
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.artifact import ArtifactComment, SolutionArtifact
-from app.models.credit import CreditTransaction
 from app.models.solution import Solution
 from app.models.user import User
 from app.models.workspace import Workspace
@@ -278,6 +278,15 @@ async def regenerate_artifact(
     new_text = ""
     new_title = f"{payload.artifact_type.upper()} (v{next_version})"
 
+    # Meter the regeneration through the shared credit gate (402 if insufficient)
+    await require_and_deduct_credit(
+        db,
+        current_user,
+        "regenerate",
+        f"Regenerated {payload.artifact_type} v{next_version}",
+        solution_id=payload.solution_id,
+    )
+
     try:
         # Route to appropriate agent node based on artifact_type
         if payload.artifact_type in ("hld", "lld"):
@@ -338,15 +347,6 @@ async def regenerate_artifact(
         version=next_version,
     )
     db.add(new_artifact)
-
-    # Meter lower credits for regeneration (e.g. 50 credits vs 200 for full build)
-    credit_tx = CreditTransaction(
-        org_id=current_user.org_id,
-        credits_used=-50,
-        action_type="regenerate_artifact",
-        description=f"Regenerated {payload.artifact_type} v{next_version}",
-    )
-    db.add(credit_tx)
     await db.commit()
     await db.refresh(new_artifact)
 

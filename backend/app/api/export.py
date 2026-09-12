@@ -27,6 +27,7 @@ from sqlalchemy.orm import selectinload
 from app.core.config import settings
 from app.core.credits import require_and_deduct_credit
 from app.core.database import get_db
+from app.core.secrets import decrypt_secret
 from app.core.security import get_current_user
 from app.models.solution import Solution
 from app.models.user import User
@@ -44,6 +45,12 @@ from app.services.figma import build_figma_manifest
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/export", tags=["Solution Export Engine"])
+
+
+def _safe_filename(title: str, suffix: str) -> str:
+    """Build a Content-Disposition-safe filename from a user-controlled title."""
+    slug = re.sub(r"[^A-Za-z0-9_.-]", "_", title or "").strip("._")
+    return f"{slug or 'solution'}{suffix}"
 
 
 def _github_workflow() -> str:
@@ -100,7 +107,7 @@ async def export_json(
         content=content,
         media_type="application/json",
         headers={
-            "Content-Disposition": f'attachment; filename="{solution.title.lower().replace(" ", "_")}_spec.json"'
+            "Content-Disposition": f'attachment; filename="{_safe_filename(solution.title, "_spec.json")}"'
         },
     )
 
@@ -135,7 +142,7 @@ async def export_markdown(
         content=md_content,
         media_type="text/markdown",
         headers={
-            "Content-Disposition": f'attachment; filename="{solution.title.lower().replace(" ", "_")}_architecture.md"'
+            "Content-Disposition": f'attachment; filename="{_safe_filename(solution.title, "_architecture.md")}"'
         },
     )
 
@@ -222,7 +229,7 @@ The application will start on `http://localhost:8000`.
         zf.writestr(".github/workflows/deploy.yml", github_workflow)
 
     zip_buffer.seek(0)
-    filename = f"{solution.title.lower().replace(' ', '_')}_deployable.zip"
+    filename = _safe_filename(solution.title, "_deployable.zip")
 
     return StreamingResponse(
         zip_buffer,
@@ -250,7 +257,7 @@ async def export_pdf(
     return _download(
         build_pdf_bundle(bundle),
         "application/pdf",
-        f"{solution.title.lower().replace(' ', '_')}_architecture.pdf",
+        f"{_safe_filename(solution.title, '_architecture.pdf')}",
     )
 
 
@@ -268,7 +275,7 @@ async def export_docx(
     return _download(
         build_docx_bundle(bundle),
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        f"{solution.title.lower().replace(' ', '_')}_editable.docx",
+        f"{_safe_filename(solution.title, '_editable.docx')}",
     )
 
 
@@ -283,7 +290,7 @@ async def export_xlsx(
     return _download(
         build_xlsx_bundle(bundle),
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        f"{solution.title.lower().replace(' ', '_')}_artifacts.xlsx",
+        f"{_safe_filename(solution.title, '_artifacts.xlsx')}",
     )
 
 
@@ -298,7 +305,7 @@ async def export_pptx(
     return _download(
         build_pptx_bundle(bundle),
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        f"{solution.title.lower().replace(' ', '_')}_pitch.pptx",
+        f"{_safe_filename(solution.title, '_pitch.pptx')}",
     )
 
 
@@ -315,7 +322,7 @@ async def export_figma(
         content=json.dumps(manifest, indent=2),
         media_type="application/json",
         headers={
-            "Content-Disposition": f'attachment; filename="{solution.title.lower().replace(" ", "_")}_figma.json"'
+            "Content-Disposition": f'attachment; filename="{_safe_filename(solution.title, "_figma.json")}"'
         },
     )
 
@@ -346,10 +353,15 @@ async def deploy_solution(
         db, current_user, "export", f"One-click deploy: {solution.title}", solution_id=solution_id
     )
 
+    # Same token source as the MVP deployer: per-user PAT first, server global
+    # fallback — a user can't guess between two unrelated token paths.
+    raw_user_token = str((current_user.settings or {}).get("github_token", ""))
+    gh_token = decrypt_secret(raw_user_token) if raw_user_token else settings.GITHUB_TOKEN
+
     files = build_repo_files(bundle, _github_workflow())
     try:
         result = await deploy_to_github(
-            settings.GITHUB_TOKEN,
+            gh_token,
             payload.repo_name,
             files,
             description=payload.description,

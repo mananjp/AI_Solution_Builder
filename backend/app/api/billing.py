@@ -11,10 +11,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.credit import CreditTransaction
+from app.models.organization import Organization
 from app.models.user import User
 
 router = APIRouter(prefix="/billing", tags=["Billing & Credits"])
@@ -78,25 +80,26 @@ async def get_usage(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Get current organization credit balance and usage."""
-    # Sum up transactions
-    tx_res = await db.execute(
-        select(CreditTransaction)
-        .where(CreditTransaction.org_id == current_user.org_id)
-        .order_by(desc(CreditTransaction.created_at))
+    org_result = await db.execute(
+        select(Organization)
+        .options(joinedload(Organization.plan))
+        .where(Organization.id == current_user.org_id)
     )
-    transactions = tx_res.scalars().all()
+    org = org_result.scalar_one_or_none()
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organization not found")
 
-    total_balance = sum(t.credits_used for t in transactions)
-    # Give default starting credits if brand new org
-    if total_balance == 0 and not transactions:
-        total_balance = 8500
+    plan = org.plan
+    plan_name = plan.name if plan else "free"
+    monthly_limit = plan.monthly_credits if plan else 0
+    balance = org.credits_remaining or 0
 
     return {
-        "org_id": current_user.org_id,
-        "plan_name": "Professional",
-        "monthly_limit": 10000,
-        "current_balance": max(0, total_balance),
-        "credits_used": max(0, 10000 - total_balance),
+        "org_id": str(org.id),
+        "plan_name": plan_name,
+        "monthly_limit": monthly_limit,
+        "current_balance": balance,
+        "credits_used": max(0, monthly_limit - balance),
     }
 
 
@@ -113,25 +116,6 @@ async def get_transactions(
         .limit(20)
     )
     transactions = tx_res.scalars().all()
-
-    if not transactions:
-        # Provide sample ledger if fresh instance
-        return [
-            {
-                "id": "demo-tx-1",
-                "amount": 10000,
-                "action": "plan_renewal",
-                "description": "Monthly Professional Plan Allocation",
-                "created_at": "2026-09-01T00:00:00Z",
-            },
-            {
-                "id": "demo-tx-2",
-                "amount": -200,
-                "action": "generate_solution",
-                "description": "Full Swarm Solution Synthesis",
-                "created_at": "2026-09-10T12:00:00Z",
-            },
-        ]
 
     return [
         {
@@ -155,9 +139,17 @@ async def topup_credits(
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be positive")
 
+    org_result = await db.execute(
+        select(Organization).where(Organization.id == current_user.org_id)
+    )
+    org = org_result.scalar_one_or_none()
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    org.credits_remaining = (org.credits_remaining or 0) + payload.amount
+
     tx = CreditTransaction(
         org_id=current_user.org_id,
-        credits_used=payload.amount,
+        credits_used=payload.amount,  # positive = balance added
         action_type="credit_purchase",
         description=f"Purchased {payload.amount:,} AI credits",
     )

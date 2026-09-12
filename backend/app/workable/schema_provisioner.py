@@ -25,6 +25,23 @@ from app.models.workspace import Workspace
 logger = logging.getLogger(__name__)
 
 _DDL_SPLIT_RE = re.compile(r";\s*(?=(?:[^']*'[^']*')*[^']*$)")
+_SAFE_DDL_RE = re.compile(
+    r"^\s*(?:"
+    r"CREATE\s+(?:UNIQUE\s+)?INDEX\b"
+    r"|CREATE\s+(?:TEMP\s+|TEMPORARY\s+)?TABLE\b"
+    r"|CREATE\s+SEQUENCE\b"
+    r"|CREATE\s+TYPE\b"
+    r"|CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\b"
+    r"|ALTER\s+TABLE\b"
+    r"|COMMENT\s+ON\b"
+    r")\s",
+    re.IGNORECASE,
+)
+
+
+def _is_safe_ddl_statement(statement: str) -> bool:
+    """Allowlist guard so AI-generated DDL can never run DROP/TRUNCATE/etc."""
+    return bool(_SAFE_DDL_RE.match(statement))
 
 
 def _sanitize_schema_name(prefix: str) -> str:
@@ -141,6 +158,13 @@ async def provision_workable_schema(db: AsyncSession, solution: Solution) -> Wor
 
         statements = [s for s in _DDL_SPLIT_RE.split(ddl) if s and s.strip()]
         for statement in statements:
+            if not _is_safe_ddl_statement(statement):
+                logger.warning(
+                    "Skipping disallowed AI-generated DDL in %s: %s",
+                    schema_name,
+                    statement.strip().splitlines()[0][:80],
+                )
+                continue
             try:
                 await conn.execute(sa_text(statement.strip()))
             except Exception as exc:  # tolerate broken statements, keep the rest
@@ -150,6 +174,19 @@ async def provision_workable_schema(db: AsyncSession, solution: Solution) -> Wor
 
         if settings.RLS_ENABLED:
             from app.services.rls import enable_org_rls
+
+            is_super = (
+                await conn.execute(
+                    sa_text("SELECT current_setting('is_superuser', true)::boolean")
+                )
+            ).scalar()
+            if is_super:
+                logger.warning(
+                    "RLS enabled on schema %s is a NO-OP: the app connects as a superuser "
+                    "which bypasses row-level security. Use a least-privilege role "
+                    "for tenant isolation.",
+                    schema_name,
+                )
 
             org_id = (
                 await db.execute(

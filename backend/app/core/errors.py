@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 
 
 def _status_code_name(code: int) -> str:
+    # Python 3.12 renamed the 422 phrase to "Unprocessable Content"; keep the
+    # stable API contract.
+    if code == status.HTTP_422_UNPROCESSABLE_ENTITY:
+        return "UNPROCESSABLE_ENTITY"
     try:
         return HTTPStatus(code).phrase.upper().replace(" ", "_")
     except ValueError:

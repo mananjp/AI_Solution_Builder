@@ -504,7 +504,12 @@ def apply_config_overlay(
     if env:
         lines = ["# User configuration overrides\n"]
         for key, value in env.items():
-            lines.append(f"{key}={value}\n")
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(key)):
+                raise MVPBuilderError(f"Invalid env var name: {key!r}")
+            # Strip line breaks so a malicious value can't inject extra
+            # variables/commands into the generated .env.local file.
+            safe_value = str(value).replace("\r", "").replace("\n", "")
+            lines.append(f"{key}={safe_value}\n")
         (root / ".env.local").write_text("".join(lines), encoding="utf-8")
 
     if app_name:

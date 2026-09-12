@@ -214,7 +214,9 @@ class MVPTemplateResponse(BaseModel):
 class MVPDeployRequest(BaseModel):
     """Payload to deploy a finished MVP build to GitHub (+ Render blueprint)."""
 
-    repo_name: str = Field(..., min_length=1, max_length=100)
+    repo_name: str = Field(
+        ..., min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_.-]+$"
+    )
     description: str = ""
     private: bool = True
     force: bool = False

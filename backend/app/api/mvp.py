@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.credits import require_and_deduct_credit
 from app.core.database import async_session_factory, get_db
+from app.core.secrets import decrypt_secret
 from app.core.security import get_current_user
 from app.models.mvp_build import MVPBuild
 from app.models.solution import Solution
@@ -50,6 +51,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/mvp", tags=["OpenCode MVP Builder"])
 
 _STATUS_END_STATES = {"complete", "failed", "cancelled"}
+
+_build_tasks: set[asyncio.Task[None]] = set()
+
+
+def _spawn_build_job(build_id: UUID) -> None:
+    """Run a build in a background task, holding a strong reference so the
+    event loop never garbage-collects a pending task mid-build."""
+    task = asyncio.create_task(_run_build_job(build_id), name=f"mvp-build-{build_id}")
+    _build_tasks.add(task)
+    task.add_done_callback(_build_tasks.discard)
 
 
 async def _get_solution_for_user(db: AsyncSession, solution_id: UUID, user: User) -> Solution:
@@ -84,12 +95,16 @@ def _build_response(build: MVPBuild, include_files: bool = False) -> MVPBuildRes
                 MVPFileEntry(path=p, size=0, is_dir=False)
                 for p in builder.relative_paths(workspace)
             ]
+    # Only expose a project-relative workspace slug (solution/build), never the
+    # server filesystem path.
+    workspace_path = str(Path(build.workspace_path).relative_to(Path(build.workspace_path).parent.parent)) \
+        if build.workspace_path else ""
     return MVPBuildResponse(
         build_id=build.id,
         solution_id=build.solution_id,
         build_number=build.build_number,
         status=build.status,
-        workspace_path=build.workspace_path,
+        workspace_path=workspace_path,
         file_count=build.file_count,
         error_message=build.error_message,
         repo_url=build.repo_url,
@@ -283,10 +298,7 @@ async def trigger_build(
     await db.commit()
     await db.refresh(build)
 
-    task = asyncio.create_task(_run_build_job(build.id))
-    task.add_done_callback(
-        lambda _t: None  # failures logged in the job itself
-    )
+    _spawn_build_job(build.id)
 
     return _build_response(build)
 
@@ -394,7 +406,8 @@ async def deploy_build(
             detail=f"Build already deployed to {build.repo_url}. Use force=true to redeploy.",
         )
 
-    gh_token = str((current_user.settings or {}).get("github_token", ""))
+    raw_token = str((current_user.settings or {}).get("github_token", ""))
+    gh_token = decrypt_secret(raw_token) if raw_token else ""
     if not gh_token:
         raise HTTPException(
             status_code=400,

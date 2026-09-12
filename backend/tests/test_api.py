@@ -170,7 +170,8 @@ async def test_billing_plans_usage_transactions_topup(auth_client):
 
     resp = await client.get("/api/v1/billing/transactions", headers=headers)
     assert resp.status_code == 200
-    assert resp.json()[0]["id"] == "demo-tx-1"
+    # Fresh org has a real (empty) ledger — no fabricated demo rows
+    assert resp.json() == []
 
     resp = await client.post("/api/v1/billing/topup", json={"amount": 500}, headers=headers)
     assert resp.status_code == 200, resp.text

@@ -183,7 +183,10 @@ async def test_configure_applies_overlay(workspace_solution, monkeypatch):
     assert cfg.json()["applied"]["app_name"] == "My Product"
     assert cfg.json()["applied"]["JWT_SECRET"] == "abc123"
 
-    ws = Path(status["workspace_path"])
+    # Response exposes a project-relative workspace slug, never the server path.
+    from app.core.config import settings
+
+    ws = Path(settings.MVP_BUILD_DIR) / status["workspace_path"]
     assert (ws / ".env.local").exists()
     env_content = (ws / ".env.local").read_text(encoding="utf-8")
     assert "JWT_SECRET=abc123" in env_content
@@ -231,7 +234,9 @@ async def test_destroy_removes_workspace(workspace_solution, monkeypatch):
     )
     build_id = resp.json()["build_id"]
     status = await _wait_for_finish(client, headers, build_id)
-    ws = Path(status["workspace_path"])
+    from app.core.config import settings
+
+    ws = Path(settings.MVP_BUILD_DIR) / status["workspace_path"]
     assert ws.exists()
 
     del_resp = await client.delete(f"/api/v1/mvp/builds/{build_id}", headers=headers)

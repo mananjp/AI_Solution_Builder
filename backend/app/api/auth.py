@@ -7,9 +7,11 @@ Creates an Organization automatically on registration.
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.secrets import encrypt_secret
 from app.core.security import (
     create_access_token,
     get_current_user,
@@ -64,7 +66,16 @@ async def register(payload: UserRegister, db: AsyncSession = Depends(get_db)) ->
         org_id=org.id,
     )
     db.add(user)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        # Concurrent registration with the same email lost the race against
+        # the unique constraint after the pre-check passed — surface 409, not 500.
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email already registered",
+        ) from None
 
     # Generate JWT
     token = create_access_token(data={"sub": str(user.id)})
@@ -109,13 +120,17 @@ async def update_settings(
     """Persist deploy credentials (e.g. GitHub PAT) on the user's profile."""
     settings = dict(current_user.settings or {})
     if payload.github_token is not None:
-        settings["github_token"] = payload.github_token.strip()
+        token = payload.github_token.strip()
+        if token:
+            settings["github_token"] = encrypt_secret(token)
+        else:
+            settings.pop("github_token", None)
     if payload.render_api_key is not None:
-        settings["render_api_key"] = payload.render_api_key.strip()
-    if (payload.github_token is not None and not payload.github_token.strip()) or (
-        payload.render_api_key is not None and not payload.render_api_key.strip()
-    ):
-        settings = {k: v for k, v in settings.items() if v}
+        api_key = payload.render_api_key.strip()
+        if api_key:
+            settings["render_api_key"] = encrypt_secret(api_key)
+        else:
+            settings.pop("render_api_key", None)
     current_user.settings = settings
     await db.commit()
     return {"updated": True}

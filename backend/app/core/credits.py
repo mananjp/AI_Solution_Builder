@@ -93,7 +93,7 @@ async def require_and_deduct_credit(
     tx = CreditTransaction(
         org_id=org.id,
         action_type=action,
-        credits_used=cost,
+        credits_used=-cost,  # negative = consumption; top-ups are positive
         description=description or f"{action} action",
         solution_id=solution_id,
     )
@@ -111,20 +111,22 @@ async def require_and_deduct_credit(
 async def credit_usage(db: AsyncSession, org_id: str, limit: int = 100) -> dict[str, Any]:
     """Aggregate metering summary for the /billing/credits endpoint."""
     total = await db.execute(
-        select(func.coalesce(func.sum(CreditTransaction.credits_used), 0)).where(
-            CreditTransaction.org_id == org_id
+        select(func.coalesce(-func.sum(CreditTransaction.credits_used), 0)).where(
+            CreditTransaction.org_id == org_id,
+            CreditTransaction.credits_used < 0,
         )
     )
     spent_total = total.scalar() or 0
 
     by_type_rows = await db.execute(
         select(
-            CreditTransaction.action_type, func.sum(CreditTransaction.credits_used).label("total")
+            CreditTransaction.action_type,
+            func.sum(CreditTransaction.credits_used).label("total"),
         )
-        .where(CreditTransaction.org_id == org_id)
+        .where(CreditTransaction.org_id == org_id, CreditTransaction.credits_used < 0)
         .group_by(CreditTransaction.action_type)
     )
-    by_type = {action: int(value or 0) for action, value in by_type_rows.all()}
+    by_type = {action: int(-(value or 0)) for action, value in by_type_rows.all()}
 
     recent_rows = await db.execute(
         select(CreditTransaction)
