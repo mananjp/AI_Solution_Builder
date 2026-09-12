@@ -21,7 +21,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,6 +42,7 @@ from app.schemas import (
 )
 from app.services import mvp_builder as builder
 from app.services import templates
+from app.services.storage import LocalStorage, get_storage
 from app.services.deployer import DeployError, deploy_to_github
 
 logger = logging.getLogger(__name__)
@@ -185,6 +186,25 @@ async def _run_build_job(build_id: UUID) -> None:
             build.opencode_session_id = result["session_id"]
             build.file_count = result["file_count"]
             build.error_message = None
+
+            # Upload to Cloudinary if configured
+            storage = get_storage()
+            if not isinstance(storage, LocalStorage):
+                key = f"builds/{build.solution_id.hex[:8]}/build_{build.build_number}.zip"
+                zip_file = builder.zip_path_for_build(result["local_dir"])
+                try:
+                    await storage.upload_file(zip_file, key)
+                    build.storage_key = key
+                    logger.info("Cloudinary upload succeeded for build %s (key=%s)", build.id, key)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Cloudinary upload failed for build %s, falling back to local: %s",
+                        build.id,
+                        exc,
+                    )
+                finally:
+                    zip_file.unlink(missing_ok=True)
+
             logger.info(
                 "MVP build %s complete — %d files in %s",
                 build.id,
@@ -302,13 +322,27 @@ async def download_build(
     build_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> StreamingResponse:
-    """Download the generated MVP project as a ZIP archive."""
+) -> Response:
+    """Download the generated MVP project as a ZIP archive.
+
+    When a build has been uploaded to remote storage (``storage_key`` is set),
+    the endpoint returns a 307 redirect to Cloudinary's secure URL.
+    Otherwise it falls through to the original local-disk StreamingResponse.
+    """
     build = await _get_build_for_user(db, build_id, current_user)
     if build.status != "complete":
         raise HTTPException(
             status_code=409, detail=f"Build is not complete (status={build.status})"
         )
+
+    # Prefer remote storage URL if available
+    if build.storage_key:
+        storage = get_storage()
+        url = await storage.get_download_url(build.storage_key)
+        if url:
+            return RedirectResponse(url=url, status_code=307)
+
+    # Fallthrough: existing local-disk StreamingResponse
     try:
         buffer = builder.package_build(build.workspace_path)
     except builder.MVPBuilderError as exc:
@@ -417,5 +451,14 @@ async def destroy_build(
             logger.warning("Abort session %s failed: %s", build.opencode_session_id, exc)
 
     builder.cleanup_build(build.workspace_path)
+
+    # Clean up remote storage object if present
+    if build.storage_key:
+        try:
+            storage = get_storage()
+            await storage.delete_file(build.storage_key)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to delete storage object %s: %s", build.storage_key, exc)
+
     build.status = "cancelled"
     await db.commit()

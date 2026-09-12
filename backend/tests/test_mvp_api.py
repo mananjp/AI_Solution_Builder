@@ -395,3 +395,58 @@ async def test_deploy_pushes_workspace_to_github(workspace_solution, monkeypatch
         headers=headers,
     )
     assert resp.status_code == 409
+
+
+# ── Cloudinary storage redirect ─────────────────────────────────────────────
+
+
+async def test_download_redirects_when_storage_key_set(workspace_solution, monkeypatch):
+    """When a build has a storage_key, download returns 307 to Cloudinary URL."""
+    from unittest.mock import AsyncMock, patch
+
+    from app.services.storage import CloudinaryStorage
+
+    client = workspace_solution["client"]
+    headers = workspace_solution["headers"]
+    solution_id = workspace_solution["solution_id"]
+
+    monkeypatch.setattr("app.api.mvp.builder.run_build", _make_fake_run_build())
+
+    resp = await client.post(
+        f"/api/v1/mvp/{solution_id}/build", json={"force": True}, headers=headers
+    )
+    build_id = resp.json()["build_id"]
+    await _wait_for_finish(client, headers, build_id)
+
+    # Patch the build's storage_key directly in the DB
+    from app.core.database import async_session_factory
+    from app.models.mvp_build import MVPBuild
+
+    async with async_session_factory() as db:
+        build = await db.get(MVPBuild, build_id)
+        assert build is not None
+        build.storage_key = "builds/test/build_1.zip"
+        await db.commit()
+
+    # Mock get_storage to return a mock CloudinaryStorage with a secure URL
+    download_url = "https://res.cloudinary.com/test-cloud/raw/upload/builds/test/build_1.zip"
+    mock_storage = AsyncMock(spec=CloudinaryStorage)
+    mock_storage.get_download_url = AsyncMock(return_value=download_url)
+
+    with patch("app.api.mvp.get_storage", return_value=mock_storage):
+        # Use a separate client that does NOT follow redirects to inspect the 307
+        import httpx
+        from httpx import ASGITransport
+        from main import app
+
+        transport = ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver", follow_redirects=False
+        ) as no_follow_client:
+            dl = await no_follow_client.get(
+                f"/api/v1/mvp/builds/{build_id}/download", headers=headers
+            )
+
+    assert dl.status_code == 307, f"Expected 307, got {dl.status_code}: {dl.text}"
+    assert dl.headers["location"] == download_url
+

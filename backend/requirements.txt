@@ -45,6 +45,9 @@ reportlab>=4.2.5
 # Observability
 prometheus-client>=0.21.0
 
+# Object Storage (Cloudinary)
+cloudinary>=1.41.0
+
 # Utilities
 pydantic==2.10.4
 pydantic-settings==2.7.1

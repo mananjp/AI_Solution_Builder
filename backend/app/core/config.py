@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = ".data/uploads"
     EXPORT_DIR: str = ".data/exports"
 
+    # ── Object Storage (Cloudinary) ───────────────
+    STORAGE_BACKEND: str = "local"  # "local" | "cloudinary"
+    CLOUDINARY_CLOUD_NAME: str = ""
+    CLOUDINARY_API_KEY: str = ""
+    CLOUDINARY_API_SECRET: str = ""
+
     # ── Credits ───────────────────────────────────
     GENERATION_CREDIT_COST: int = 20
     REGENERATION_CREDIT_COST: int = 5
