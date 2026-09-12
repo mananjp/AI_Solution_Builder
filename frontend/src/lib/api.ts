@@ -364,7 +364,7 @@ export const uploadApi = {
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const response = await fetch(`${API_BASE_URL}/upload/`, {
+    const response = await fetch(`${API_BASE_URL}/upload/document`, {
       method: 'POST',
       headers,
       body: formData,
@@ -375,7 +375,38 @@ export const uploadApi = {
       throw new Error(err.detail || 'Upload failed');
     }
 
-    return response.json();
+    const data = await response.json();
+    return {
+      filename: data.filename ?? file.name,
+      text: data.extracted_text ?? '',
+      size: data.size_bytes ?? file.size,
+    };
+  },
+
+  async parseUrl(url: string): Promise<{ url: string; extractedText: string; characterCount: number }> {
+    const token = getAuthToken();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const response = await fetch(`${API_BASE_URL}/upload/url`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ url }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ detail: 'Failed to parse URL' }));
+      const message =
+        err.error?.message ?? err.detail ?? 'Failed to parse URL';
+      throw new Error(message);
+    }
+
+    const data = await response.json();
+    return {
+      url: data.url,
+      extractedText: data.extracted_text,
+      characterCount: data.character_count,
+    };
   },
 };
 

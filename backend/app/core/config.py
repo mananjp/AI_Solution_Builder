@@ -6,7 +6,15 @@ Covers database, Redis, JWT auth, pluggable LLM providers, rate limiting,
 and storage paths.
 """
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
+
+# Placeholder values that must never be used as the JWT signing key in production.
+_PLACEHOLDER_SECRETS = {
+    "",
+    "change-me",
+    "change-this-to-a-long-random-string-in-production",
+}
 
 
 class Settings(BaseSettings):
@@ -82,6 +90,17 @@ class Settings(BaseSettings):
     MVP_BUILD_DIR: str = ".data/mvp_builds"
     MVP_BUILD_CREDIT_COST: int = 30
     MVP_TEMPLATE_DIR: str = "opencode/templates/mvp"
+
+    @model_validator(mode="after")
+    def enforce_production_secrets(self) -> "Settings":
+        if self.APP_ENV == "production" and (
+            self.JWT_SECRET_KEY in _PLACEHOLDER_SECRETS or len(self.JWT_SECRET_KEY) < 32
+        ):
+            raise ValueError(
+                "JWT_SECRET_KEY must be set to a strong, unique secret "
+                f"(>= 32 chars) when APP_ENV='production'. Current value: {self.JWT_SECRET_KEY!r}"
+            )
+        return self
 
     @property
     def cors_origins_list(self) -> list[str]:

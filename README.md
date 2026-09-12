@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/mananjp/AI_Solution_Builder/actions/workflows/ci.yml/badge.svg)](https://github.com/mananjp/AI_Solution_Builder/actions)
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg)](https://fastapi.tiangolo.com/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.141+-009688.svg)](https://fastapi.tiangolo.com/)
 [![Next.js](https://img.shields.io/badge/Next.js-16.3-black.svg)](https://nextjs.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%20%2B%20pgvector-336791.svg)](https://www.postgresql.org/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://www.docker.com/)
@@ -97,8 +97,9 @@ The backend and the OpenCode sidecar share the `mvp_workspace` Docker volume: th
 - **Synthetic Data Generator**: Auto-populates tenant databases with realistic, localized dummy records.
 
 ### 3. Universal Input Ingestion
-- Ingests raw text, PRDs, BRDs, PDFs (`PyMuPDF`), Word documents (`python-docx`), CSV schemas, OpenAPI specs, and website URLs.
-- Chunks and stores semantic context via `pgvector` embeddings (`all-MiniLM-L6-v2`).
+- Ingests raw text, PRDs, BRDs, PDFs (`PyMuPDF`), Word documents (`python-docx`), CSV/Excel schemas (`openpyxl`/`pandas`), OpenAPI specs (JSON/YAML, auto-detected), and website URLs (`httpx` + BeautifulSoup).
+- Every format is normalized to readable text and injected into the agent pipeline as `uploaded_context` via `POST /api/v1/upload/document` and `POST /api/v1/upload/url`.
+- *Planned:* vectorized semantic retrieval. The `context_chunks` table reserves a pgvector `embedding` column (`all-MiniLM-L6-v2`, dim 384), but nothing populates it yet — content reaches agents as plain text today.
 
 ### 4. Enterprise Governance & Admin
 - **Credit & Plan Metering**: Granular credit deductions for generation, regeneration, and exports across Free, Pro, and Enterprise tiers.
@@ -137,7 +138,11 @@ From a raw business idea to a deployed, working web app in eight phases.
    Tokens are stored per-user in `user.settings` and never returned by profile endpoints.
 
 ### Phase 1 — Ingestion
-Feed the system any loose business material — raw text, PRD/BRD, PDF, DOCX, CSV schema, OpenAPI spec, or a website URL. The ingestion layer parses every format, chunks the content, and stores embeddings in the `pgvector` extension so the agents share a common semantic context.
+Feed the system any loose business material — raw text, PRD/BRD, PDF, DOCX, CSV/Excel schema, OpenAPI spec, or a website URL. The ingestion layer parses every format into readable text and feeds it to the agents as `uploaded_context`, so every phase works from the same source material. (Vectorized semantic retrieval over `pgvector` is planned but not yet wired up.)
+
+Ingest via the workspace UI (file dropzone or "paste a URL"), or directly:
+- `POST /api/v1/upload/document` (multipart `file`) — PDF, DOCX, CSV/XLSX, TXT/MD, and OpenAPI JSON/YAML (auto-detected)
+- `POST /api/v1/upload/url` (`{"url": "https://…"}`) — fetches a page and extracts readable text
 
 ### Phase 2 — Agentic design
 A `POST` to the solutions/chat API runs the **LangGraph multi-agent pipeline**. Each node writes into the shared `ai_state`:
@@ -209,7 +214,7 @@ Prometheus metrics (`/metrics`), health/ready probes, audit logs, and credit met
 
 | Layer | Technologies |
 |---|---|
-| **Backend** | Python 3.12, FastAPI, SQLAlchemy 2.0 (Async), Pydantic v2, LangGraph, LangChain, pgvector, Redis, PyMuPDF, python-docx |
+| **Backend** | Python 3.12, FastAPI, SQLAlchemy 2.0 (Async), Pydantic v2, LangGraph, LangChain, pgvector, Redis, PyMuPDF, python-docx, python-pptx, openpyxl/pandas, beautifulsoup4, PyYAML |
 | **Frontend** | Next.js 16 (App Router, Turbopack), React 19, TypeScript 5, Tailwind CSS v4, `@xyflow/react`, Lucide Icons |
 | **Mobile & PWA** | Capacitor 8 (Android/iOS shell), PWA Service Worker |
 | **MVP Builder** | OpenCode headless sidecar (`opencode serve`), agent `mvp-builder` on model `opencode/big-pickle` (OpenCode Zen, free), HTTP proxy client (`httpx`) |
@@ -234,7 +239,7 @@ AI_Solution_Builder/
 │   │   │   ├── workable.py           #   dynamic runtime schema + REST engine
 │   │   │   └── ...
 │   │   ├── core/                     # Config, database, redis, security, credits
-│   │   ├── ingestion/                # Universal parser (PDF, DOCX, CSV, URLs)
+│   │   ├── ingestion/                # Universal parser (PDF, DOCX, CSV/Excel, OpenAPI, URLs)
 │   │   ├── models/                   # SQLAlchemy ORM models
 │   │   │   ├── mvp_build.py          #   MVPBuild (status, workspace_path, repo_url)
 │   │   │   ├── solution.py
@@ -259,7 +264,7 @@ AI_Solution_Builder/
 │   │       └── infra/                #   render.yaml, docker-compose, CI, README
 │   ├── scripts/
 │   │   └── seed_demo.py              # Seeds demo user/org/workspace (dev convenience)
-│   ├── tests/                        # 146+ async tests (pytest + coverage ≥ 80%)
+│   ├── tests/                        # 150+ async tests (pytest + coverage ≥ 80%)
 │   ├── Dockerfile
 │   ├── pyproject.toml
 │   └── requirements.txt
@@ -306,10 +311,16 @@ docker compose up --build
 - Interactive API Docs: `http://localhost:8000/docs`
 - OpenCode sidecar health: `http://localhost:4096/global/health` (`{"healthy":true}`)
 
-This starts four cooperating services: `postgres` (pgvector), `redis`, `backend`,
-and the `opencode` sidecar (which shares the `mvp_workspace` volume with the backend
-so generated code is visible to the API instantly). The Next.js frontend runs
-separately with `npm run dev` (see Development & Testing below).
+This starts five cooperating services: `frontend` (Next.js standalone), `postgres`
+(pgvector), `redis`, `backend`, and the `opencode` sidecar (which shares the
+`mvp_workspace` volume with the backend so generated code is visible to the API
+instantly).
+
+> **Production guard:** the backend image boots as `APP_ENV=production` and refuses
+> to start unless `JWT_SECRET_KEY` is a strong, unique secret (≥ 32 chars). Set one
+> in your `.env` before `docker compose up` — the placeholder in `.env.example` will
+> fail fast with a clear message. On boot it also runs `alembic upgrade head`
+> automatically, so schema migrations apply before the server accepts traffic.
 
 ### 3. (Optional) Seed a demo account
 ```bash
@@ -325,6 +336,37 @@ python scripts/seed_demo.py
 4. Poll `GET /api/v1/mvp/builds/{id}/status` until `complete`, then download the ZIP.
 5. To deploy: `PATCH /api/v1/auth/me/settings` with a **GitHub PAT**, then
    `POST /api/v1/mvp/builds/{id}/deploy` → connect the repo to Render.
+
+---
+
+## 🌐 Deployment
+
+The repo is deployable today as a **single instance** and has Phase-0 pre-flight
+hardening built in:
+
+- **JWT secret guard** — the backend refuses to boot when `APP_ENV=production`
+  unless `JWT_SECRET_KEY` is unique and ≥ 32 chars (see `backend/app/core/config.py`).
+- **Migrations on boot** — the backend image runs `alembic upgrade head` before
+  starting uvicorn (`backend/docker-entrypoint.sh`).
+- **Frontend image** — `frontend/Dockerfile` builds a standalone Next.js output
+  (`next.config.ts` has `output: "standalone"`); pass the backend URL at build time:
+  `docker build -f frontend/Dockerfile --build-arg NEXT_PUBLIC_API_URL=https://api.example.com/api/v1 .`
+- **Health checks** — `/health`, `/ready`, `/metrics` on the backend; the compose
+  healthchecks gate frontend → backend → postgres/redis/opencode startup ordering.
+
+Recommended production topology (Phase 1+):
+
+1. Backend + `opencode` sidecar + Postgres (pgvector) + Redis on one host
+   (Render or Fly.io). Backend and `opencode` must be co-located — they share the
+   `mvp_workspace` volume, so a single replica is required for MVP file sharing.
+2. Frontend on Vercel (zero-config) or the `frontend/` Docker image.
+3. Set per environment: `DATABASE_URL`, `REDIS_URL`, `GROQ_API_KEY`,
+   `GROQ_MODEL_NAME` (pinned), `JWT_SECRET_KEY`, `CORS_ORIGINS`, `OPENCODE_SERVER_URL`.
+   GitHub PATs are per-user credentials stored in the app.
+
+Open work: a root deploy manifest (`render.yaml`/`fly.toml`), a shared/networked
+volume if you ever run > 1 backend replica, and a CI/CD deploy step
+(`/health`-gated). These are deliberately left for the infra provider choice.
 
 ---
 

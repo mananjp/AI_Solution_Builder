@@ -10,10 +10,29 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.core.security import get_current_user
-from app.ingestion.parser import parse_document
+from app.ingestion.parser import parse_document, parse_url
 from app.models.user import User
+from app.schemas import UrlParseRequest
 
 router = APIRouter(prefix="/upload", tags=["Upload"])
+
+
+@router.post("/url")
+async def upload_url(
+    payload: UrlParseRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Fetch and parse a website URL into readable text for the AI pipeline."""
+    try:
+        extracted_text = await parse_url(payload.url)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return {
+        "url": payload.url,
+        "extracted_text": extracted_text,
+        "character_count": len(extracted_text),
+    }
 
 
 @router.post("/document")

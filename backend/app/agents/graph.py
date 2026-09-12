@@ -46,7 +46,7 @@ def clarification_router(
     return "generate_blueprints"
 
 
-def _add_generation_pipeline(graph: StateGraph) -> None:
+def _add_generation_pipeline(graph: StateGraph[DiscoveryState]) -> None:
     """Wire the shared generation tail ending at blueprint_generator → END."""
     graph.add_node("solutions_architect", solutions_architect_node)
     graph.add_node("ux_agent", ux_agent_node)
@@ -63,7 +63,7 @@ def _add_generation_pipeline(graph: StateGraph) -> None:
     graph.add_edge("blueprint_generator", END)
 
 
-def build_discovery_graph() -> StateGraph:
+def build_discovery_graph() -> StateGraph[DiscoveryState]:
     """Build the full multi-agent discovery pipeline."""
     graph = StateGraph(DiscoveryState)
 
@@ -92,7 +92,7 @@ def build_discovery_graph() -> StateGraph:
     return graph
 
 
-def build_generation_graph() -> StateGraph:
+def build_generation_graph() -> StateGraph[DiscoveryState]:
     """Build just the generation pipeline (for use after recommendation
     confirmation). Skips discovery and recommendation."""
     graph = StateGraph(DiscoveryState)

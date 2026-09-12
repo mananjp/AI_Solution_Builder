@@ -10,6 +10,15 @@ from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field
 
+# ── Ingestion ──────────────────────────────────────
+
+
+class UrlParseRequest(BaseModel):
+    """Payload to fetch a website URL and extract its readable text."""
+
+    url: str = Field(..., min_length=1, max_length=2048)
+
+
 # ── Auth ──────────────────────────────────────────
 
 
