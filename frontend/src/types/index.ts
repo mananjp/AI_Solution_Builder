@@ -4,6 +4,7 @@ export interface User {
   full_name?: string;
   role: string;
   org_id: string;
+  settings?: Record<string, unknown>;
   created_at: string;
 }
 
@@ -177,4 +178,60 @@ export interface AuditLogEntry {
   amount: number;
   timestamp: string;
   status: string;
+}
+
+// ── OpenCode MVP Builder & Deploy Types ─────────
+export interface MVPTemplate {
+  slug: string;
+  title: string;
+  description: string;
+  app_name: string;
+  industry: string;
+}
+
+export interface MVPFileEntry {
+  path: string;
+  size: number;
+  is_dir: boolean;
+}
+
+export type MVPBuildStatus =
+  | 'pending'
+  | 'building'
+  | 'complete'
+  | 'failed'
+  | 'cancelled';
+
+export interface MVPBuild {
+  build_id: string;
+  solution_id: string;
+  build_number: number;
+  status: MVPBuildStatus;
+  workspace_path: string;
+  file_count: number;
+  error_message?: string | null;
+  repo_url?: string | null;
+  files?: MVPFileEntry[];
+}
+
+export interface MVPBuildPayload {
+  app_name?: string;
+  template?: string;
+  config?: Record<string, unknown>;
+  force?: boolean;
+}
+
+export interface MVPDeployPayload {
+  repo_name: string;
+  description?: string;
+  private?: boolean;
+  force?: boolean;
+}
+
+export interface MVPDeployResult {
+  repo_url: string;
+  clone_url: string;
+  branch: string;
+  file_count: number;
+  render_blueprint: string;
 }

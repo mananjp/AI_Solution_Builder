@@ -8,7 +8,8 @@ import {
   Download, 
   Clock, 
   CheckCircle2, 
-  MessageSquare
+  MessageSquare,
+  Rocket
 } from 'lucide-react';
 import ArtifactViewer from '@/components/ArtifactViewer';
 import ExportModal from '@/components/ExportModal';
@@ -65,6 +66,13 @@ export default function SolutionViewerPage() {
         </Link>
 
         <div className="flex items-center gap-3">
+          <Link
+            href={`/solution/${solutionId}/mvp`}
+            className="flex items-center gap-2 px-4 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-200 transition-colors"
+          >
+            <Rocket className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Build &amp; Deploy MVP</span>
+          </Link>
           <Link
             href="/chat"
             className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 transition-colors"

@@ -9,7 +9,8 @@ import {
   Layers, 
   CreditCard, 
   Settings, 
-  LogOut
+  LogOut,
+  Rocket
 } from 'lucide-react';
 import { authApi } from '@/lib/api';
 
@@ -22,6 +23,7 @@ export default function Sidebar() {
     { name: 'AI Architect Chat', href: '/chat', icon: Sparkles, badge: 'Agentic' },
     { name: 'Architecture Library', href: '/dashboard#blueprints', icon: Layers },
     { name: 'Billing & Credits', href: '/billing', icon: CreditCard },
+    { name: 'Deploy Credentials', href: '/settings', icon: Rocket, badge: 'Deploy' },
     { name: 'Admin Governance', href: '/admin', icon: Settings, badge: 'Gov' },
   ];
 
