@@ -389,3 +389,36 @@ def test_create_access_token_sets_expiry():
     payload = pyjwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
     assert payload["sub"] == "abc"
     assert "exp" in payload
+
+
+def test_production_guard_rejects_placeholder_jwt_secret():
+    from pydantic import ValidationError
+
+    from app.core.config import Settings
+
+    for secret in ("", "change-me", "change-this-to-a-long-random-string-in-production"):
+        with pytest.raises(ValidationError):
+            Settings(APP_ENV="production", JWT_SECRET_KEY=secret)
+
+
+def test_production_guard_rejects_short_jwt_secret():
+    from pydantic import ValidationError
+
+    from app.core.config import Settings
+
+    with pytest.raises(ValidationError):
+        Settings(APP_ENV="production", JWT_SECRET_KEY="simply-too-short")
+
+
+def test_production_guard_accepts_strong_jwt_secret():
+    from app.core.config import Settings
+
+    s = Settings(APP_ENV="production", JWT_SECRET_KEY="a-strong-32+char-jwt-secret-6b4f0a9392")
+    assert s.JWT_SECRET_KEY
+
+
+def test_development_allows_placeholder_jwt_secret():
+    from app.core.config import Settings
+
+    s = Settings(APP_ENV="development", JWT_SECRET_KEY="change-me")
+    assert s.JWT_SECRET_KEY == "change-me"

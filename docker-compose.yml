@@ -48,7 +48,7 @@ services:
       GROQ_API_KEY: ${GROQ_API_KEY}
       GROQ_MODEL_NAME: ${GROQ_MODEL_NAME:-openai/gpt-oss-120b}
       LLM_PROVIDER: ${LLM_PROVIDER:-groq}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-to-a-long-random-string-in-production}
       OPENCODE_SERVER_URL: http://opencode:4096
       OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
       MVP_BUILD_DIR: .data/mvp_builds
@@ -92,6 +92,26 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
+
+  # Frontend — Next.js standalone build (browser talks to backend on :8000)
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
+    container_name: ai_solution_builder_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
 
 volumes:
   postgres_data:

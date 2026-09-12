@@ -311,10 +311,16 @@ docker compose up --build
 - Interactive API Docs: `http://localhost:8000/docs`
 - OpenCode sidecar health: `http://localhost:4096/global/health` (`{"healthy":true}`)
 
-This starts four cooperating services: `postgres` (pgvector), `redis`, `backend`,
-and the `opencode` sidecar (which shares the `mvp_workspace` volume with the backend
-so generated code is visible to the API instantly). The Next.js frontend runs
-separately with `npm run dev` (see Development & Testing below).
+This starts five cooperating services: `frontend` (Next.js standalone), `postgres`
+(pgvector), `redis`, `backend`, and the `opencode` sidecar (which shares the
+`mvp_workspace` volume with the backend so generated code is visible to the API
+instantly).
+
+> **Production guard:** the backend image boots as `APP_ENV=production` and refuses
+> to start unless `JWT_SECRET_KEY` is a strong, unique secret (≥ 32 chars). Set one
+> in your `.env` before `docker compose up` — the placeholder in `.env.example` will
+> fail fast with a clear message. On boot it also runs `alembic upgrade head`
+> automatically, so schema migrations apply before the server accepts traffic.
 
 ### 3. (Optional) Seed a demo account
 ```bash
@@ -330,6 +336,37 @@ python scripts/seed_demo.py
 4. Poll `GET /api/v1/mvp/builds/{id}/status` until `complete`, then download the ZIP.
 5. To deploy: `PATCH /api/v1/auth/me/settings` with a **GitHub PAT**, then
    `POST /api/v1/mvp/builds/{id}/deploy` → connect the repo to Render.
+
+---
+
+## 🌐 Deployment
+
+The repo is deployable today as a **single instance** and has Phase-0 pre-flight
+hardening built in:
+
+- **JWT secret guard** — the backend refuses to boot when `APP_ENV=production`
+  unless `JWT_SECRET_KEY` is unique and ≥ 32 chars (see `backend/app/core/config.py`).
+- **Migrations on boot** — the backend image runs `alembic upgrade head` before
+  starting uvicorn (`backend/docker-entrypoint.sh`).
+- **Frontend image** — `frontend/Dockerfile` builds a standalone Next.js output
+  (`next.config.ts` has `output: "standalone"`); pass the backend URL at build time:
+  `docker build -f frontend/Dockerfile --build-arg NEXT_PUBLIC_API_URL=https://api.example.com/api/v1 .`
+- **Health checks** — `/health`, `/ready`, `/metrics` on the backend; the compose
+  healthchecks gate frontend → backend → postgres/redis/opencode startup ordering.
+
+Recommended production topology (Phase 1+):
+
+1. Backend + `opencode` sidecar + Postgres (pgvector) + Redis on one host
+   (Render or Fly.io). Backend and `opencode` must be co-located — they share the
+   `mvp_workspace` volume, so a single replica is required for MVP file sharing.
+2. Frontend on Vercel (zero-config) or the `frontend/` Docker image.
+3. Set per environment: `DATABASE_URL`, `REDIS_URL`, `GROQ_API_KEY`,
+   `GROQ_MODEL_NAME` (pinned), `JWT_SECRET_KEY`, `CORS_ORIGINS`, `OPENCODE_SERVER_URL`.
+   GitHub PATs are per-user credentials stored in the app.
+
+Open work: a root deploy manifest (`render.yaml`/`fly.toml`), a shared/networked
+volume if you ever run > 1 backend replica, and a CI/CD deploy step
+(`/health`-gated). These are deliberately left for the infra provider choice.
 
 ---
 

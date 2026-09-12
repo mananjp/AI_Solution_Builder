@@ -27,7 +27,8 @@ COPY --from=deps /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.
 COPY --from=deps /usr/local/bin /usr/local/bin
 COPY . .
 
-RUN mkdir -p .data/uploads .data/exports && chown -R app:app /app
+RUN sed -i 's/\r$//' docker-entrypoint.sh && chmod +x docker-entrypoint.sh \
+    && mkdir -p .data/uploads .data/exports && chown -R app:app /app
 
 USER app
 
@@ -36,4 +37,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')" || exit 1
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# Runs alembic upgrade head before starting the server (see docker-entrypoint.sh).
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
