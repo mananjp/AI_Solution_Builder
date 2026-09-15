@@ -468,6 +468,19 @@ def package_build(build_dir: Path | str) -> io.BytesIO:
     return buffer
 
 
+def zip_path_for_build(build_dir: Path | str) -> Path:
+    """Write the in-memory ZIP to a temp file alongside the build and return its path.
+
+    This is used when the storage backend needs a file path (e.g. Cloudinary upload).
+    The caller is responsible for cleaning up the returned file.
+    """
+    buf = package_build(build_dir)
+    root = Path(build_dir)
+    zip_file = root.parent / f"{root.name}.zip"
+    zip_file.write_bytes(buf.read())
+    return zip_file
+
+
 # ── User config overlay ────────────────────────────────────────────────
 
 
@@ -491,7 +504,12 @@ def apply_config_overlay(
     if env:
         lines = ["# User configuration overrides\n"]
         for key, value in env.items():
-            lines.append(f"{key}={value}\n")
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(key)):
+                raise MVPBuilderError(f"Invalid env var name: {key!r}")
+            # Strip line breaks so a malicious value can't inject extra
+            # variables/commands into the generated .env.local file.
+            safe_value = str(value).replace("\r", "").replace("\n", "")
+            lines.append(f"{key}={safe_value}\n")
         (root / ".env.local").write_text("".join(lines), encoding="utf-8")
 
     if app_name:

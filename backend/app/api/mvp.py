@@ -21,12 +21,13 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.credits import require_and_deduct_credit
 from app.core.database import async_session_factory, get_db
+from app.core.secrets import decrypt_secret
 from app.core.security import get_current_user
 from app.models.mvp_build import MVPBuild
 from app.models.solution import Solution
@@ -43,12 +44,23 @@ from app.schemas import (
 from app.services import mvp_builder as builder
 from app.services import templates
 from app.services.deployer import DeployError, deploy_to_github
+from app.services.storage import LocalStorage, get_storage
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/mvp", tags=["OpenCode MVP Builder"])
 
 _STATUS_END_STATES = {"complete", "failed", "cancelled"}
+
+_build_tasks: set[asyncio.Task[None]] = set()
+
+
+def _spawn_build_job(build_id: UUID) -> None:
+    """Run a build in a background task, holding a strong reference so the
+    event loop never garbage-collects a pending task mid-build."""
+    task = asyncio.create_task(_run_build_job(build_id), name=f"mvp-build-{build_id}")
+    _build_tasks.add(task)
+    task.add_done_callback(_build_tasks.discard)
 
 
 async def _get_solution_for_user(db: AsyncSession, solution_id: UUID, user: User) -> Solution:
@@ -83,12 +95,19 @@ def _build_response(build: MVPBuild, include_files: bool = False) -> MVPBuildRes
                 MVPFileEntry(path=p, size=0, is_dir=False)
                 for p in builder.relative_paths(workspace)
             ]
+    # Only expose a project-relative workspace slug (solution/build), never the
+    # server filesystem path.
+    workspace_path = (
+        str(Path(build.workspace_path).relative_to(Path(build.workspace_path).parent.parent))
+        if build.workspace_path
+        else ""
+    )
     return MVPBuildResponse(
         build_id=build.id,
         solution_id=build.solution_id,
         build_number=build.build_number,
         status=build.status,
-        workspace_path=build.workspace_path,
+        workspace_path=workspace_path,
         file_count=build.file_count,
         error_message=build.error_message,
         repo_url=build.repo_url,
@@ -181,10 +200,43 @@ async def _run_build_job(build_id: UUID) -> None:
                     title = seeded.get("solution_title", title)
 
             result = await builder.run_build(solution.id, ai_state, build.build_number, title=title)
+
+            # Re-fetch under row lock to guard against concurrent cancellation
+            # (destroy_build may have set status='cancelled' in a separate session).
+            locked = await db.execute(
+                select(MVPBuild).where(MVPBuild.id == build_id).with_for_update()
+            )
+            build = locked.scalar_one_or_none()
+            if build is None or build.status == "cancelled":
+                logger.info(
+                    "Build %s was cancelled during execution — aborting completion",
+                    build_id,
+                )
+                return
+
             build.status = "complete"
             build.opencode_session_id = result["session_id"]
             build.file_count = result["file_count"]
             build.error_message = None
+
+            # Upload to Cloudinary if configured
+            storage = get_storage()
+            if not isinstance(storage, LocalStorage):
+                key = f"builds/{build.solution_id}/build_{build.build_number}.zip"
+                zip_file = builder.zip_path_for_build(result["local_dir"])
+                try:
+                    await storage.upload_file(zip_file, key)
+                    build.storage_key = key
+                    logger.info("Cloudinary upload succeeded for build %s (key=%s)", build.id, key)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Cloudinary upload failed for build %s, falling back to local: %s",
+                        build.id,
+                        exc,
+                    )
+                finally:
+                    zip_file.unlink(missing_ok=True)
+
             logger.info(
                 "MVP build %s complete — %d files in %s",
                 build.id,
@@ -249,10 +301,7 @@ async def trigger_build(
     await db.commit()
     await db.refresh(build)
 
-    task = asyncio.create_task(_run_build_job(build.id))
-    task.add_done_callback(
-        lambda _t: None  # failures logged in the job itself
-    )
+    _spawn_build_job(build.id)
 
     return _build_response(build)
 
@@ -302,13 +351,27 @@ async def download_build(
     build_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> StreamingResponse:
-    """Download the generated MVP project as a ZIP archive."""
+) -> Response:
+    """Download the generated MVP project as a ZIP archive.
+
+    When a build has been uploaded to remote storage (``storage_key`` is set),
+    the endpoint returns a 307 redirect to Cloudinary's secure URL.
+    Otherwise it falls through to the original local-disk StreamingResponse.
+    """
     build = await _get_build_for_user(db, build_id, current_user)
     if build.status != "complete":
         raise HTTPException(
             status_code=409, detail=f"Build is not complete (status={build.status})"
         )
+
+    # Prefer remote storage URL if available
+    if build.storage_key:
+        storage = get_storage()
+        url = await storage.get_download_url(build.storage_key)
+        if url:
+            return RedirectResponse(url=url, status_code=307)
+
+    # Fallthrough: existing local-disk StreamingResponse
     try:
         buffer = builder.package_build(build.workspace_path)
     except builder.MVPBuilderError as exc:
@@ -346,7 +409,8 @@ async def deploy_build(
             detail=f"Build already deployed to {build.repo_url}. Use force=true to redeploy.",
         )
 
-    gh_token = str((current_user.settings or {}).get("github_token", ""))
+    raw_token = str((current_user.settings or {}).get("github_token", ""))
+    gh_token = decrypt_secret(raw_token) if raw_token else ""
     if not gh_token:
         raise HTTPException(
             status_code=400,
@@ -398,6 +462,21 @@ async def configure_build(
 
     merged = {**(build.app_config or {}), **overlay}
     build.app_config = merged
+
+    # Invalidate stale remote artifact — the workspace on disk has changed,
+    # so the previously-uploaded ZIP no longer reflects the configured state.
+    if build.storage_key:
+        try:
+            storage = get_storage()
+            await storage.delete_file(build.storage_key)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to delete stale storage object %s after configure: %s",
+                build.storage_key,
+                exc,
+            )
+        build.storage_key = None
+
     await db.commit()
     return {"applied": overlay, "build_id": str(build.id)}
 
@@ -417,5 +496,14 @@ async def destroy_build(
             logger.warning("Abort session %s failed: %s", build.opencode_session_id, exc)
 
     builder.cleanup_build(build.workspace_path)
+
+    # Clean up remote storage object if present
+    if build.storage_key:
+        try:
+            storage = get_storage()
+            await storage.delete_file(build.storage_key)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to delete storage object %s: %s", build.storage_key, exc)
+
     build.status = "cancelled"
     await db.commit()

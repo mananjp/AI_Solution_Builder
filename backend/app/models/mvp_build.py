@@ -39,6 +39,7 @@ class MVPBuild(Base):
     app_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=True, default=dict)
     file_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     repo_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    storage_key: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)

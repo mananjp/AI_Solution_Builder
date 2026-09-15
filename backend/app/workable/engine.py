@@ -203,7 +203,7 @@ async def update_row(
 ) -> dict[str, Any]:
     table = await _table_for(db, schema_name, table_name)
     pk = _primary_key(table)
-    values = {key: value for key, value in payload.items() if key in table.c and value is not None}
+    values = {key: value for key, value in payload.items() if key in table.c}
     stmt = select(table).where(pk == _coerce_id(pk, row_id))
     existing = (await db.execute(stmt)).first()
     if existing is None:

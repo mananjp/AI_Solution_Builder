@@ -178,7 +178,7 @@ async def test_engine_validation_and_not_found(extras_schemas, session_factory):
         assert exc.value.status_code == 404
 
 
-async def test_engine_update_with_all_null_payload(extras_schemas, session_factory):
+async def test_engine_update_clears_fields_with_null(extras_schemas, session_factory):
     async with session_factory() as db:
         row = await create_row(
             db,
@@ -186,11 +186,13 @@ async def test_engine_update_with_all_null_payload(extras_schemas, session_facto
             "kitchen_sink",
             {"name": "Keep", "email": "k@example.com", "quantity": 1, "is_active": True},
         )
-        same = await update_row(
-            db, "extras", "kitchen_sink", row["id"], {"name": None, "price": None}
+        clear = await update_row(
+            db, "extras", "kitchen_sink", row["id"], {"description": None, "price": None}
         )
-        assert same["id"] == row["id"]
-        assert same["name"] == "Keep"
+        assert clear["id"] == row["id"]
+        assert clear["description"] is None
+        assert clear["price"] is None
+        assert clear["name"] == "Keep"  # untouched fields preserved
 
 
 # ── Schema provisioner ───────────────────────────────

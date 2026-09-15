@@ -72,19 +72,21 @@ class LogMiddleware(BaseHTTPMiddleware):
         return response
 
 
+def _client_ip(request: Request) -> str | None:
+    """Real peer IP; X-Forwarded-For is only honored behind a trusted proxy."""
+    if settings.TRUST_PROXY_HEADERS:
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else None
+
+
 def _client_identifier(request: Request) -> str:
     """Use the authenticated user sub when present, else the client IP."""
     sub = getattr(request.state, "user_sub", None)
     if sub:
         return f"user:{sub}"
-    forwarded = request.headers.get("X-Forwarded-For")
-    ip = (
-        forwarded.split(",")[0].strip()
-        if forwarded
-        else request.client.host
-        if request.client
-        else "unknown"
-    )
+    ip = _client_ip(request) or "unknown"
     return f"ip:{ip}"
 
 
@@ -175,8 +177,7 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
                         "reqid": getattr(request.state, "request_id", None),
                         "method": request.method,
                         "path": path,
-                        "ip": request.headers.get("X-Forwarded-For")
-                        or (request.client.host if request.client else None),
+                        "ip": _client_ip(request),
                         "status": response.status_code,
                     },
                 )

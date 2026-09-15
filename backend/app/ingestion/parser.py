@@ -7,9 +7,22 @@ the AI pipeline.
 """
 
 import io
+import ipaddress
 import logging
+import socket
 
 logger = logging.getLogger(__name__)
+
+_MAX_URL_BYTES = 5 * 1024 * 1024
+_REDIRECT_CODES = {301, 302, 303, 307, 308}
+_BLOCKED_IP_ATTRS = (
+    "is_private",
+    "is_loopback",
+    "is_link_local",
+    "is_reserved",
+    "is_multicast",
+    "is_unspecified",
+)
 
 
 def extract_readable_html(html: str) -> str:
@@ -25,23 +38,62 @@ def extract_readable_html(html: str) -> str:
 async def parse_url(url: str) -> str:
     """Fetch a website URL and extract readable page text.
 
+    Only http(s) URLs resolving to public IPs are fetched (SSRF guard).
     Raises ValueError when the URL cannot be fetched or parsed so callers
     (e.g. the upload API) can surface a meaningful HTTP error.
     """
     import httpx
 
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
-            resp = await client.get(
-                url, headers={"User-Agent": "AISolutionBuilder/1.0 (+document ingestion)"}
-            )
-            resp.raise_for_status()
+    def _public_host_or_raise(target: str) -> None:
+        parsed = httpx.URL(target)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(f"Only http/https URLs are allowed: {url}")
+        host = parsed.host
+        if not host:
+            raise ValueError(f"Invalid URL: {url}")
+        try:
+            infos = socket.getaddrinfo(host, None)
+        except socket.gaierror as e:
+            raise ValueError(f"Could not resolve host: {host}") from e
+        for _af, _socktype, _proto, _canon, sockaddr in infos:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if any(getattr(ip, attr) for attr in _BLOCKED_IP_ATTRS):
+                raise ValueError(f"Refusing to fetch non-public address: {ip}")
 
-        content_type = resp.headers.get("content-type", "").lower()
-        if "html" in content_type or "xml" in content_type:
-            text = extract_readable_html(resp.text)
-        else:
-            text = resp.text.strip()
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            target = url
+            content: bytes | None = None
+            content_type = ""
+            for _ in range(5):  # redirect loop, re-validating each hop
+                _public_host_or_raise(target)
+                async with client.stream(
+                    "GET",
+                    target,
+                    headers={"User-Agent": "AISolutionBuilder/1.0 (+document ingestion)"},
+                ) as resp:
+                    if resp.status_code in _REDIRECT_CODES and resp.headers.get("location"):
+                        target = str(httpx.URL(target).join(resp.headers["location"]))
+                        continue
+                    resp.raise_for_status()
+                    chunks: list[bytes] = []
+                    total = 0
+                    async for chunk in resp.aiter_bytes():
+                        total += len(chunk)
+                        if total > _MAX_URL_BYTES:
+                            raise ValueError(f"Response exceeds {_MAX_URL_BYTES} bytes")
+                        chunks.append(chunk)
+                    content = b"".join(chunks)
+                    content_type = resp.headers.get("content-type", "").lower()
+                break
+            else:
+                raise ValueError(f"Too many redirects fetching {url}")
+            assert content is not None
+
+            if "html" in content_type or "xml" in content_type:
+                text = extract_readable_html(content.decode("utf-8", errors="replace"))
+            else:
+                text = content.decode("utf-8", errors="replace").strip()
 
         if not text:
             return f"No readable content extracted from {url}"

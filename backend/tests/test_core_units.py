@@ -271,6 +271,23 @@ async def test_parse_url_rejects_invalid_target():
         await parse_url("not a url")
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1/admin",
+        "http://[::1]/admin",
+        "http://10.0.0.5/",
+        "http://192.168.1.1/",
+        "http://169.254.169.254/latest/meta-data/",
+        "file:///etc/passwd",
+        "ftp://example.com/file",
+    ],
+)
+async def test_parse_url_ssrf_guard_blocks_private_and_unsafe(url):
+    with pytest.raises(ValueError, match="non-public|http/https"):
+        await parse_url(url)
+
+
 OPENAPI_JSON = b"""
 {
   "openapi": "3.0.3",
