@@ -337,7 +337,14 @@ async def list_builds(
         .where(MVPBuild.solution_id == solution_id)
         .order_by(desc(MVPBuild.build_number))
     )
-    return [_build_response(b) for b in result.scalars().all()]
+    builds = []
+    for b in result.scalars().all():
+        if b.status == "building":
+            workspace = Path(b.workspace_path)
+            if workspace.exists():
+                b.file_count = len(builder.list_build_files(workspace))
+        builds.append(_build_response(b, include_files=True))
+    return builds
 
 
 async def _get_build_for_user(db: AsyncSession, build_id: UUID, user: User) -> MVPBuild:
@@ -361,7 +368,7 @@ async def build_status(
         workspace = Path(build.workspace_path)
         if workspace.exists():
             build.file_count = len(builder.list_build_files(workspace))
-    return _build_response(build, include_files=(build.status in _STATUS_END_STATES))
+    return _build_response(build, include_files=True)
 
 
 @router.get("/builds/{build_id}/download")

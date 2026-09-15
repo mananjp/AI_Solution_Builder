@@ -51,6 +51,8 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-to-a-long-random-string-in-production}
       OPENCODE_SERVER_URL: http://opencode:4096
       OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-opencode/deepseek-v4-flash-free}
+      OPENCODE_AGENT: ${OPENCODE_AGENT:-mvp-builder}
       MVP_BUILD_DIR: .data/mvp_builds
     ports:
       - "8000:8000"
@@ -80,8 +82,11 @@ services:
     restart: unless-stopped
     environment:
       GROQ_API_KEY: ${GROQ_API_KEY}
+      GROQ_API_KEY_2: ${GROQ_API_KEY_2:-}
+      GROQ_API_KEY_3: ${GROQ_API_KEY_3:-}
       GROQ_MODEL_NAME: ${GROQ_MODEL_NAME:-openai/gpt-oss-120b}
       OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-opencode/deepseek-v4-flash-free}
     ports:
       - "4096:4096"
     volumes:

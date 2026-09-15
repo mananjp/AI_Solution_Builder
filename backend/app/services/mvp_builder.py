@@ -18,6 +18,7 @@ chosen by this service and passed inside the generated prompt, so multiple
 builds never collide.
 """
 
+import asyncio
 import base64
 import io
 import json
@@ -36,6 +37,11 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 _IGNORED = {".git", "node_modules", "__pycache__", ".next", ".venv", "venv", "dist", "build"}
+
+# Retry configuration for OpenCode API calls
+MAX_RETRIES = 3
+RETRY_BACKOFF_BASE = 5  # seconds
+RETRYABLE_STATUSES = {408, 429, 500, 502, 503, 504}
 
 
 class MVPBuilderError(RuntimeError):
@@ -80,35 +86,108 @@ def _client() -> httpx.AsyncClient:
     )
 
 
-async def health() -> bool:
-    """Check the OpenCode sidecar is reachable and healthy."""
+async def health() -> dict[str, Any]:
+    """Check the OpenCode sidecar is reachable and healthy.
+
+    Returns a dict with 'healthy' bool plus diagnostic details.
+    """
+    result: dict[str, Any] = {"healthy": False, "details": {}}
     try:
         async with _client() as client:
             resp = await client.get("/global/health", timeout=10.0)
+            result["details"]["http_status"] = resp.status_code
             if resp.status_code != 200:
+                result["details"]["error"] = f"HTTP {resp.status_code}"
                 logger.warning("OpenCode sidecar unhealthy: HTTP %s", resp.status_code)
-                return False
+                return result
             body = resp.json()
-            healthy = bool(body.get("healthy", False))
-            logger.info("OpenCode sidecar healthy (version=%s)", body.get("version"))
-            return healthy
+            result["healthy"] = bool(body.get("healthy", False))
+            result["details"] = {**result["details"], **body}
+            logger.info(
+                "OpenCode sidecar health: healthy=%s version=%s",
+                result["healthy"],
+                body.get("version", "unknown"),
+            )
+            return result
+    except httpx.ConnectError as exc:
+        result["details"]["error"] = f"Connection refused: {exc}"
+        logger.warning("OpenCode sidecar unreachable (connection refused): %s", exc)
+        return result
     except httpx.HTTPError as exc:
+        result["details"]["error"] = str(exc)
         logger.warning("OpenCode sidecar unreachable: %s", exc)
-        return False
+        return result
+
+
+async def _retry_request(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    json_data: dict[str, Any] | None = None,
+    timeout: float | None = None,
+) -> httpx.Response:
+    """Make an HTTP request with exponential backoff retry for transient failures."""
+    last_exc: Exception | None = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            resp = await client.request(
+                method,
+                url,
+                json=json_data,
+                timeout=timeout or settings.MVP_BUILD_TIMEOUT,
+            )
+            if resp.status_code in RETRYABLE_STATUSES and attempt < MAX_RETRIES - 1:
+                wait = RETRYBACKOFF_BASE * (2 ** attempt)
+                logger.warning(
+                    "OpenCode %s %s returned %s (attempt %d/%d), retrying in %ds",
+                    method,
+                    url,
+                    resp.status_code,
+                    attempt + 1,
+                    MAX_RETRIES,
+                    wait,
+                )
+                await asyncio.sleep(wait)
+                continue
+            return resp
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError) as exc:
+            last_exc = exc
+            if attempt < MAX_RETRIES - 1:
+                wait = RETRYBACKOFF_BASE * (2 ** attempt)
+                logger.warning(
+                    "OpenCode %s %s failed (attempt %d/%d): %s — retrying in %ds",
+                    method,
+                    url,
+                    attempt + 1,
+                    MAX_RETRIES,
+                    exc,
+                    wait,
+                )
+                await asyncio.sleep(wait)
+                continue
+            raise
+    # Should not reach here, but satisfy type checker
+    raise last_exc or MVPBuilderError("Request failed after retries")
+
+
+RETRYBACKOFF_BASE = RETRY_BACKOFF_BASE
 
 
 async def create_session(title: str) -> str:
     """Create a new OpenCode session and return its id."""
     async with _client() as client:
-        resp = await client.post("/session", json={"title": title})
+        resp = await _retry_request(client, "POST", "/session", json_data={"title": title})
         if resp.status_code not in (200, 201):
             raise MVPBuilderError(
-                f"Failed to create OpenCode session ({resp.status_code}): {resp.text[:300]}"
+                f"Failed to create OpenCode session ({resp.status_code}): {resp.text[:500]}"
             )
         body: dict[str, Any] = resp.json()
         session_id = body.get("id")
         if not isinstance(session_id, str) or not session_id:
-            raise MVPBuilderError("OpenCode session response missing 'id'")
+            raise MVPBuilderError(
+                f"OpenCode session response missing 'id'. Response: {json.dumps(body)[:300]}"
+            )
         logger.info("OpenCode session created: %s", session_id)
         return session_id
 
@@ -118,14 +197,26 @@ async def send_build_prompt(session_id: str, prompt: str) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "agent": settings.OPENCODE_AGENT,
         "parts": [{"type": "text", "text": prompt}],
+        "model": None,
     }
     async with _client() as client:
-        resp = await client.post(f"/session/{session_id}/message", json=payload)
+        resp = await _retry_request(
+            client,
+            "POST",
+            f"/session/{session_id}/message",
+            json_data=payload,
+            timeout=settings.MVP_BUILD_TIMEOUT,
+        )
         if resp.status_code not in (200, 201):
+            body_text = resp.text[:800]
             raise MVPBuilderError(
-                f"OpenCode build prompt failed ({resp.status_code}): {resp.text[:500]}"
+                f"OpenCode build prompt failed ({resp.status_code}): {body_text}"
             )
         result: dict[str, Any] = resp.json()
+        # Log the response info for debugging
+        info = result.get("info", {})
+        if isinstance(info, dict) and info.get("error"):
+            logger.error("OpenCode agent reported error: %s", info["error"])
         return result
 
 
@@ -225,7 +316,7 @@ def _substitute_tree(root: Path, mapping: dict[str, str]) -> None:
             _apply(path, _substitute(path.read_text(encoding="utf-8", errors="ignore"), mapping))
 
 
-def _compact(text: str | None, limit: int = 1400) -> str:
+def _compact(text: str | None, limit: int = 2000) -> str:
     """Trim long artifact content to a compact one-liner."""
     if not text:
         return ""
@@ -382,9 +473,14 @@ async def run_build(
     title: str | None = None,
 ) -> dict[str, Any]:
     """Run an OpenCode MVP build synchronously. Returns build result metadata."""
-    if not await health():
+    health_result = await health()
+    if not health_result["healthy"]:
+        details = health_result.get("details", {})
+        error_msg = details.get("error", "unknown")
         raise MVPBuilderError(
-            "OpenCode sidecar is unreachable. Ensure the opencode service is running."
+            f"OpenCode sidecar is not healthy ({error_msg}). "
+            f"Ensure the opencode service is running and the model is available. "
+            f"Details: {json.dumps(details)[:500]}"
         )
 
     target_dir = _container_target(solution_id, build_number)
@@ -401,23 +497,54 @@ async def run_build(
     )
 
     prompt = build_mvp_prompt(ai_state, target_dir, app_title=title)
+    logger.info(
+        "MVP build prompt: %d chars, target=%s, modules=%s",
+        len(prompt),
+        target_dir,
+        modules,
+    )
 
     session_id = await create_session(f"MVP Build - {title or solution_id}")
     logger.info("Starting MVP build for solution=%s (session=%s)", solution_id, session_id)
 
     try:
         response = await send_build_prompt(session_id, prompt)
+        info = response.get("info", {})
+        error_msg = info.get("error") if isinstance(info, dict) else None
+        if error_msg:
+            logger.error(
+                "MVP build session reported error for solution=%s: %s",
+                solution_id,
+                error_msg,
+            )
+            raise MVPBuilderError(f"OpenCode agent error: {error_msg}")
         logger.info(
-            "MVP build finished for solution=%s (session=%s, %s)",
+            "MVP build finished for solution=%s (session=%s)",
             solution_id,
             session_id,
-            response.get("info") and response["info"].get("error", "ok"),
         )
     except MVPBuilderError:
         await abort_session(session_id)
         raise
+    except Exception as exc:
+        logger.exception("MVP build unexpected error for solution=%s", solution_id)
+        await abort_session(session_id)
+        raise MVPBuilderError(f"Build failed unexpectedly: {exc}") from exc
 
     files = list_build_files(local_dir)
+    if len(files) == 0:
+        logger.warning(
+            "MVP build produced no files for solution=%s (session=%s). "
+            "The agent may have failed to write to the correct directory.",
+            solution_id,
+            session_id,
+        )
+        raise MVPBuilderError(
+            "Build completed but produced no files. "
+            "The agent may have written to an incorrect path. "
+            f"Expected target: {target_dir}"
+        )
+
     return {
         "session_id": session_id,
         "local_dir": str(local_dir),

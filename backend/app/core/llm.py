@@ -29,9 +29,9 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-MAX_RETRIES = 2
-BASE_DELAY = 10  # seconds — start of exponential backoff for 429s
-_COOLDOWN_SECONDS = 60  # how long a rate-limited key is skipped
+MAX_RETRIES = 1
+BASE_DELAY = 1  # seconds — responsive backoff for 429s
+_COOLDOWN_SECONDS = 15  # how long a rate-limited key is skipped
 
 
 class _GroqKeyPool:

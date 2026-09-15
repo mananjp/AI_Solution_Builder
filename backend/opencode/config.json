@@ -1,16 +1,30 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "opencode/big-pickle",
+  "model": "opencode/deepseek-v4-flash-free",
+  "small_model": "opencode/deepseek-v4-flash-free",
   "provider": {
+    "opencode": {},
     "groq": {
-      "apiKey": "{env:GROQ_API_KEY}"
+      "package": "@ai-sdk/openai-compatible",
+      "options": {
+        "apiKey": "{env:GROQ_API_KEY}",
+        "baseURL": "https://api.groq.com/openai/v1"
+      },
+      "models": {
+        "openai/gpt-oss-120b": {
+          "name": "GPT-OSS-120B (Groq)",
+          "attachment": false,
+          "reasoning": false,
+          "temperature": 0.7
+        }
+      }
     }
   },
   "agent": {
     "mvp-builder": {
       "description": "Builds full-stack functional MVP prototypes (Next.js + FastAPI) from AI Solution Builder artifacts",
       "mode": "primary",
-      "model": "opencode/big-pickle"
+      "model": "opencode/deepseek-v4-flash-free"
     }
   }
 }

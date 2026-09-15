@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     # ── OpenCode MVP Builder (sidecar) ────────────
     OPENCODE_SERVER_URL: str = "http://opencode:4096"
     OPENCODE_SERVER_PASSWORD: str = ""
-    OPENCODE_MODEL: str = "groq/openai/gpt-oss-120b"
+    OPENCODE_MODEL: str = "opencode/deepseek-v4-flash-free"
     OPENCODE_AGENT: str = "mvp-builder"
     MVP_BUILD_TIMEOUT: int = 600  # seconds
     MVP_BUILD_DIR: str = ".data/mvp_builds"

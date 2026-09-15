@@ -461,6 +461,7 @@ export default function MvpPage() {
 
   const [solution, setSolution] = useState<Solution | null>(null);
   const [builds, setBuilds] = useState<MVPBuild[]>([]);
+  const [buildDetail, setBuildDetail] = useState<MVPBuild | null>(null);
   const [buildsLoaded, setBuildsLoaded] = useState(false);
   const [buildsLoading, setBuildsLoading] = useState(true);
   const [buildsError, setBuildsError] = useState<string | null>(null);
@@ -471,8 +472,8 @@ export default function MvpPage() {
   const [deployTarget, setDeployTarget] = useState<MVPBuild | null>(null);
   const [configureTarget, setConfigureTarget] = useState<MVPBuild | null>(null);
 
-  const loadBuilds = useCallback(async () => {
-    setBuildsLoading(true);
+  const loadBuilds = useCallback(async (showLoading = false) => {
+    if (showLoading) setBuildsLoading(true);
     setBuildsError(null);
     try {
       const nextBuilds = await mvpApi.listBuilds(solutionId);
@@ -487,9 +488,19 @@ export default function MvpPage() {
       setBuildsError(err instanceof Error ? err.message : 'Could not load build history.');
       setBuildsLoaded(true);
     } finally {
-      setBuildsLoading(false);
+      if (showLoading) setBuildsLoading(false);
     }
   }, [solutionId]);
+
+  const loadBuildDetail = useCallback(async (buildId: string) => {
+    try {
+      const detail = await mvpApi.getStatus(buildId);
+      setBuildDetail(detail);
+      return detail;
+    } catch {
+      return null;
+    }
+  }, []);
 
   useEffect(() => {
     solutionApi
@@ -507,15 +518,33 @@ export default function MvpPage() {
   }, [solutionId]);
 
   useEffect(() => {
-    loadBuilds();
+    loadBuilds(true);
   }, [loadBuilds]);
 
+  // Poll for active builds and fetch detail when complete
   useEffect(() => {
     const hasActive = builds.some((b) => b.status === 'pending' || b.status === 'building');
-    if (!hasActive) return;
-    const timer = setInterval(loadBuilds, 5000);
+    if (!hasActive) {
+      // If we just finished, fetch the detail for the latest complete build
+      const latestComplete = builds.find((b) => b.status === 'complete');
+      if (latestComplete && (!buildDetail || buildDetail.build_id !== latestComplete.build_id || !buildDetail.files?.length)) {
+        loadBuildDetail(latestComplete.build_id);
+      }
+      return;
+    }
+    const timer = setInterval(async () => {
+      await loadBuilds(false);
+    }, 3000);
     return () => clearInterval(timer);
-  }, [builds, loadBuilds]);
+  }, [builds, loadBuilds, loadBuildDetail, buildDetail]);
+
+  // Fetch detail for the visible build when it changes
+  useEffect(() => {
+    const target = builds.find((b) => b.status === 'complete' || b.status === 'building' || b.status === 'pending');
+    if (target && target.files && target.files.length === 0 && target.status === 'complete') {
+      loadBuildDetail(target.build_id);
+    }
+  }, [builds, loadBuildDetail]);
 
   const handleStartBuild = async () => {
     if (starting) return;
@@ -527,7 +556,7 @@ export default function MvpPage() {
       const buildConceptToUse = buildConcept.trim() || generatedBrief || undefined;
       const appNameToUse = appName.trim() || generatedName || undefined;
 
-      await mvpApi.triggerBuild(solutionId, {
+      const newBuild = await mvpApi.triggerBuild(solutionId, {
         app_name: appNameToUse,
         config: {
           build_concept: buildConceptToUse || undefined,
@@ -536,7 +565,8 @@ export default function MvpPage() {
       });
       setAppName('');
       setBuildConcept('');
-      await loadBuilds();
+      setBuildDetail(newBuild);
+      await loadBuilds(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to start build.';
       setActionError(
@@ -564,7 +594,10 @@ export default function MvpPage() {
     if (!window.confirm(`Destroy build #${build.build_number}? This cannot be undone.`)) return;
     try {
       await mvpApi.destroy(build.build_id);
-      await loadBuilds();
+      if (buildDetail?.build_id === build.build_id) {
+        setBuildDetail(null);
+      }
+      await loadBuilds(false);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Destroy failed.');
     }
@@ -578,12 +611,18 @@ export default function MvpPage() {
           : b
       )
     );
+    if (buildDetail && buildDetail.build_id === deployTarget?.build_id) {
+      setBuildDetail({ ...buildDetail, repo_url: repoUrl });
+    }
   };
 
   const sortedBuilds = [...builds].sort((a, b) => b.build_number - a.build_number);
   const activeBuild = sortedBuilds.find((b) => b.status === 'pending' || b.status === 'building') || null;
   const latestComplete = sortedBuilds.find((b) => b.status === 'complete') || null;
-  const visibleBuildResult = latestComplete || activeBuild;
+  // Prefer buildDetail (fetched from /status endpoint) which includes files
+  const visibleBuildResult = buildDetail && (buildDetail.status === 'complete' || buildDetail.status === 'building')
+    ? buildDetail
+    : latestComplete || activeBuild;
   const designReady = solution?.status === 'complete';
   const noBuildsYet = builds.length === 0 && buildsLoaded && !buildsLoading && !buildsError;
 
@@ -669,7 +708,7 @@ export default function MvpPage() {
                 <CardTitle className="text-sm">Build #{activeBuild.build_number}</CardTitle>
                 <StatusBadge status={activeBuild.status} />
               </div>
-              <Button variant="ghost" size="xs" onClick={loadBuilds} className="gap-1">
+              <Button variant="ghost" size="xs" onClick={() => loadBuilds(false)} className="gap-1">
                 <ArrowClockwise className="w-3 h-3" />
                 <span>Refresh</span>
               </Button>

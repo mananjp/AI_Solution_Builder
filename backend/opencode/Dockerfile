@@ -5,7 +5,12 @@ FROM node:20-slim AS runtime
 
 ENV NODE_ENV=production \
     OPENCODE_ENDPOINT=0.0.0.0 \
-    OPENCODE_PORT=4096
+    OPENCODE_PORT=4096 \
+    GROQ_API_KEY="" \
+    GROQ_API_KEY_2="" \
+    GROQ_API_KEY_3="" \
+    GROQ_MODEL_NAME="" \
+    OPENCODE_SERVER_PASSWORD=""
 
 WORKDIR /opt/opencode
 
