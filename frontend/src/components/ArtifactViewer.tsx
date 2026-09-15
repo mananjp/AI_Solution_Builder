@@ -2,22 +2,23 @@
 
 import React, { useState } from 'react';
 import { 
-  FileCode2, 
-  Layers, 
+  FileCode, 
+  Stack, 
   Database, 
   Layout, 
   Calendar, 
-  Network, 
+  GitBranch, 
   Copy, 
   Check, 
   Download,
-  RotateCw,
+  ArrowClockwise,
   GitFork,
   Play,
-  PenLine
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+  PencilSimple
+} from '@phosphor-icons/react/dist/ssr';
 import { Artifact, ArtifactType } from '@/types';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import BpmnViewer from './BpmnViewer';
 import WorkablePreview from './WorkablePreview';
 import RegenerateModal from './RegenerateModal';
@@ -35,18 +36,17 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
   const [showRegenModal, setShowRegenModal] = useState(false);
   const [wireframeView, setWireframeView] = useState<'canvas' | 'details'>('canvas');
 
-  const tabs: { type: ArtifactType; label: string; icon: LucideIcon; badge?: string }[] = [
-    { type: 'hld', label: 'High-Level Design', icon: Layers },
-    { type: 'lld', label: 'Low-Level Design', icon: Network },
+  const tabs: { type: ArtifactType; label: string; icon: React.ComponentType<{className?: string}>; badge?: string }[] = [
+    { type: 'hld', label: 'High-Level Design', icon: Stack },
+    { type: 'lld', label: 'Low-Level Design', icon: GitBranch },
     { type: 'workable', label: 'Mounted Live App', icon: Play, badge: 'Operational' },
     { type: 'bpmn', label: 'BPMN 2.0 Process', icon: GitFork },
     { type: 'wireframe', label: 'UI Wireframes', icon: Layout },
     { type: 'database_schema', label: 'DB Schema & ERD', icon: Database },
-    { type: 'api_spec', label: 'OpenAPI Spec', icon: FileCode2 },
+    { type: 'api_spec', label: 'OpenAPI Spec', icon: FileCode },
     { type: 'roadmap', label: 'Roadmap & Sprints', icon: Calendar },
   ];
 
-  // Find active artifact or fallback
   const currentArtifacts = artifacts.filter(a => a.artifact_type === activeType);
   const activeArtifact = currentArtifacts[0];
 
@@ -73,128 +73,133 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-950 border border-white/5 rounded-2xl overflow-hidden shadow-2xl">
-      {/* Top Tab Bar */}
-      <div className="flex items-center justify-between border-b border-white/5 bg-slate-900/60 px-4 pt-2 overflow-x-auto gap-2">
-        <div className="flex space-x-1">
+    <div className="flex flex-col h-full bg-background border border-border rounded-lg overflow-hidden">
+      <div className="flex items-center justify-between border-b border-border bg-card/60 px-4 pt-2 overflow-x-auto gap-2">
+        <div className="flex gap-1">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const hasData = artifacts.some(a => a.artifact_type === tab.type) || tab.type === 'workable' || tab.type === 'bpmn';
             const isActive = activeType === tab.type;
 
             return (
-              <button
+              <Button
                 key={tab.type}
+                variant="ghost"
+                size="sm"
                 onClick={() => setActiveType(tab.type)}
-                className={`flex items-center gap-2 px-3 py-2.5 text-xs font-medium rounded-t-xl transition-all border-t-2 whitespace-nowrap ${
+                className={`flex items-center gap-2 px-3 py-2.5 text-xs font-medium rounded-t transition-all border-t-2 whitespace-nowrap ${
                   isActive
-                    ? 'border-indigo-500 bg-slate-950 text-indigo-300 shadow-sm'
-                    : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                    ? 'border-primary bg-background text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-accent'
                 }`}
               >
-                <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-indigo-400' : 'text-slate-500'}`} />
+                <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-primary' : 'text-muted-foreground/70'}`} />
                 <span>{tab.label}</span>
                 {tab.badge && (
-                  <span className="px-1.5 py-0.2 text-[9px] font-bold rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  <Badge variant="secondary" className="px-1.5 py-0.2 text-[9px] font-bold rounded bg-success/20 text-success border border-success/30">
                     {tab.badge}
-                  </span>
+                  </Badge>
                 )}
                 {hasData && !tab.badge && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 ml-0.5" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-success ml-0.5" />
                 )}
-              </button>
+              </Button>
             );
           })}
         </div>
 
-        {/* Action buttons */}
         <div className="flex items-center gap-2 pb-2">
           {activeType !== 'workable' && activeType !== 'bpmn' && (
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => setShowRegenModal(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 text-xs font-semibold border border-indigo-500/20 transition-colors whitespace-nowrap"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-xs font-semibold border border-primary/20 transition-colors whitespace-nowrap"
             >
-              <RotateCw className="w-3.5 h-3.5" />
+              <ArrowClockwise className="w-3.5 h-3.5" />
               <span>Regenerate</span>
-            </button>
+            </Button>
           )}
 
           {activeArtifact && (
             <>
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => handleCopy(getRawContentString(activeArtifact))}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 text-xs transition-colors whitespace-nowrap"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-accent bg-accent text-muted-foreground text-xs transition-colors whitespace-nowrap"
               >
-                {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
                 <span>{copied ? 'Copied' : 'Copy'}</span>
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => handleDownload(`${activeType}-spec.txt`, getRawContentString(activeArtifact))}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 text-xs transition-colors whitespace-nowrap"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-accent bg-accent text-muted-foreground text-xs transition-colors whitespace-nowrap"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Export</span>
-              </button>
+              </Button>
             </>
           )}
         </div>
       </div>
 
-      {/* Artifact View Body */}
       <div className="flex-1 overflow-y-auto font-sans">
-        {/* Workable Runtime View */}
         {activeType === 'workable' ? (
           <div className="h-full">
             <WorkablePreview solutionId={solutionId} />
           </div>
         ) : activeType === 'bpmn' ? (
-          /* BPMN Process View */
           <div className="h-full p-4">
             <BpmnViewer />
           </div>
         ) : activeArtifact ? (
-          <div className="max-w-4xl mx-auto p-6 space-y-6">
-            <div className="flex items-center justify-between pb-4 border-b border-white/5">
+          <div className="max-w-4xl mx-auto p-6 flex flex-col gap-6">
+            <div className="flex items-center justify-between pb-4 border-b border-border">
               <div>
-                <h3 className="text-xl font-bold text-white">{activeArtifact.title}</h3>
-                <p className="text-xs text-slate-400 mt-1">
+                <h3 className="text-xl font-bold text-foreground">{activeArtifact.title}</h3>
+                <p className="text-xs text-muted-foreground mt-1">
                   Version {activeArtifact.version} • Synthesized by Autonomous Agent
                 </p>
               </div>
-              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+              <Badge variant="secondary" className="px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/20">
                 Production Spec
-              </span>
+              </Badge>
             </div>
 
-            {/* Wireframe vs Raw Code */}
             {activeType === 'wireframe' ? (
-              <div className="space-y-4">
-                {/* View switcher */}
+              <div className="flex flex-col gap-4">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-900/80 border border-white/5">
-                    <button
+                  <div className="flex items-center gap-1 p-1 rounded bg-card/80 border border-border">
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => setWireframeView('canvas')}
                       className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                         wireframeView === 'canvas'
-                          ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/20'
-                          : 'text-slate-400 hover:text-slate-200'
+                          ? 'bg-primary/20 text-primary border border-primary/20'
+                          : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
                       Canvas Editor
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => setWireframeView('details')}
                       className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                         wireframeView === 'details'
-                          ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/20'
-                          : 'text-slate-400 hover:text-slate-200'
+                          ? 'bg-primary/20 text-primary border border-primary/20'
+                          : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
                       Details
-                    </button>
+                    </Button>
                   </div>
-                  <span className="flex items-center gap-1.5 text-[10px] text-slate-500">
-                    <PenLine className="w-3 h-3" />
+                  <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
+                    <PencilSimple className="w-3 h-3" />
                     Drag, add, and connect components — then Save Layout
                   </span>
                 </div>
@@ -207,20 +212,20 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
                       | { description?: string; components?: Array<{ name?: string; title?: string }> }
                       | undefined;
                     return (
-                  <div key={idx} className="p-5 rounded-xl bg-slate-900/60 border border-white/5 space-y-3">
-                    <h4 className="font-semibold text-base text-indigo-200">{wf.title}</h4>
+                  <div key={idx} className="p-5 rounded bg-card/60 border border-border flex flex-col gap-3">
+                    <h4 className="font-semibold text-base text-foreground">{wf.title}</h4>
                     {wf.content_text ? (
-                      <pre className="text-xs text-slate-300 font-mono bg-slate-950 p-4 rounded-lg overflow-x-auto whitespace-pre-wrap leading-relaxed">
+                      <pre className="text-xs text-muted-foreground font-mono bg-background p-4 rounded-lg overflow-x-auto whitespace-pre-wrap leading-relaxed">
                         {wf.content_text}
                       </pre>
                     ) : (
-                      <div className="text-xs text-slate-400 space-y-2">
+                      <div className="text-xs text-muted-foreground flex flex-col gap-2">
                         <p>{wfContent?.description || 'UI Wireframe Blueprint'}</p>
                         {wfContent?.components && (
                           <div className="grid grid-cols-2 gap-2 mt-2">
                             {wfContent.components.map((comp, cidx) => (
-                              <div key={cidx} className="p-2 rounded bg-white/5 border border-white/5">
-                                <span className="font-semibold text-white">{comp.name || comp.title}</span>
+                              <div key={cidx} className="p-2 rounded bg-accent border border-border">
+                                <span className="font-semibold text-foreground">{comp.name || comp.title}</span>
                               </div>
                             ))}
                           </div>
@@ -233,29 +238,28 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
                 )}
               </div>
             ) : (
-              <div className="rounded-xl bg-slate-900/50 border border-white/5 p-5">
-                <pre className="text-xs text-slate-300 font-mono overflow-x-auto whitespace-pre-wrap leading-relaxed">
+              <div className="rounded bg-card/50 border border-border p-5">
+                <pre className="text-xs text-muted-foreground font-mono overflow-x-auto whitespace-pre-wrap leading-relaxed">
                   {getRawContentString(activeArtifact)}
                 </pre>
               </div>
             )}
           </div>
         ) : (
-          <div className="h-64 flex flex-col items-center justify-center text-center space-y-3 text-slate-500 p-8">
-            <div className="p-3 rounded-2xl bg-white/[0.02] border border-white/5">
-              <Layers className="w-8 h-8 text-slate-600" />
+          <div className="h-64 flex flex-col items-center justify-center text-center flex flex-col gap-3 text-muted-foreground/70 p-8">
+            <div className="p-3 rounded-lg bg-white/[0.02] border border-border">
+              <Stack className="w-8 h-8 text-muted-foreground/70" />
             </div>
-            <p className="text-sm font-medium text-slate-400">
+            <p className="text-sm font-medium text-muted-foreground">
               No artifact generated yet for this category.
             </p>
-            <p className="text-xs text-slate-500 max-w-sm">
+            <p className="text-xs text-muted-foreground/70 max-w-sm">
               Use the AI Architect Chat to describe your business problem or confirm recommended modules to trigger synthesis.
             </p>
           </div>
         )}
       </div>
 
-      {/* Scoped Regenerate Modal */}
       <RegenerateModal
         solutionId={solutionId}
         artifactType={activeType}

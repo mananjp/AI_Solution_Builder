@@ -8,6 +8,7 @@ role-gated `require_admin` dependency for the admin/ governance surface.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -26,20 +27,77 @@ if TYPE_CHECKING:
     from app.models.user import User
 
 # ── Password Hashing ─────────────────────────────
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Use a backend that works consistently in local development environments
+# without the bcrypt wheel incompatibility seen on newer Python builds.
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 # ── Bearer Token Scheme ──────────────────────────
 bearer_scheme = HTTPBearer(auto_error=False)
 
+DEV_DEMO_EMAIL = "demo@aibuilder.example"
+DEV_DEMO_PASSWORD = "DemoPass123!"
+
 
 def hash_password(password: str) -> str:
-    """Hash a plaintext password using bcrypt."""
+    """Hash a plaintext password using the configured passlib backend."""
     return cast(str, pwd_context.hash(password))
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a plaintext password against its bcrypt hash."""
+    """Verify a plaintext password against the current hashed password."""
     return cast(bool, pwd_context.verify(plain_password, hashed_password))
+
+
+async def ensure_dev_demo_user(db: AsyncSession) -> User | None:
+    """Create a seeded demo account for local development if no user exists."""
+    if settings.APP_ENV.lower() != "development":
+        return None
+
+    from app.models.credit import Plan
+    from app.models.organization import Organization
+    from app.models.user import User
+    from app.models.workspace import Workspace
+
+    user = (await db.execute(select(User).where(User.email == DEV_DEMO_EMAIL))).scalar_one_or_none()
+    if user is None:
+        plan = (await db.execute(select(Plan).where(Plan.name == "free"))).scalar_one_or_none()
+        if plan is None:
+            plan = Plan(name="free", monthly_credits=10000, max_workable_systems=3, price_usd=0)
+            db.add(plan)
+            await db.flush()
+
+        org = (await db.execute(select(Organization).where(Organization.name == "Demo Org"))).scalar_one_or_none()
+        if org is None:
+            org = Organization(name="Demo Org", plan_id=plan.id, credits_remaining=plan.monthly_credits)
+            db.add(org)
+            await db.flush()
+
+        user = User(
+            email=DEV_DEMO_EMAIL,
+            full_name="Demo User",
+            hashed_password=hash_password(DEV_DEMO_PASSWORD),
+            role="admin",
+            org_id=org.id,
+        )
+        db.add(user)
+        await db.flush()
+
+        workspace = (
+            await db.execute(
+                select(Workspace).where(Workspace.org_id == org.id, Workspace.name == "Demo Workspace")
+            )
+        ).scalar_one_or_none()
+        if workspace is None:
+            db.add(
+                Workspace(
+                    org_id=org.id,
+                    name="Demo Workspace",
+                    description="Pre-created workspace for local demo use.",
+                )
+            )
+
+    await db.commit()
+    return user
 
 
 def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
@@ -93,7 +151,15 @@ async def get_current_user(
             detail="Token missing subject claim",
         )
 
-    result = await db.execute(select(User).where(User.id == user_id))
+    try:
+        user_uuid = uuid.UUID(str(user_id))
+    except (TypeError, ValueError, AttributeError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid subject claim",
+        ) from None
+
+    result = await db.execute(select(User).where(User.id == user_uuid))
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(

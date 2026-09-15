@@ -1,20 +1,20 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { cn } from "@/lib/utils";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
+const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
 const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
   subsets: ["latin"],
+  variable: "--font-mono",
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
-  title: "AI Solution Builder — Autonomous Architecture & Workable Systems",
-  description: "Turn business logic into production software blueprints, PostgreSQL schemas, and mounted live applications in minutes.",
+  title: "AI Solution Builder - Autonomous Architecture Studio",
+  description:
+    "Transform business intent into production-ready systems. Multi-agent pipeline generating schemas, APIs, and deployable code.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
@@ -28,7 +28,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#070a13",
+  themeColor: "#0c0b09",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -43,14 +43,23 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
+      className={cn(
+        "h-full",
+        "antialiased",
+        "dark",
+        geist.variable,
+        geistMono.variable,
+        "font-sans"
+      )}
     >
       <head>
         <link rel="manifest" href="/manifest.json" />
         <meta name="mobile-web-app-capable" content="yes" />
       </head>
-      <body className="min-h-full flex flex-col bg-[#070a13] text-slate-100">
-        {children}
+      <body className="min-h-full flex flex-col noise-overlay" suppressHydrationWarning>
+        <TooltipProvider>
+          {children}
+        </TooltipProvider>
         <script
           dangerouslySetInnerHTML={{
             __html: `

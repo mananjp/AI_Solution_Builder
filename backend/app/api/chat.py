@@ -9,6 +9,7 @@ deducts credits via the credit metering service.
 
 import json
 import logging
+import re
 from collections.abc import AsyncIterator
 from typing import Any, cast
 from uuid import UUID
@@ -23,6 +24,7 @@ from app.agents.state import DiscoveryState
 from app.core.credits import require_and_deduct_credit
 from app.core.database import async_session_factory, get_db
 from app.core.i18n import translate_text
+from app.core.sanitization import sanitize_input, MAX_MESSAGE_LENGTH
 from app.core.security import get_current_user
 from app.models.artifact import SolutionArtifact
 from app.models.solution import Solution
@@ -35,6 +37,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 ARTIFACT_TYPES = ["hld", "lld", "er_diagram", "database_schema", "api_spec", "roadmap"]
+
+# Per-user conversation limits
+MAX_CONVERSATION_HISTORY = 50
+MAX_MODULES_PER_CONFIRM = 20
 
 
 async def _verify_solution_access(solution_id: UUID, user: User, db: AsyncSession) -> Solution:
@@ -51,6 +57,76 @@ async def _verify_solution_access(solution_id: UUID, user: User, db: AsyncSessio
     if not solution:
         raise HTTPException(status_code=404, detail="Solution not found")
     return solution
+
+
+def _validate_message(message: str) -> str:
+    """Validate and sanitize chat message input. Returns cleaned message or raises."""
+    if not message or not message.strip():
+        raise HTTPException(
+            status_code=422,
+            detail={"error": {"code": "EMPTY_MESSAGE", "message": "Message cannot be empty"}},
+        )
+
+    result = sanitize_input(message, max_length=MAX_MESSAGE_LENGTH)
+    if not result.is_safe:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "code": "INPUT_REJECTED",
+                    "message": result.reason,
+                    "category": result.category,
+                }
+            },
+        )
+
+    return result.sanitized_text or message.strip()
+
+
+def _validate_modules(modules: list[str]) -> list[str]:
+    """Validate module names — no injection, reasonable count."""
+    if not modules:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": {"code": "NO_MODULES", "message": "At least one module must be selected"}},
+        )
+
+    if len(modules) > MAX_MODULES_PER_CONFIRM:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": {
+                    "code": "TOO_MANY_MODULES",
+                    "message": f"Maximum {MAX_MODULES_PER_CONFIRM} modules per confirmation",
+                }
+            },
+        )
+
+    cleaned = []
+    for mod in modules:
+        if not mod or not mod.strip():
+            continue
+        # Module names should be alphanumeric + spaces/hyphens only
+        mod_clean = re.sub(r'[^\w\s\-]', '', mod.strip())[:100]
+        if mod_clean:
+            cleaned.append(mod_clean)
+
+    if not cleaned:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": {"code": "INVALID_MODULES", "message": "No valid module names provided"}},
+        )
+
+    return cleaned
+
+
+def _trim_conversation_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep conversation history within limits to prevent context overflow."""
+    if len(history) > MAX_CONVERSATION_HISTORY:
+        # Keep first 2 messages (context) + last N (recent)
+        keep = MAX_CONVERSATION_HISTORY - 2
+        return history[:2] + history[-keep:]
+    return history
 
 
 async def _persist_artifacts(
@@ -104,7 +180,7 @@ async def _persist_artifacts(
     for flow in final_state.get("bpmn_flows", []):
         if isinstance(flow, dict) and "content" in flow:
             add(
-                flow.get("artifact_type", "bpmn_flows"),
+                "bpmn",
                 flow.get("title", "Process Workflow"),
                 flow.get("content", {}),
                 flow.get("content_text", ""),
@@ -146,8 +222,20 @@ async def _generation_response(
     conversation_history: list[dict[str, Any]],
 ) -> dict[str, Any]:
     conversation_history.append({"role": "assistant", "content": ai_response})
-    solution.conversation_history = conversation_history
+    solution.conversation_history = _trim_conversation_history(conversation_history)
     return final_state
+
+
+AGENT_LABELS = {
+    "business_analyst": ("Business Analyst", "Analyzing your business requirements..."),
+    "business_recommendation": ("Recommendation Engine", "Recommending the best modules for your business..."),
+    "solutions_architect": ("Solutions Architect", "Designing system architecture and component structure..."),
+    "ux_agent": ("UX Agent", "Creating wireframes and navigation flows..."),
+    "process_intelligence": ("Process Intelligence", "Designing business process workflows..."),
+    "database_api_agent": ("Database & API", "Generating database schema and API endpoints..."),
+    "code_synthesizer": ("Code Synthesizer", "Synthesizing executable code and module manifests..."),
+    "blueprint_generator": ("Blueprint Generator", "Building your implementation roadmap..."),
+}
 
 
 @router.post("/send")
@@ -158,8 +246,7 @@ async def send_message(
     db: AsyncSession = Depends(get_db),
 ) -> EventSourceResponse:
     """Send a message to the AI pipeline and get a streaming response."""
-    # Eager access check so authorization failures surface as HTTP errors
-    # rather than error events mid-stream.
+    clean_message = _validate_message(payload.message)
     await _verify_solution_access(payload.solution_id, current_user, db)
     content_language: str = getattr(request.state, "language", "en")
 
@@ -170,28 +257,23 @@ async def send_message(
                 "data": json.dumps({"agent": "pipeline", "message": "Starting AI analysis..."}),
             }
 
-            # Streaming over a dependency-injected session is unsafe: the yield
-            # teardown closes the request session before the response body is
-            # consumed, orphaning ORM objects. Open an explicit session here so
-            # artifact/status persistence outlives the endpoint return.
             async with async_session_factory() as stream_db:
                 solution = await _verify_solution_access(
                     payload.solution_id, current_user, stream_db
                 )
-
                 await require_and_deduct_credit(
                     stream_db, current_user, "generation", f"Chat analysis: {solution.title}"
                 )
 
                 conversation_history = solution.conversation_history or []
-                conversation_history.append({"role": "user", "content": payload.message})
+                conversation_history.append({"role": "user", "content": clean_message})
 
                 ai_state = solution.ai_state or {}
                 initial_state = {
-                    "user_message": payload.message,
+                    "user_message": clean_message,
                     "uploaded_context": payload.uploaded_context
                     or ai_state.get("uploaded_context", ""),
-                    "conversation_history": conversation_history,
+                    "conversation_history": _trim_conversation_history(conversation_history),
                     "agent_messages": [],
                     **{
                         k: v
@@ -200,7 +282,43 @@ async def send_message(
                     },
                 }
 
-                final_state = await discovery_graph.ainvoke(cast(DiscoveryState, initial_state))
+                final_state = None
+                try:
+                    async for event in discovery_graph.astream_events(
+                        cast(DiscoveryState, initial_state), version="v2"
+                    ):
+                        kind = event.get("event", "")
+                        name = event.get("name", "")
+                        if kind == "on_chain_start" and name in AGENT_LABELS:
+                            label, msg = AGENT_LABELS[name]
+                            yield {
+                                "event": "agent_start",
+                                "data": json.dumps({"agent": name, "message": msg}),
+                            }
+                        elif kind == "on_chain_end" and name in AGENT_LABELS:
+                            label, _ = AGENT_LABELS[name]
+                            yield {
+                                "event": "agent_done",
+                                "data": json.dumps({"agent": name, "message": f"{label} complete"}),
+                            }
+                        if kind == "on_chain_end" and name in ("LangGraph", "__end__", ""):
+                            output = event.get("data", {}).get("output")
+                            if output and isinstance(output, dict):
+                                final_state = output
+                except Exception as graph_exc:
+                    logger.error("Discovery graph failed: %s — using partial state", graph_exc)
+                    final_state = {
+                        **initial_state,
+                        "current_agent": "error",
+                        "status": "clarifying",
+                        "confidence_score": 0.3,
+                        "clarification_questions": [
+                            "I encountered an issue processing your request. Could you rephrase or provide more details?"
+                        ],
+                    }
+
+                if final_state is None:
+                    final_state = initial_state
 
                 for msg in final_state.get("agent_messages", []):
                     yield {"event": msg.get("type", "agent_progress"), "data": json.dumps(msg)}
@@ -224,26 +342,26 @@ async def send_message(
                     )
 
                 ai_response = await translate_text(ai_response, content_language)
-
                 await _generation_response(solution, final_state, ai_response, conversation_history)
                 await stream_db.commit()
 
             yield {
                 "event": "complete",
-                "data": json.dumps(
-                    {
-                        "status": status,
-                        "message": ai_response,
-                        "recommendations": final_state.get("recommended_modules")
-                        if status == "recommending"
-                        else None,
-                    }
-                ),
+                "data": json.dumps({
+                    "status": status,
+                    "message": ai_response,
+                    "recommendations": final_state.get("recommended_modules")
+                    if status == "recommending"
+                    else None,
+                }),
             }
 
+        except HTTPException as e:
+            detail = e.detail if isinstance(e.detail, str) else json.dumps(e.detail)
+            yield {"event": "error", "data": json.dumps({"message": detail})}
         except Exception as e:
             logger.exception("Error in chat pipeline")
-            yield {"event": "error", "data": json.dumps({"message": str(e)})}
+            yield {"event": "error", "data": json.dumps({"message": f"Pipeline error: {type(e).__name__}: {e}"})}
 
     return EventSourceResponse(event_generator())
 
@@ -256,6 +374,9 @@ async def confirm_recommendations(
     db: AsyncSession = Depends(get_db),
 ) -> EventSourceResponse:
     """Confirm recommended modules and trigger the generation pipeline."""
+    # Validate modules
+    clean_modules = _validate_modules(payload.accepted_modules)
+
     # Eager access check so authorization failures surface as HTTP errors
     # rather than error events mid-stream.
     await _verify_solution_access(payload.solution_id, current_user, db)
@@ -268,8 +389,6 @@ async def confirm_recommendations(
                 "data": json.dumps({"agent": "pipeline", "message": "Generating your solution..."}),
             }
 
-            # Own session: see send_message for rationale (yield teardown would
-            # close a dependency-injected session before streaming completes).
             async with async_session_factory() as stream_db:
                 solution = await _verify_solution_access(
                     payload.solution_id, current_user, stream_db
@@ -283,20 +402,52 @@ async def confirm_recommendations(
 
                 initial_state = {
                     **ai_state,
-                    "confirmed_modules": payload.accepted_modules,
-                    "identified_solutions": payload.accepted_modules,
-                    "conversation_history": conversation_history,
+                    "confirmed_modules": clean_modules,
+                    "identified_solutions": clean_modules,
+                    "conversation_history": _trim_conversation_history(conversation_history),
                     "agent_messages": [],
                 }
 
                 conversation_history.append(
                     {
                         "role": "user",
-                        "content": f"I'd like to build these modules: {', '.join(payload.accepted_modules)}",
+                        "content": f"I'd like to build these modules: {', '.join(clean_modules)}",
                     }
                 )
 
-                final_state = await generation_graph.ainvoke(cast(DiscoveryState, initial_state))
+                final_state = None
+                try:
+                    async for event in generation_graph.astream_events(
+                        cast(DiscoveryState, initial_state), version="v2"
+                    ):
+                        kind = event.get("event", "")
+                        name = event.get("name", "")
+                        if kind == "on_chain_start" and name in AGENT_LABELS:
+                            label, msg = AGENT_LABELS[name]
+                            yield {
+                                "event": "agent_start",
+                                "data": json.dumps({"agent": name, "message": msg}),
+                            }
+                        elif kind == "on_chain_end" and name in AGENT_LABELS:
+                            label, _ = AGENT_LABELS[name]
+                            yield {
+                                "event": "agent_done",
+                                "data": json.dumps({"agent": name, "message": f"{label} complete"}),
+                            }
+                        if kind == "on_chain_end" and name in ("LangGraph", "__end__", ""):
+                            output = event.get("data", {}).get("output")
+                            if output and isinstance(output, dict):
+                                final_state = output
+                except Exception as graph_exc:
+                    logger.error("Pipeline graph failed: %s — attempting partial save", graph_exc)
+                    final_state = {
+                        **initial_state,
+                        "current_agent": "error",
+                        "status": "partial",
+                    }
+
+                if final_state is None:
+                    final_state = initial_state
 
                 for msg in final_state.get("agent_messages", []):
                     yield {"event": msg.get("type", "agent_progress"), "data": json.dumps(msg)}
@@ -306,10 +457,8 @@ async def confirm_recommendations(
                 ai_response = await translate_text(ai_response, content_language)
                 await _generation_response(solution, final_state, ai_response, conversation_history)
 
-                # Log the recommendation event for template-library feedback (Section 4)
                 try:
                     from app.models.recommendation import RecommendationEvent
-
                     stream_db.add(
                         RecommendationEvent(
                             workspace_id=solution.workspace_id,
@@ -317,7 +466,7 @@ async def confirm_recommendations(
                             modules_proposed=[
                                 m.get("module") for m in final_state.get("recommended_modules", [])
                             ],
-                            modules_accepted=payload.accepted_modules,
+                            modules_accepted=clean_modules,
                         )
                     )
                 except Exception:
@@ -330,8 +479,11 @@ async def confirm_recommendations(
                 "data": json.dumps({"status": "complete", "message": ai_response}),
             }
 
+        except HTTPException as e:
+            detail = e.detail if isinstance(e.detail, str) else json.dumps(e.detail)
+            yield {"event": "error", "data": json.dumps({"message": detail})}
         except Exception as e:
             logger.exception("Error in generation pipeline")
-            yield {"event": "error", "data": json.dumps({"message": str(e)})}
+            yield {"event": "error", "data": json.dumps({"message": f"Pipeline error: {type(e).__name__}: {e}"})}
 
     return EventSourceResponse(event_generator())

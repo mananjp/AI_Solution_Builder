@@ -309,12 +309,22 @@ async def regenerate_artifact(
             new_title = art.get("title", payload.artifact_type.replace("_", " ").title())
         elif payload.artifact_type in ("roadmap", "bpmn"):
             output = await blueprint_generator_node(cast(DiscoveryState, prior_state))
-            art = output.get("roadmap", {})
+            art = output.get(payload.artifact_type, {})
+            if not art and payload.artifact_type == "bpmn":
+                flows = output.get("bpmn_flows", [])
+                if flows and isinstance(flows, list):
+                    art = flows[0]
             new_content = art.get("content", {})
             new_text = art.get(
-                "content_text", f"Regenerated roadmap based on: {payload.user_feedback}"
+                "content_text",
+                f"Regenerated {payload.artifact_type} based on: {payload.user_feedback}",
             )
-            new_title = art.get("title", "Delivery Roadmap & Milestones")
+            new_title = art.get(
+                "title",
+                "Delivery Roadmap & Milestones"
+                if payload.artifact_type == "roadmap"
+                else "Process Workflow",
+            )
         else:
             new_text = f"Regenerated {payload.artifact_type}: {payload.user_feedback}"
             new_content = {"custom_spec": payload.user_feedback}

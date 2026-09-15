@@ -1,8 +1,17 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Check, Eye, EyeOff, GitBranch, Lock, Rocket, ShieldCheck } from 'lucide-react';
+import { Check, Eye, EyeSlash, GitBranch, Lock, Rocket, ShieldCheck } from '@phosphor-icons/react/dist/ssr';
+import { cn } from '@/lib/utils';
 import { authApi } from '@/lib/api';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Separator } from '@/components/ui/separator';
 
 export default function SettingsPage() {
   const [githubToken, setGithubToken] = useState('');
@@ -11,6 +20,12 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [message, setMessage] = useState<string | null>(null);
+
+  const [emailNotifications, setEmailNotifications] = useState(true);
+  const [deploymentAlerts, setDeploymentAlerts] = useState(true);
+  const [weeklyDigest, setWeeklyDigest] = useState(false);
+  const [theme, setTheme] = useState('dark');
+  const [language, setLanguage] = useState('en');
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,132 +60,221 @@ export default function SettingsPage() {
     }
   };
 
-  const inputClass =
-    'w-full px-4 py-3 rounded-xl bg-slate-900 border border-white/10 text-white text-xs placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition-colors shadow-inner font-mono';
-
   return (
-    <div className="space-y-8 max-w-4xl mx-auto">
+    <div className="p-6 lg:p-8 gap-8 max-w-4xl mx-auto flex flex-col">
       {/* Header */}
-      <div className="p-8 rounded-3xl bg-gradient-to-r from-indigo-950/60 via-slate-900/80 to-purple-950/40 border border-white/5 shadow-2xl relative overflow-hidden">
-        <div className="relative z-10 flex items-start justify-between gap-6 flex-wrap">
-          <div className="space-y-2 max-w-xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-semibold">
-              <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
-              <span>One-Click Deployer</span>
+      <Card>
+        <CardHeader>
+          <div className="flex items-start justify-between gap-6 flex-wrap">
+            <div className="gap-2">
+              <Badge variant="outline" className="gap-1.5 w-fit">
+                <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+                One-Click Deployer
+              </Badge>
+              <CardTitle>Deployment Credentials</CardTitle>
+              <CardDescription>
+                Save your GitHub Personal Access Token and Render API key to enable one-click deployment of generated MVP
+                code. Credentials are stored per-account, encrypted at rest, and never exposed through the API.
+              </CardDescription>
             </div>
-            <h2 className="text-2xl font-extrabold text-white tracking-tight">Deployment Credentials</h2>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              Save your GitHub Personal Access Token and Render API key to enable one-click deployment of generated MVP
-              code. Credentials are stored per-account, encrypted at rest, and never exposed through the API.
-            </p>
+            <Rocket className="h-12 w-12 text-primary/60" />
           </div>
-          <Rocket className="w-12 h-12 text-indigo-400/60" />
-        </div>
-      </div>
+        </CardHeader>
+      </Card>
 
       {/* Credentials Form */}
-      <form
-        onSubmit={handleSave}
-        className="p-6 rounded-2xl bg-slate-900/40 border border-white/5 space-y-5"
-      >
-        <div className="space-y-1.5">
-          <label className="flex items-center gap-2 text-xs font-semibold text-slate-200">
-            <GitBranch className="w-3.5 h-3.5 text-slate-400" />
-            GitHub Personal Access Token (PAT)
-          </label>
-          <div className="relative">
-            <input
-              type={showTokens ? 'text' : 'password'}
-              value={githubToken}
-              onChange={(e) => setGithubToken(e.target.value)}
-              placeholder="ghp_••••••••••••••••••••••••••"
-              className={`${inputClass} pr-11`}
-              autoComplete="off"
-            />
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-600" />
-            <button
-              type="button"
-              onClick={() => setShowTokens(!showTokens)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
-              title={showTokens ? 'Hide secrets' : 'Reveal secrets'}
-            >
-              {showTokens ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
-          <p className="text-[11px] text-slate-500">
-            Scopes needed: <code className="text-indigo-300">repo</code> to create the fresh repository and push files
-            during deploy.
-          </p>
-        </div>
+      <form onSubmit={handleSave}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">API Keys</CardTitle>
+            <CardDescription>Configure your deployment provider credentials</CardDescription>
+          </CardHeader>
+          <CardContent className="gap-6">
+            <div className="gap-2">
+              <Label htmlFor="github-token" className="flex items-center gap-2">
+                <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
+                GitHub Personal Access Token (PAT)
+              </Label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="github-token"
+                  type={showTokens ? 'text' : 'password'}
+                  value={githubToken}
+                  onChange={(e) => setGithubToken(e.target.value)}
+                  placeholder="ghp_••••••••••••••••••••••••••"
+                  className="pl-9 pr-11 font-mono"
+                  autoComplete="off"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowTokens(!showTokens)}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                  title={showTokens ? 'Hide secrets' : 'Reveal secrets'}
+                >
+                  {showTokens ? <EyeSlash className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Scopes needed: <code className="text-primary">repo</code> to create the fresh repository and push files during deploy.
+              </p>
+            </div>
 
-        <div className="space-y-1.5">
-          <label className="flex items-center gap-2 text-xs font-semibold text-slate-200">
-            <Rocket className="w-3.5 h-3.5 text-slate-400" />
-            Render API Key
-          </label>
-          <div className="relative">
-            <input
-              type={showTokens ? 'text' : 'password'}
-              value={renderApiKey}
-              onChange={(e) => setRenderApiKey(e.target.value)}
-              placeholder="rnd_••••••••••••••••••••••"
-              className={`${inputClass} pr-11`}
-              autoComplete="off"
-            />
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-600" />
-            <button
-              type="button"
-              onClick={() => setShowTokens(!showTokens)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
-              title={showTokens ? 'Hide secrets' : 'Reveal secrets'}
-            >
-              {showTokens ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
-          <p className="text-[11px] text-slate-500">
-            Optional — used to trigger an automatic Render deploy after the GitHub push.
-          </p>
-        </div>
+            <Separator />
 
-        {message && (
-          <div
-            className={`flex items-center gap-2 px-4 py-3 rounded-xl text-xs font-medium border ${
-              status === 'saved'
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
-            }`}
-          >
-            {status === 'saved' && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
-            {message}
-          </div>
-        )}
+            <div className="gap-2">
+              <Label htmlFor="render-api-key" className="flex items-center gap-2">
+                <Rocket className="h-3.5 w-3.5 text-muted-foreground" />
+                Render API Key
+              </Label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="render-api-key"
+                  type={showTokens ? 'text' : 'password'}
+                  value={renderApiKey}
+                  onChange={(e) => setRenderApiKey(e.target.value)}
+                  placeholder="rnd_••••••••••••••••••••••"
+                  className="pl-9 pr-11 font-mono"
+                  autoComplete="off"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowTokens(!showTokens)}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                  title={showTokens ? 'Hide secrets' : 'Reveal secrets'}
+                >
+                  {showTokens ? <EyeSlash className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Optional — used to trigger an automatic Render deploy after the GitHub push.
+              </p>
+            </div>
 
-        <div className="pt-2 flex justify-end">
-          <button
-            type="submit"
-            disabled={saving}
-            className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-semibold shadow-xl shadow-indigo-600/30 transition-all hover:scale-105 disabled:opacity-40"
-          >
-            {saving ? <span>saving…</span> : <span>Save Credentials</span>}
-          </button>
-        </div>
+            {message && (
+              <div
+                className={cn(
+                  'flex items-center gap-2 px-4 py-3 rounded text-xs font-medium border',
+                  status === 'saved'
+                    ? 'bg-success/10 border-success/30 text-success'
+                    : 'bg-destructive/10 border-destructive/30 text-destructive',
+                )}
+              >
+                {status === 'saved' && <Check className="h-3.5 w-3.5 shrink-0" />}
+                {message}
+              </div>
+            )}
+          </CardContent>
+          <CardFooter className="justify-end">
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Saving...' : 'Save Credentials'}
+            </Button>
+          </CardFooter>
+        </Card>
       </form>
 
-      {/* Usage hint */}
-      <div className="p-5 rounded-2xl bg-slate-900/40 border border-white/5">
-        <h3 className="text-xs font-bold text-white mb-2">How the deployer uses these</h3>
-        <ol className="space-y-2 text-xs text-slate-400 list-decimal list-inside">
-          <li>Finish an MVP build for a solution(chat → blueprints → <span className="text-indigo-300">Build &amp; Deploy</span>).</li>
-          <li>
-            On the MVP page, pick <span className="text-indigo-300">Deploy to GitHub</span> and enter a repository name.
-          </li>
-          <li>
-            The deployer creates a fresh private repository with your PAT and pushes the full generated project — including a
-            Render blueprint (<code className="text-indigo-300">render.yaml</code>) and CI workflow.
-          </li>
-          <li>Connect the repository to Render and it auto-deploys on green CI.</li>
-        </ol>
-      </div>
+      {/* Notifications */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Notifications</CardTitle>
+          <CardDescription>Configure how you receive platform notifications</CardDescription>
+        </CardHeader>
+        <CardContent className="gap-4">
+          <div className="flex items-center justify-between">
+            <div className="gap-0.5">
+              <Label htmlFor="email-notifications">Email Notifications</Label>
+              <p className="text-xs text-muted-foreground">Receive email updates for important events</p>
+            </div>
+            <Switch id="email-notifications" checked={emailNotifications} onCheckedChange={setEmailNotifications} />
+          </div>
+          <Separator />
+          <div className="flex items-center justify-between">
+            <div className="gap-0.5">
+              <Label htmlFor="deployment-alerts">Deployment Alerts</Label>
+              <p className="text-xs text-muted-foreground">Get notified when deployments succeed or fail</p>
+            </div>
+            <Switch id="deployment-alerts" checked={deploymentAlerts} onCheckedChange={setDeploymentAlerts} />
+          </div>
+          <Separator />
+          <div className="flex items-center justify-between">
+            <div className="gap-0.5">
+              <Label htmlFor="weekly-digest">Weekly Digest</Label>
+              <p className="text-xs text-muted-foreground">Receive a weekly summary of platform activity</p>
+            </div>
+            <Switch id="weekly-digest" checked={weeklyDigest} onCheckedChange={setWeeklyDigest} />
+          </div>
+        </CardContent>
+        <CardFooter className="justify-end">
+          <Button variant="outline">Save Preferences</Button>
+        </CardFooter>
+      </Card>
+
+      {/* Appearance */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Appearance</CardTitle>
+          <CardDescription>Customize the look and feel of the dashboard</CardDescription>
+        </CardHeader>
+        <CardContent className="gap-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="gap-2">
+              <Label htmlFor="theme-select">Theme</Label>
+              <Select value={theme} onValueChange={(v) => v && setTheme(v)}>
+                <SelectTrigger id="theme-select">
+                  <SelectValue placeholder="Select theme" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="light">Light</SelectItem>
+                  <SelectItem value="dark">Dark</SelectItem>
+                  <SelectItem value="system">System</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="gap-2">
+              <Label htmlFor="language-select">Language</Label>
+              <Select value={language} onValueChange={(v) => v && setLanguage(v)}>
+                <SelectTrigger id="language-select">
+                  <SelectValue placeholder="Select language" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="en">English</SelectItem>
+                  <SelectItem value="es">Spanish</SelectItem>
+                  <SelectItem value="fr">French</SelectItem>
+                  <SelectItem value="de">German</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+        <CardFooter className="justify-end">
+          <Button variant="outline">Save Appearance</Button>
+        </CardFooter>
+      </Card>
+
+      {/* Usage Hint */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">How the deployer uses these</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ol className="flex flex-col gap-2 text-xs text-muted-foreground list-decimal list-inside">
+            <li>Finish an MVP build for a solution (chat → blueprints → <span className="text-primary font-medium">Build &amp; Deploy</span>).</li>
+            <li>
+              On the MVP page, pick <span className="text-primary font-medium">Deploy to GitHub</span> and enter a repository name.
+            </li>
+            <li>
+              The deployer creates a fresh private repository with your PAT and pushes the full generated project — including a
+              Render blueprint (<code className="text-primary">render.yaml</code>) and CI workflow.
+            </li>
+            <li>Connect the repository to Render and it auto-deploys on green CI.</li>
+          </ol>
+        </CardContent>
+      </Card>
     </div>
   );
 }

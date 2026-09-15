@@ -23,11 +23,12 @@ class Settings(BaseSettings):
     # ── App ───────────────────────────────────────
     APP_NAME: str = "AI Solution Builder"
     APP_ENV: str = "development"
-    CORS_ORIGINS: str = "http://localhost:3000"
+    # Allow both localhost and 127.0.0.1 during development (some environments resolve differently)
+    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
     LOG_LEVEL: str = "INFO"
 
     # ── Database ──────────────────────────────────
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_solution_builder"
+    DATABASE_URL: str = "sqlite+aiosqlite:///./ai_solution_builder.db"
 
     # ── Redis ─────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -40,6 +41,8 @@ class Settings(BaseSettings):
     # ── AI / LLM Provider ─────────────────────────
     LLM_PROVIDER: str = "groq"  # groq | openai | mock
     GROQ_API_KEY: str = ""
+    GROQ_API_KEY_2: str = ""
+    GROQ_API_KEY_3: str = ""
     GROQ_MODEL_NAME: str = "openai/gpt-oss-120b"
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL_NAME: str = "gpt-4o-mini"
@@ -61,6 +64,7 @@ class Settings(BaseSettings):
     EXPORT_DIR: str = ".data/exports"
 
     # ── Credits ───────────────────────────────────
+    CREDIT_METERING_ENABLED: bool = False
     GENERATION_CREDIT_COST: int = 20
     REGENERATION_CREDIT_COST: int = 5
     EXPORT_CREDIT_COST: int = 2

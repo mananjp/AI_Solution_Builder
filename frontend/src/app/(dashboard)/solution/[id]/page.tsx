@@ -1,20 +1,448 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { 
-  ArrowLeft, 
-  Download, 
-  Clock, 
-  CheckCircle2, 
-  MessageSquare,
-  Rocket
-} from 'lucide-react';
-import ArtifactViewer from '@/components/ArtifactViewer';
+import {
+  ArrowLeft,
+  Download,
+  ArrowClockwise,
+  Compass,
+  List,
+  Layout,
+  Database,
+  Code,
+  CalendarBlank,
+  FlowArrow,
+  Rocket,
+  Copy,
+  Check,
+  House,
+  PencilSimple,
+  FloppyDisk,
+} from '@phosphor-icons/react/dist/ssr';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
 import ExportModal from '@/components/ExportModal';
+import RegenerateModal from '@/components/RegenerateModal';
+import WireframeCanvas from '@/components/WireframeCanvas';
+import BpmnViewer from '@/components/BpmnViewer';
 import { solutionApi } from '@/lib/api';
-import { Solution, Artifact } from '@/types';
+import { Solution, Artifact, ArtifactType } from '@/types';
+
+interface ArtifactTab {
+  value: ArtifactType;
+  label: string;
+  icon: React.ComponentType<Record<string, unknown>>;
+}
+
+const ARTIFACT_TABS: ArtifactTab[] = [
+  { value: 'hld', label: 'HLD', icon: Compass },
+  { value: 'lld', label: 'LLD', icon: List },
+  { value: 'wireframe', label: 'Wireframes', icon: Layout },
+  { value: 'database_schema', label: 'DB Schema', icon: Database },
+  { value: 'api_spec', label: 'API Spec', icon: Code },
+  { value: 'roadmap', label: 'Roadmap', icon: CalendarBlank },
+  { value: 'bpmn', label: 'BPMN', icon: FlowArrow },
+];
+
+function getStatusForArtifact(artifacts: Artifact[], type: ArtifactType): 'ready' | 'pending' {
+  return artifacts.some((a) => a.artifact_type === type) ? 'ready' : 'pending';
+}
+
+function MarkdownRenderer({ content }: { content: string }) {
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const copyToClipboard = useCallback(async (text: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      // silently fail
+    }
+  }, []);
+
+  const renderContent = (text: string) => {
+    const lines = text.split('\n');
+    const elements: React.ReactNode[] = [];
+    let inCodeBlock = false;
+    let codeLines: string[] = [];
+    let codeKey = 0;
+    let inTable = false;
+    let tableRows: string[] = [];
+
+    const flushTable = () => {
+      if (tableRows.length === 0) return;
+      const header = tableRows[0];
+      const body = tableRows.slice(2);
+      const headers = header
+        .split('|')
+        .map((h) => h.trim())
+        .filter(Boolean);
+      const rows = body.map((row) =>
+        row
+          .split('|')
+          .map((c) => c.trim())
+          .filter(Boolean)
+      );
+      const tableId = `table-${elements.length}`;
+      elements.push(
+        <div key={tableId} className="overflow-x-auto my-4">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr>
+                {headers.map((h, i) => (
+                  <th
+                    key={i}
+                    className="text-left px-3 py-2 bg-secondary border border-border font-semibold text-foreground"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, ri) => (
+                <tr key={ri}>
+                  {row.map((cell, ci) => (
+                    <td
+                      key={ci}
+                      className="px-3 py-2 border border-border text-muted-foreground"
+                    >
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+      tableRows = [];
+      inTable = false;
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      if (line.startsWith('```')) {
+        if (inCodeBlock) {
+          const code = codeLines.join('\n');
+          const id = `code-${codeKey++}`;
+          elements.push(
+            <div key={id} className="relative my-4 group">
+              <div className="absolute top-2 right-2 z-10">
+                <button
+                  onClick={() => copyToClipboard(code, id)}
+                  className="flex items-center gap-1 px-2 py-1 rounded bg-secondary hover:bg-secondary/80 text-xs text-muted-foreground hover:text-foreground transition-colors opacity-0 group-hover:opacity-100"
+                >
+                  {copiedId === id ? (
+                    <Check className="w-3 h-3 text-success" />
+                  ) : (
+                    <Copy className="w-3 h-3" />
+                  )}
+                  <span>{copiedId === id ? 'Copied' : 'Copy'}</span>
+                </button>
+              </div>
+              <pre className="bg-card border border-border rounded-lg p-4 overflow-x-auto text-xs leading-relaxed">
+                <code className="text-foreground font-mono">{code}</code>
+              </pre>
+            </div>
+          );
+          codeLines = [];
+          inCodeBlock = false;
+        } else {
+          if (inTable) flushTable();
+          inCodeBlock = true;
+        }
+        continue;
+      }
+
+      if (inCodeBlock) {
+        codeLines.push(line);
+        continue;
+      }
+
+      if (line.startsWith('|') && line.endsWith('|')) {
+        inTable = true;
+        tableRows.push(line);
+        continue;
+      } else if (inTable) {
+        flushTable();
+      }
+
+      if (line.trim() === '') {
+        elements.push(<div key={`space-${i}`} className="h-2" />);
+        continue;
+      }
+
+      if (line.match(/^={3,}/)) {
+        elements.push(<Separator key={`sep-${i}`} className="my-3" />);
+        continue;
+      }
+
+      const headingMatch = line.match(/^(#{1,6})\s+(.+)/);
+      if (headingMatch) {
+        const level = headingMatch[1].length;
+        const text = headingMatch[2];
+        const id = text
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/(^-|-$)/g, '');
+        const sizes: Record<number, string> = {
+          1: 'text-xl font-extrabold',
+          2: 'text-lg font-bold',
+          3: 'text-base font-bold',
+          4: 'text-sm font-semibold',
+          5: 'text-xs font-semibold',
+          6: 'text-xs font-medium',
+        };
+        elements.push(
+          <h2
+            key={`h-${i}`}
+            id={id}
+            className={cn(
+              'text-foreground mt-6 mb-2 scroll-mt-20',
+              sizes[level] || 'text-sm font-semibold'
+            )}
+          >
+            {text}
+          </h2>
+        );
+        continue;
+      }
+
+      if (line.match(/^\d+\.\s+/)) {
+        const text = line.replace(/^\d+\.\s+/, '');
+        elements.push(
+          <div key={`ol-${i}`} className="flex gap-2 text-xs text-foreground leading-relaxed pl-2">
+            <span className="text-primary font-semibold shrink-0 mt-0.5">
+              {line.match(/^(\d+)\./)?.[1]}.
+            </span>
+            <span>{renderInline(text)}</span>
+          </div>
+        );
+        continue;
+      }
+
+      if (line.match(/^[-*]\s+/)) {
+        const text = line.replace(/^[-*]\s+/, '');
+        elements.push(
+          <div key={`ul-${i}`} className="flex gap-2 text-xs text-foreground leading-relaxed pl-2">
+            <span className="text-primary font-bold shrink-0 mt-0.5">-</span>
+            <span>{renderInline(text)}</span>
+          </div>
+        );
+        continue;
+      }
+
+      if (line.match(/^[A-Z][A-Z\s]+:$/)) {
+        elements.push(
+          <h3 key={`sh-${i}`} className="text-sm font-bold text-foreground mt-4 mb-1 uppercase tracking-wide">
+            {line}
+          </h3>
+        );
+        continue;
+      }
+
+      if (line.match(/^-{3,}/)) {
+        elements.push(<Separator key={`s-${i}`} className="my-2" />);
+        continue;
+      }
+
+      elements.push(
+        <p key={`p-${i}`} className="text-xs text-muted-foreground leading-relaxed">
+          {renderInline(line)}
+        </p>
+      );
+    }
+
+    if (inTable) flushTable();
+
+    return elements;
+  };
+
+  const renderInline = (text: string): React.ReactNode => {
+    const parts: React.ReactNode[] = [];
+    let remaining = text;
+    let key = 0;
+
+    while (remaining.length > 0) {
+      const boldMatch = remaining.match(/\*\*(.+?)\*\*/);
+      const codeMatch = remaining.match(/`(.+?)`/);
+
+      let nextMatch: RegExpMatchArray | null = null;
+      let matchType = '';
+
+      if (boldMatch && codeMatch) {
+        if (remaining.indexOf(boldMatch[0]) < remaining.indexOf(codeMatch[0])) {
+          nextMatch = boldMatch;
+          matchType = 'bold';
+        } else {
+          nextMatch = codeMatch;
+          matchType = 'code';
+        }
+      } else if (boldMatch) {
+        nextMatch = boldMatch;
+        matchType = 'bold';
+      } else if (codeMatch) {
+        nextMatch = codeMatch;
+        matchType = 'code';
+      }
+
+      if (!nextMatch) {
+        parts.push(remaining);
+        break;
+      }
+
+      const idx = remaining.indexOf(nextMatch[0]);
+      if (idx > 0) {
+        parts.push(remaining.slice(0, idx));
+      }
+
+      if (matchType === 'bold') {
+        parts.push(
+          <strong key={key++} className="font-bold text-foreground">
+            {nextMatch[1]}
+          </strong>
+        );
+      } else {
+        parts.push(
+          <code
+            key={key++}
+            className="px-1 py-0.5 rounded bg-secondary text-foreground font-mono text-[10px]"
+          >
+            {nextMatch[1]}
+          </code>
+        );
+      }
+
+      remaining = remaining.slice(idx + nextMatch[0].length);
+    }
+
+    return parts.length === 1 ? parts[0] : <>{parts}</>;
+  };
+
+  return <div className="flex flex-col gap-1">{renderContent(content)}</div>;
+}
+
+function DdlRenderer({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const copyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // silently fail
+    }
+  };
+
+  return (
+    <div className="relative group">
+      <div className="absolute top-2 right-2 z-10">
+        <button
+          onClick={copyToClipboard}
+          className="flex items-center gap-1 px-2 py-1 rounded bg-secondary hover:bg-secondary/80 text-xs text-muted-foreground hover:text-foreground transition-colors opacity-0 group-hover:opacity-100"
+        >
+          {copied ? (
+            <Check className="w-3 h-3 text-success" />
+          ) : (
+            <Copy className="w-3 h-3" />
+          )}
+          <span>{copied ? 'Copied' : 'Copy'}</span>
+        </button>
+      </div>
+      <pre className="bg-card border border-border rounded-lg p-4 overflow-x-auto text-xs leading-relaxed">
+        <code className="text-foreground font-mono whitespace-pre">{content}</code>
+      </pre>
+    </div>
+  );
+}
+
+function JsonRenderer({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const formatted = (() => {
+    try {
+      return JSON.stringify(JSON.parse(content), null, 2);
+    } catch {
+      return content;
+    }
+  })();
+
+  const copyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(formatted);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // silently fail
+    }
+  };
+
+  return (
+    <div className="relative group">
+      <div className="absolute top-2 right-2 z-10">
+        <button
+          onClick={copyToClipboard}
+          className="flex items-center gap-1 px-2 py-1 rounded bg-secondary hover:bg-secondary/80 text-xs text-muted-foreground hover:text-foreground transition-colors opacity-0 group-hover:opacity-100"
+        >
+          {copied ? (
+            <Check className="w-3 h-3 text-success" />
+          ) : (
+            <Copy className="w-3 h-3" />
+          )}
+          <span>{copied ? 'Copied' : 'Copy'}</span>
+        </button>
+      </div>
+      <pre className="bg-card border border-border rounded-lg p-4 overflow-x-auto text-xs leading-relaxed">
+        <code className="text-foreground font-mono whitespace-pre">{formatted}</code>
+      </pre>
+    </div>
+  );
+}
+
+function WireframeFallback({ artifact }: { artifact: Artifact }) {
+  const contentText = artifact.content_text || '';
+  const description =
+    typeof artifact.content?.description === 'string'
+      ? artifact.content.description
+      : '';
+  const components = Array.isArray(artifact.content?.components)
+    ? (artifact.content.components as string[])
+    : [];
+
+  return (
+    <div className="flex flex-col gap-4">
+      {description && (
+        <div className="p-4 rounded-lg bg-card border border-border">
+          <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
+        </div>
+      )}
+      {components.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {components.map((c, i) => (
+            <Badge key={i} variant="secondary" className="text-xs">
+              {c}
+            </Badge>
+          ))}
+        </div>
+      )}
+      {contentText && (
+        <pre className="bg-card border border-border rounded-lg p-4 overflow-x-auto text-xs leading-relaxed font-mono text-foreground whitespace-pre">
+          {contentText}
+        </pre>
+      )}
+    </div>
+  );
+}
 
 export default function SolutionViewerPage() {
   const params = useParams();
@@ -22,450 +450,365 @@ export default function SolutionViewerPage() {
 
   const [solution, setSolution] = useState<Solution | null>(null);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [activeArtifact, setActiveArtifact] = useState<ArtifactType>('hld');
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [showRegenerateModal, setShowRegenerateModal] = useState(false);
+  const [showEditTitle, setShowEditTitle] = useState(false);
+  const [solutionTitle, setSolutionTitle] = useState('');
+  const [loadingSolution, setLoadingSolution] = useState(true);
+  const [solutionError, setSolutionError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadSolution() {
+      setLoadingSolution(true);
+      setSolutionError(null);
       try {
         const sol = await solutionApi.get(solutionId);
         setSolution(sol);
+        setSolutionTitle(sol.title || 'Solution Design Session');
         if (sol.artifacts && sol.artifacts.length > 0) {
           setArtifacts(sol.artifacts);
+          const firstAvailable = ARTIFACT_TABS.find((tab) =>
+            sol.artifacts!.some((a) => a.artifact_type === tab.value)
+          );
+          if (firstAvailable) setActiveArtifact(firstAvailable.value);
         } else {
-          setArtifacts(getSampleArtifacts(sol.title));
+          setArtifacts([]);
         }
-      } catch {
-        // Provide rich sample solution blueprint for demonstration
-        const sampleSol: Solution = {
-          id: solutionId,
-          workspace_id: 'ws-demo-1',
-          title: 'Omnichannel Retail POS & Inventory Platform',
-          description: 'Enterprise architecture with real-time stock sync, offline POS, loyalty rewards, and role-based staff scheduling.',
-          status: 'complete',
-          created_at: new Date().toISOString(),
-        };
-        setSolution(sampleSol);
-        setArtifacts(getSampleArtifacts(sampleSol.title));
+      } catch (err) {
+        setSolutionError(err instanceof Error ? err.message : 'Could not load this solution.');
+        setArtifacts([]);
+      } finally {
+        setLoadingSolution(false);
       }
     }
 
     loadSolution();
   }, [solutionId]);
 
-  const [showExportModal, setShowExportModal] = useState(false);
+  const currentArtifact = artifacts.find((a) => a.artifact_type === activeArtifact);
+
+  const handleArtifactUpdated = (newArt: Artifact) => {
+    setArtifacts([
+      newArt,
+      ...artifacts.filter(
+        (a) => a.id !== newArt.id && a.artifact_type !== newArt.artifact_type
+      ),
+    ]);
+  };
+
+  const handleSaveTitle = async () => {
+    const nextTitle = solutionTitle.trim() || 'Solution Design Session';
+    try {
+      const updated = await solutionApi.update(solutionId, { title: nextTitle });
+      setSolution((current) => (current ? { ...current, title: updated.title } : current));
+      setSolutionTitle(updated.title || nextTitle);
+      setShowEditTitle(false);
+    } catch (err) {
+      setSolutionError(err instanceof Error ? err.message : 'Could not update the solution title.');
+    }
+  };
+
+  const renderArtifactContent = () => {
+    if (loadingSolution) {
+      return (
+        <div className="flex-1 p-6">
+          <div className="flex flex-col gap-3">
+            <div className="h-5 w-48 animate-pulse rounded bg-secondary" />
+            <div className="h-24 animate-pulse rounded-lg bg-secondary" />
+            <div className="h-24 animate-pulse rounded-lg bg-secondary" />
+            <div className="h-24 animate-pulse rounded-lg bg-secondary" />
+          </div>
+        </div>
+      );
+    }
+
+    if (solutionError) {
+      return (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center flex flex-col items-center gap-3">
+            <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20">
+              <Database className="w-8 h-8 text-destructive" />
+            </div>
+            <p className="text-sm text-destructive">{solutionError}</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (!currentArtifact) {
+      const artifactLabel = ARTIFACT_TABS.find((t) => t.value === activeArtifact)?.label ?? 'Artifact';
+      const isComplete = solution?.status === 'complete';
+      const isGenerating = solution?.status === 'generating';
+
+      return (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="max-w-md text-center flex flex-col items-center gap-4">
+            <div className="p-4 rounded-lg bg-secondary border border-border">
+              <Database className="w-8 h-8 text-muted-foreground" />
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-foreground">
+                {isComplete
+                  ? 'Design is complete — ready for the MVP build.'
+                  : isGenerating
+                    ? 'This generation is still in progress.'
+                    : 'No data available for this section yet.'}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {isComplete
+                  ? 'The solution has been generated and is ready to move into build mode.'
+                  : isGenerating
+                    ? 'Please wait for the architecture artifacts to finish generating.'
+                    : `No ${artifactLabel.toLowerCase()} artifact has been generated for this solution yet.`}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {isComplete ? (
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  render={<Link href={`/solution/${solutionId}/mvp`} />}
+                  nativeButton={false}
+                >
+                  <Rocket className="w-3.5 h-3.5" />
+                  <span>Build MVP</span>
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowRegenerateModal(true)}
+                >
+                  <ArrowClockwise className="w-3.5 h-3.5" />
+                  <span>Generate</span>
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    switch (activeArtifact) {
+      case 'wireframe': {
+        const hasScreens =
+          currentArtifact.content &&
+          typeof currentArtifact.content === 'object' &&
+          Array.isArray(currentArtifact.content.screens);
+        if (hasScreens) {
+          return (
+            <WireframeCanvas
+              wireframes={[currentArtifact]}
+              onUpdate={handleArtifactUpdated}
+            />
+          );
+        }
+        return <WireframeFallback artifact={currentArtifact} />;
+      }
+      case 'database_schema':
+        return <DdlRenderer content={currentArtifact.content_text || ''} />;
+      case 'api_spec':
+        return <JsonRenderer content={currentArtifact.content_text || ''} />;
+      case 'bpmn': {
+        const processData =
+          currentArtifact.content &&
+          typeof currentArtifact.content === 'object' &&
+          'processName' in currentArtifact.content
+            ? (currentArtifact.content as unknown as import('@/types').BpmnProcess)
+            : undefined;
+        return <BpmnViewer processData={processData} />;
+      }
+      case 'hld':
+      case 'lld':
+      case 'roadmap':
+      default:
+        return <MarkdownRenderer content={currentArtifact.content_text || ''} />;
+    }
+  };
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
-      {/* Navigation & Header */}
-      <div className="flex items-center justify-between">
-        <Link
-          href="/dashboard"
-          className="inline-flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Back to Dashboard</span>
-        </Link>
-
+    <div className="flex flex-col h-screen bg-background">
+      {/* Header Bar */}
+      <header className="flex items-center justify-between px-4 h-14 border-b border-border bg-card shrink-0">
         <div className="flex items-center gap-3">
           <Link
-            href={`/solution/${solutionId}/mvp`}
-            className="flex items-center gap-2 px-4 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-200 transition-colors"
+            href="/dashboard"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
           >
-            <Rocket className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Build &amp; Deploy MVP</span>
+            <House className="w-4 h-4" />
           </Link>
-          <Link
-            href="/chat"
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 transition-colors"
+          <Separator orientation="vertical" className="h-4" />
+            <h1 className="flex items-center gap-2 text-sm font-bold text-foreground truncate max-w-md">
+              {showEditTitle ? (
+                <>
+                  <Input
+                    value={solutionTitle}
+                    onChange={(e) => setSolutionTitle(e.target.value)}
+                    className="w-56 rounded-lg border border-border bg-background px-2 py-1 text-sm text-foreground outline-none transition-colors focus:border-primary"
+                    placeholder="Solution title"
+                  />
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="gap-1.5 text-xs"
+                    onClick={handleSaveTitle}
+                  >
+                    <FloppyDisk className="w-3 h-3 align-middle" />
+                    <span className="hidden sm:inline">Save</span>
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <span className="truncate max-w-[17rem]">{solution?.title || 'Solution Design Session'}</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 text-xs"
+                    onClick={() => setShowEditTitle(true)}
+                  >
+                    <PencilSimple className="w-3 h-3 align-middle" />
+                    <span className="hidden sm:inline">Edit</span>
+                  </Button>
+                </>
+              )}
+            </h1>
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1">
+            <Check className="w-3 h-3 text-success" />
+            Complete
+          </Badge>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowRegenerateModal(true)}
+            className="gap-1.5 text-xs"
           >
-            <MessageSquare className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Iterate with AI</span>
-          </Link>
-          <button
+            <ArrowClockwise className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Regenerate</span>
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
             onClick={() => setShowExportModal(true)}
-            className="flex items-center gap-2 px-4 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-semibold shadow-md shadow-indigo-500/20 transition-all hover:scale-105"
+            className="gap-1.5 text-xs"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Export Blueprint Package</span>
-          </button>
+            <span className="hidden sm:inline">Export</span>
+          </Button>
+          <Separator orientation="vertical" className="h-4" />
+          <Button
+            size="sm"
+            className="gap-1.5 text-xs"
+            render={<Link href={`/solution/${solutionId}/mvp`} />}
+            nativeButton={false}
+          >
+            <Rocket className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Build MVP</span>
+          </Button>
         </div>
+      </header>
+
+      <div className="flex flex-1 min-h-0">
+        {/* Left Sidebar */}
+        <aside className="w-60 border-r border-border bg-card flex flex-col shrink-0">
+          <ScrollArea className="flex-1">
+            <div className="flex flex-col gap-0.5 p-3">
+              {ARTIFACT_TABS.map((tab) => {
+                const Icon = tab.icon;
+                const status = getStatusForArtifact(artifacts, tab.value);
+                const isActive = activeArtifact === tab.value;
+
+                return (
+                  <button
+                    key={tab.value}
+                    onClick={() => setActiveArtifact(tab.value)}
+                    className={cn(
+                      'flex items-center gap-2.5 px-3 py-2 rounded-md text-left text-xs font-medium transition-colors w-full',
+                      isActive
+                        ? 'bg-primary/10 text-primary border border-primary/20'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-secondary border border-transparent'
+                    )}
+                  >
+                    <Icon
+                      className={cn(
+                        'w-4 h-4 shrink-0',
+                        isActive ? 'text-primary' : 'text-muted-foreground'
+                      )}
+                      weight={isActive ? 'fill' : 'regular'}
+                    />
+                    <span className="flex-1 truncate">{tab.label}</span>
+                    <span
+                      className={cn(
+                        'w-1.5 h-1.5 rounded-full shrink-0',
+                        status === 'ready' ? 'bg-success' : 'bg-muted-foreground/40'
+                      )}
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          </ScrollArea>
+
+          <div className="p-3 border-t border-border flex flex-col gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="justify-start gap-2 text-xs text-muted-foreground"
+              render={<Link href="/dashboard" />}
+              nativeButton={false}
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to Dashboard</span>
+            </Button>
+          </div>
+        </aside>
+
+        {/* Main Content Area */}
+        <main className="flex-1 min-w-0 overflow-hidden flex flex-col">
+          {currentArtifact && (
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-card/50 shrink-0">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-bold text-foreground truncate max-w-lg">
+                  {currentArtifact.title}
+                </h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" className="text-[10px] font-mono px-1.5 py-0">
+                  v{currentArtifact.version}
+                </Badge>
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">
+                  {activeArtifact.replace('_', ' ')}
+                </Badge>
+              </div>
+            </div>
+          )}
+          <div className="flex-1 overflow-y-auto p-6">
+            {renderArtifactContent()}
+          </div>
+        </main>
       </div>
 
-      {/* Solution Header Card */}
-      <div className="p-6 rounded-2xl bg-gradient-to-r from-slate-900/90 via-slate-900/60 to-indigo-950/40 border border-white/5 shadow-xl space-y-2">
-        <div className="flex items-center gap-2 text-xs">
-          <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-medium border border-emerald-500/20 flex items-center gap-1.5">
-            <CheckCircle2 className="w-3 h-3" />
-            <span>Autonomous Swarm Complete</span>
-          </span>
-          <span className="text-slate-500">•</span>
-          <span className="text-slate-400 text-[11px] flex items-center gap-1">
-            <Clock className="w-3 h-3" />
-            {solution?.created_at ? new Date(solution.created_at).toLocaleDateString() : 'Today'}
-          </span>
-        </div>
-
-        <h2 className="text-2xl font-extrabold text-white tracking-tight">{solution?.title}</h2>
-        <p className="text-xs text-slate-300 max-w-3xl leading-relaxed">{solution?.description}</p>
-      </div>
-
-      {/* Deep Artifact Viewer */}
-      <div className="h-[750px]">
-        <ArtifactViewer 
-          artifacts={artifacts} 
-          solutionId={solutionId}
-          onArtifactUpdated={(newArt) => {
-            setArtifacts([newArt, ...artifacts.filter(a => a.id !== newArt.id && a.artifact_type !== newArt.artifact_type)]);
-          }}
-        />
-      </div>
-
-      {/* Export Modal */}
+      {/* Modals */}
       <ExportModal
+        open={showExportModal}
+        onOpenChange={setShowExportModal}
         solutionId={solutionId}
-        solutionTitle={solution?.title || 'Solution'}
-        isOpen={showExportModal}
-        onClose={() => setShowExportModal(false)}
       />
+
+      {currentArtifact && (
+        <RegenerateModal
+          solutionId={solutionId}
+          artifactType={activeArtifact}
+          currentTitle={currentArtifact.title}
+          isOpen={showRegenerateModal}
+          onClose={() => setShowRegenerateModal(false)}
+          onRegenerated={handleArtifactUpdated}
+        />
+      )}
     </div>
   );
 }
 
-// Helper: Rich Sample Artifacts when exploring or bootstrapping
-function getSampleArtifacts(title: string): Artifact[] {
-  return [
-    {
-      id: 'art-hld',
-      solution_id: 'sample',
-      artifact_type: 'hld',
-      title: 'High-Level System Architecture (HLD)',
-      version: 1,
-      created_at: new Date().toISOString(),
-      content: {},
-      content_text: `================================================================================
-HIGH-LEVEL ARCHITECTURE DESIGN (HLD)
-System: ${title}
-Target Scale: Enterprise / 100,000+ Daily Active Users
-================================================================================
 
-1. SYSTEM TOPOLOGY & DEPLOYMENT ARCHITECTURE
---------------------------------------------------------------------------------
-Client Layer:
-  - Web Single Page App (Next.js 15, React 19, Tailwind CSS)
-  - Mobile POS Terminal PWA (Offline IndexedDB, Barcode Camera Engine)
-  - Admin & Analytics Portal (Real-time WebSockets Dashboard)
-
-Edge & Ingress:
-  - Cloudflare Global CDN / DDoS Mitigation
-  - Traefik API Gateway with JWT validation, rate limiting (Redis/token bucket)
-
-Microservices / Subsystems (Containerized via Alpine Docker):
-  - API Gateway & Authentication Service (Python FastAPI, OAuth2, RBAC)
-  - Inventory & Stock Management Engine (Async event bus, Low-Stock alerts)
-  - Point-of-Sale (POS) & Checkout Engine (Stripe Terminal SDK, idempotency keys)
-  - Loyalty & Promotions Engine (Tier evaluation, points ledger)
-  - Reporting & Data Warehouse Sync (Async pgvector, Celery/Redis workers)
-
-Persistence Layer:
-  - Primary Database: PostgreSQL 16 (Alpine Docker, Connection Pooling via PgBouncer)
-  - Cache & Session Store: In-memory Redis cluster (Fallback to memory store)
-  - Object Storage: S3 / MinIO for receipt PDFs and invoice documents
-
-2. SECURITY & COMPLIANCE POSTURE
---------------------------------------------------------------------------------
-  - Data-at-Rest: AES-256 encrypted volumes
-  - Data-in-Transit: TLS 1.3 strict transport security
-  - Authentication: JWT tokens with 24h expiration, refresh rotation
-  - Authorization: Strict Role-Based Access Control (RBAC): Admin, Store Manager, Cashier, Customer
-  - Audit Trail: Immutable tamper-proof append logs for all financial mutations
-
-3. RESILIENCE & DISASTER RECOVERY
---------------------------------------------------------------------------------
-  - Target SLO: 99.95% Availability (< 4.38 hours downtime/year)
-  - Point-in-time recovery (PITR) with WAL archiving (RPO < 5 mins, RTO < 30 mins)
-  - Offline-first cache: POS terminals continue processing sales without internet connectivity
-`,
-    },
-    {
-      id: 'art-lld',
-      solution_id: 'sample',
-      artifact_type: 'lld',
-      title: 'Low-Level Technical Design & Component Specs (LLD)',
-      version: 1,
-      created_at: new Date().toISOString(),
-      content: {},
-      content_text: `================================================================================
-LOW-LEVEL TECHNICAL DESIGN (LLD)
-Component Breakdown & Dataflow Specs
-================================================================================
-
-1. INVENTORY SUBSYSTEM CLASS SPECIFICATION
---------------------------------------------------------------------------------
-class StockAdjustmentService:
-    def __init__(self, db_session: AsyncSession, event_bus: EventBus):
-        self.db = db_session
-        self.events = event_bus
-
-    async def deduct_inventory(self, store_id: UUID, sku: str, quantity: int, transaction_id: UUID):
-        async with self.db.begin():
-            # Pessimistic row locking to prevent race condition double-sells
-            item = await self.db.execute(
-                select(InventoryItem)
-                .where(InventoryItem.store_id == store_id, InventoryItem.sku == sku)
-                .with_for_update()
-            )
-            if not item or item.available_quantity < quantity:
-                raise InsufficientStockError(f"SKU {sku} has insufficient stock")
-            
-            item.available_quantity -= quantity
-            item.reserved_quantity += quantity
-            
-            # Emit low stock alert if below threshold
-            if item.available_quantity <= item.reorder_threshold:
-                await self.events.publish("inventory.low_stock", {"sku": sku, "remaining": item.available_quantity})
-
-2. IDEMPOTENCY & OFFLINE TRANSACTION RESOLUTION
---------------------------------------------------------------------------------
-POS terminals generate UUIDv4 client_transaction_id locally.
-When reconnecting:
-  1. POS sends batch of transactions with client timestamps and UUIDs.
-  2. Gateway checks idempotency ledger in PostgreSQL:
-     INSERT INTO transactions (id, store_id, amount, status) VALUES (...) ON CONFLICT (id) DO NOTHING;
-  3. If conflict: return existing transaction status without double charging.
-`,
-    },
-    {
-      id: 'art-schema',
-      solution_id: 'sample',
-      artifact_type: 'database_schema',
-      title: 'PostgreSQL Relational Schema & DDL',
-      version: 1,
-      created_at: new Date().toISOString(),
-      content: {},
-      content_text: `-- ============================================================================
--- PostgreSQL 16 DDL Schema (Optimized for Alpine PostgreSQL in Docker)
--- Generated by AI Solution Builder Database & API Agent
--- ============================================================================
-
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-
--- Organizations
-CREATE TABLE organizations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(255) NOT NULL,
-    plan_tier VARCHAR(50) DEFAULT 'enterprise',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Stores / Branches
-CREATE TABLE stores (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    name VARCHAR(255) NOT NULL,
-    code VARCHAR(50) UNIQUE NOT NULL,
-    address TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Product Catalog
-CREATE TABLE products (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    sku VARCHAR(100) NOT NULL,
-    barcode VARCHAR(100),
-    title VARCHAR(255) NOT NULL,
-    retail_price NUMERIC(10, 2) NOT NULL,
-    cost_price NUMERIC(10, 2) NOT NULL,
-    category VARCHAR(100),
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_org_sku UNIQUE (org_id, sku)
-);
-CREATE INDEX idx_products_sku ON products(sku);
-CREATE INDEX idx_products_barcode ON products(barcode);
-
--- Inventory Stock Levels
-CREATE TABLE inventory_stocks (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    store_id UUID NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
-    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-    available_qty INT NOT NULL DEFAULT 0,
-    reserved_qty INT NOT NULL DEFAULT 0,
-    reorder_point INT NOT NULL DEFAULT 10,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_store_product UNIQUE (store_id, product_id)
-);
-
--- POS Sales Orders
-CREATE TABLE sales_orders (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    store_id UUID NOT NULL REFERENCES stores(id),
-    cashier_user_id UUID NOT NULL,
-    idempotency_key VARCHAR(255) UNIQUE NOT NULL,
-    subtotal NUMERIC(10, 2) NOT NULL,
-    tax_amount NUMERIC(10, 2) NOT NULL,
-    discount_amount NUMERIC(10, 2) DEFAULT 0.00,
-    total_amount NUMERIC(10, 2) NOT NULL,
-    payment_method VARCHAR(50) NOT NULL,
-    payment_status VARCHAR(50) NOT NULL DEFAULT 'completed',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Order Items
-CREATE TABLE sales_order_items (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    order_id UUID NOT NULL REFERENCES sales_orders(id) ON DELETE CASCADE,
-    product_id UUID NOT NULL REFERENCES products(id),
-    unit_price NUMERIC(10, 2) NOT NULL,
-    quantity INT NOT NULL,
-    line_total NUMERIC(10, 2) NOT NULL
-);
-`,
-    },
-    {
-      id: 'art-api',
-      solution_id: 'sample',
-      artifact_type: 'api_spec',
-      title: 'OpenAPI 3.0 Specification',
-      version: 1,
-      created_at: new Date().toISOString(),
-      content: {},
-      content_text: `openapi: 3.0.3
-info:
-  title: Solution Core REST API
-  description: High-throughput API for Retail POS, Stock Sync & Subsystem Services
-  version: 1.0.0
-paths:
-  /api/v1/pos/checkout:
-    post:
-      summary: Submit offline/online POS order with idempotency
-      security:
-        - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [idempotency_key, store_id, items, payment_method]
-              properties:
-                idempotency_key:
-                  type: string
-                  format: uuid
-                store_id:
-                  type: string
-                  format: uuid
-                payment_method:
-                  type: string
-                  enum: [cash, card, qr_code, split]
-                items:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      product_id: { type: string, format: uuid }
-                      sku: { type: string }
-                      quantity: { type: integer, minimum: 1 }
-                      unit_price: { type: number, format: float }
-      responses:
-        '201':
-          description: Order processed and stock adjusted
-        '409':
-          description: Insufficient stock or transaction duplicate conflict
-
-  /api/v1/inventory/stocks/{store_id}:
-    get:
-      summary: Query stock levels with low-stock filter
-      parameters:
-        - name: store_id
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-        - name: low_stock_only
-          in: query
-          schema: { type: boolean }
-      responses:
-        '200':
-          description: List of items and available quantities
-`,
-    },
-    {
-      id: 'art-roadmap',
-      solution_id: 'sample',
-      artifact_type: 'roadmap',
-      title: '12-Week Implementation & Delivery Roadmap',
-      version: 1,
-      created_at: new Date().toISOString(),
-      content: {},
-      content_text: `================================================================================
-12-WEEK ENGINEERING DELIVERY ROADMAP
-================================================================================
-
-PHASE 1: FOUNDATION & DATA ARCHITECTURE (Weeks 1 - 3)
---------------------------------------------------------------------------------
-- Milestone 1.1: Deploy PostgreSQL schemas, triggers, and migrations (Week 1)
-- Milestone 1.2: Core FastAPI authentication, RBAC, and org multi-tenancy (Week 2)
-- Milestone 1.3: Product catalog & store setup APIs (Week 3)
-Deliverables: Working REST backend with automated pytest suite and DB seeds.
-
-PHASE 2: INVENTORY ENGINE & RECONCILIATION (Weeks 4 - 6)
---------------------------------------------------------------------------------
-- Milestone 2.1: Stock adjustment service with pessimistic row locks (Week 4)
-- Milestone 2.2: Barcode & QR code scanning integration (Week 5)
-- Milestone 2.3: Supplier restock alerts & purchase order flows (Week 6)
-Deliverables: Inventory tracking with real-time stock sync.
-
-PHASE 3: POS TERMINAL & CHECKOUT PWA (Weeks 7 - 9)
---------------------------------------------------------------------------------
-- Milestone 3.1: Offline-first IndexedDB cache & quick-register UI (Week 7)
-- Milestone 3.2: Stripe Terminal SDK / Card payment integration (Week 8)
-- Milestone 3.3: Idempotent transaction reconciliation engine (Week 9)
-Deliverables: Working POS terminal operating in both online and offline modes.
-
-PHASE 4: HARDENING, LOAD TESTING & PRODUCTION GO-LIVE (Weeks 10 - 12)
---------------------------------------------------------------------------------
-- Milestone 4.1: End-to-end security penetration audit & stress testing (Week 10)
-- Milestone 4.2: CI/CD Docker image builds & staging deployment (Week 11)
-- Milestone 4.3: Store pilot testing & production deployment (Week 12)
-Deliverables: Production-ready enterprise release with 99.95% SLO monitoring.
-`,
-    },
-    {
-      id: 'art-wireframe',
-      solution_id: 'sample',
-      artifact_type: 'wireframe',
-      title: 'Point-of-Sale (POS) Fast-Checkout Wireframe',
-      version: 1,
-      created_at: new Date().toISOString(),
-      content: {
-        description: 'Dual-pane POS terminal with touch-friendly catalog on left and checkout receipt slip on right.',
-        components: [
-          'Barcode Scanner Bar',
-          'Quick Category Tabs (Beverages, Fresh, Dry Goods)',
-          'Product Grid with Large Tap Targets',
-          'Current Cart Bill Summary (Subtotal, Tax, Total)',
-          'Instant Payment Tender Buttons (Cash, Card, QR Pay)',
-        ],
-      },
-      content_text: `+-----------------------------------------------------------------------------+
-| [=] STORE #104 - REGISTER 02         Cashier: Sarah Chen   [Offline Status: OK] |
-+------------------------------------------------------+----------------------+
-| [Search by SKU or Scan Barcode...                 ] | CURRENT SALE (#8941) |
-+------------------------------------------------------+----------------------+
-| [All] [Beverages] [Bakery] [Produce] [Snacks]        | 1x Artisan Sourdough |
-+------------------------------------------------------+    $4.50             |
-| +------------------+ +------------------+            | 2x Cold Brew 12oz    |
-| | Artisan Sourdough| | Cold Brew Coffee |            |    $7.00 ($3.50 ea)  |
-| | $4.50    [+ Add] | | $3.50    [+ Add] |            | 1x Organic Honey     |
-| +------------------+ +------------------+            |    $8.99             |
-| +------------------+ +------------------+            | -------------------- |
-| | Organic Honey    | | Avocado Bag (4pk)|            | Subtotal:     $20.49 |
-| | $8.99    [+ Add] | | $5.99    [+ Add] |            | Tax (8.25%):   $1.69 |
-| +------------------+ +------------------+            | TOTAL:        $22.18 |
-|                                                      +----------------------+
-|                                                      | [ CASH ]  [ CARD ]   |
-|                                                      | [ QR ]    [ SPLIT ]  |
-+------------------------------------------------------+----------------------+`,
-    },
-  ];
-}

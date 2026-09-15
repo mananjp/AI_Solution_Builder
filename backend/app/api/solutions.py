@@ -21,6 +21,7 @@ from app.schemas import (
     SolutionCreate,
     SolutionDetailResponse,
     SolutionResponse,
+    SolutionUpdate,
 )
 
 router = APIRouter(prefix="/solutions", tags=["Solutions"])
@@ -126,6 +127,36 @@ async def get_solution(
             for a in solution.artifacts
         ],
     )
+
+
+@router.patch("/{solution_id}", response_model=SolutionResponse)
+async def update_solution(
+    solution_id: UUID,
+    payload: SolutionUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Solution:
+    """Update a solution title/description."""
+    result = await db.execute(
+        select(Solution)
+        .join(Workspace, Workspace.id == Solution.workspace_id)
+        .where(
+            Solution.id == solution_id,
+            Workspace.org_id == current_user.org_id,
+        )
+    )
+    solution = result.scalar_one_or_none()
+    if not solution:
+        raise HTTPException(status_code=404, detail="Solution not found")
+
+    if payload.title is not None:
+        solution.title = payload.title.strip()
+    if payload.description is not None:
+        solution.description = payload.description.strip() or None
+
+    await db.commit()
+    await db.refresh(solution)
+    return solution
 
 
 @router.delete("/{solution_id}", status_code=status.HTTP_204_NO_CONTENT)

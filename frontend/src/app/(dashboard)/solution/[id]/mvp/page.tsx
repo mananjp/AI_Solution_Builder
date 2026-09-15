@@ -1,66 +1,148 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowLeft,
-  ArrowRight,
-  Box,
   Check,
+  Cube,
   Download,
-  ExternalLink,
-  FolderTree,
-  Loader2,
+  Folder,
+  FolderOpen,
+  File,
+  CircleNotch,
   Play,
-  RefreshCw,
+  ArrowClockwise,
   Rocket,
-  Settings2,
-  Trash2,
+  GearSix,
+  Trash,
+  Plus,
   X,
-} from 'lucide-react';
+  Coins,
+  Sparkle,
+} from '@phosphor-icons/react/dist/ssr';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Separator } from '@/components/ui/separator';
 import { mvpApi, solutionApi } from '@/lib/api';
 import { MVPBuild, MVPBuildStatus, MVPTemplate, Solution } from '@/types';
 
-const STATUS_STYLES: Record<MVPBuildStatus, string> = {
-  pending: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
-  building: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30 animate-pulse',
-  complete: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-  failed: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
-  cancelled: 'bg-slate-500/10 text-slate-400 border-slate-500/30',
+const STATUS_CONFIG: Record<
+  MVPBuildStatus,
+  { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; className?: string }
+> = {
+  pending: { label: 'Pending', variant: 'outline' },
+  building: { label: 'Building', variant: 'default', className: 'animate-pulse' },
+  complete: { label: 'Complete', variant: 'secondary', className: 'text-success' },
+  failed: { label: 'Failed', variant: 'destructive' },
+  cancelled: { label: 'Cancelled', variant: 'outline' },
 };
 
-const SAMPLE_TEMPLATES: MVPTemplate[] = [
-  {
-    slug: 'todo',
-    title: 'Todo List Workspace',
-    description: 'A minimal single-module CRUD app — items, tags, and completion states.',
-    app_name: 'todo-app',
-    industry: 'Productivity',
-  },
-  {
-    slug: 'calculator',
-    title: 'Calculator',
-    description: 'A simple interactive calculator with a persistent history ledger.',
-    app_name: 'calculator',
-    industry: 'Utilities',
-  },
-  {
-    slug: 'portfolio',
-    title: 'Portfolio Site',
-    description: 'A public-facing portfolio with project showcases and contact forms.',
-    app_name: 'portfolio',
-    industry: 'Web',
-  },
-];
 
 function StatusBadge({ status }: { status: MVPBuildStatus }) {
+  const config = STATUS_CONFIG[status];
   return (
-    <span
-      className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider border ${STATUS_STYLES[status]}`}
-    >
-      {status}
-    </span>
+    <Badge variant={config.variant} className={cn('gap-1', config.className)}>
+      {status === 'building' && <CircleNotch weight="bold" className="w-3 h-3 animate-spin" />}
+      {config.label}
+    </Badge>
+  );
+}
+
+function FileIcon({ is_dir }: { is_dir: boolean }) {
+  if (is_dir) return <Folder className="w-3.5 h-3.5 text-primary flex-shrink-0" />;
+  return <File className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />;
+}
+
+function BuildLog({ build }: { build: MVPBuild }) {
+  const logRef = useRef<HTMLDivElement>(null);
+  const [logs, setLogs] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (build.status === 'building' || build.status === 'pending') {
+      setLogs((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        const msg = `[${new Date().toLocaleTimeString()}] ${build.status === 'building' ? 'Agent is generating code...' : 'Waiting for build to start...'}`;
+        if (last !== msg) next.push(msg);
+        return next;
+      });
+      return;
+    }
+
+    if (build.status === 'complete') {
+      setLogs((prev) => {
+        const msg = `[${new Date().toLocaleTimeString()}] Build complete — ${build.file_count} files generated.`;
+        return prev[prev.length - 1] === msg ? prev : [...prev, msg];
+      });
+      return;
+    }
+
+    if (build.status === 'failed') {
+      setLogs((prev) => {
+        const msg = `[${new Date().toLocaleTimeString()}] Build failed: ${build.error_message || 'Unknown error'}`;
+        return prev[prev.length - 1] === msg ? prev : [...prev, msg];
+      });
+    }
+  }, [build.status, build.file_count, build.error_message]);
+
+  useEffect(() => {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight;
+    }
+  }, [logs]);
+
+  const isActive = build.status === 'building' || build.status === 'pending';
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-semibold text-muted-foreground">Build Log</span>
+        {isActive && <CircleNotch weight="bold" className="w-3 h-3 animate-spin text-primary" />}
+      </div>
+      <div
+        ref={logRef}
+        className="rounded-lg bg-secondary border border-border p-3 max-h-48 overflow-y-auto"
+      >
+        {logs.length === 0 ? (
+          <p className="text-xs text-muted-foreground font-mono">
+            {build.status === 'complete'
+              ? 'Build finished.'
+              : build.status === 'failed'
+                ? 'Build ended with an error.'
+                : 'Initializing build...'}
+          </p>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {logs.map((line, i) => (
+              <p key={i} className="text-xs font-mono text-muted-foreground leading-relaxed">
+                {line}
+              </p>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -69,30 +151,36 @@ function FileTree({ build }: { build: MVPBuild }) {
   const files = build.files || [];
 
   return (
-    <div className="pt-3 border-t border-white/5">
+    <div className="flex flex-col gap-2">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 text-[11px] font-semibold text-slate-300 hover:text-white transition-colors"
+        className="flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
       >
-        <FolderTree className="w-3.5 h-3.5 text-indigo-400" />
+        {open ? (
+          <FolderOpen className="w-3.5 h-3.5 text-primary" />
+        ) : (
+          <Folder className="w-3.5 h-3.5 text-primary" />
+        )}
         <span>Generated Files ({build.file_count})</span>
-        <span className="text-slate-500 font-mono">{open ? '▾' : '▸'}</span>
+        <span className="text-muted-foreground font-mono text-[10px]">{open ? '▾' : '▸'}</span>
       </button>
       {open && (
-        <div className="mt-2 max-h-64 overflow-y-auto rounded-xl bg-slate-950/70 border border-white/5 p-3">
+        <ScrollArea className="max-h-56 rounded-lg bg-secondary border border-border p-3">
           {files.length === 0 ? (
-            <p className="text-[11px] text-slate-500 font-mono">No file tree returned yet.</p>
+            <p className="text-xs text-muted-foreground font-mono">No file tree available.</p>
           ) : (
-            <ul className="space-y-1">
+            <div className="flex flex-col gap-0.5">
               {files.map((f) => (
-                <li key={f.path} className="flex items-center gap-2 text-[11px] font-mono">
-                  <Box className="w-3 h-3 text-slate-600 flex-shrink-0" />
-                  <span className={f.is_dir ? 'font-bold text-indigo-300' : 'text-slate-400'}>{f.path}</span>
-                </li>
+                <div key={f.path} className="flex items-center gap-2 text-xs font-mono py-0.5">
+                  <FileIcon is_dir={f.is_dir} />
+                  <span className={cn(f.is_dir ? 'font-semibold text-foreground' : 'text-muted-foreground')}>
+                    {f.path}
+                  </span>
+                </div>
               ))}
-            </ul>
+            </div>
           )}
-        </div>
+        </ScrollArea>
       )}
     </div>
   );
@@ -108,9 +196,6 @@ function DeployModal({
   onDeployed: (repoUrl: string) => void;
 }) {
   const [repoName, setRepoName] = useState(`mvp-${build.build_id.slice(0, 8)}`);
-  const [description, setDescription] = useState('');
-  const [privateRepo, setPrivateRepo] = useState(true);
-  const [force, setForce] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -120,9 +205,7 @@ function DeployModal({
     try {
       const res = await mvpApi.deploy(build.build_id, {
         repo_name: repoName.trim(),
-        description,
-        private: privateRepo,
-        force,
+        private: true,
       });
       onDeployed(res.repo_url);
       onClose();
@@ -134,83 +217,108 @@ function DeployModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl bg-[#0e1424] border border-white/10 p-6 space-y-4 shadow-2xl">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <Rocket className="w-4 h-4 text-indigo-400" />
-            Deploy Build #{build.build_number}
-          </h3>
-          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Rocket className="w-4 h-4 text-primary" />
+            Deploy to GitHub
+          </DialogTitle>
+          <DialogDescription>
+            Push build #{build.build_number} to a new GitHub repository.
+          </DialogDescription>
+        </DialogHeader>
 
         {error && (
-          <p className="text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2">
-            {error}
-          </p>
+          <div className="rounded-lg bg-destructive/10 border border-destructive/30 px-3 py-2">
+            <p className="text-xs text-destructive font-mono">{error}</p>
+          </div>
         )}
 
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-slate-300">Repository Name</label>
-          <input
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-muted-foreground">Repository Name</label>
+          <Input
             value={repoName}
             onChange={(e) => setRepoName(e.target.value)}
-            className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-white/10 text-white text-xs font-mono focus:outline-none focus:border-indigo-500 transition-colors"
+            placeholder="my-mvp-app"
+            className="font-mono"
           />
         </div>
 
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-slate-300">Description (optional)</label>
-          <input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Auto-generated MVP by AI Solution Builder"
-            className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-white/10 text-white text-xs focus:outline-none focus:border-indigo-500 transition-colors"
-          />
-        </div>
-
-        <div className="space-y-2.5 pt-1">
-          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={privateRepo}
-              onChange={(e) => setPrivateRepo(e.target.checked)}
-              className="accent-indigo-500"
-            />
-            Private repository
-          </label>
-          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={force}
-              onChange={(e) => setForce(e.target.checked)}
-              className="accent-indigo-500"
-            />
-            Force redeploy if already pushed
-          </label>
-        </div>
-
-        <div className="flex justify-end gap-2 pt-2">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
+        <DialogFooter>
+          <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
+          <Button
+            size="sm"
             onClick={handleDeploy}
             disabled={loading || !repoName.trim()}
-            className="flex items-center gap-2 px-5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-semibold shadow-lg shadow-indigo-600/25 transition-all hover:scale-105 disabled:opacity-40"
+            className="gap-1.5"
           >
-            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Rocket className="w-3.5 h-3.5" />}
-            <span>Deploy to GitHub</span>
-          </button>
-        </div>
-      </div>
-    </div>
+            {loading ? (
+              <CircleNotch weight="bold" className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Rocket className="w-3.5 h-3.5" />
+            )}
+            <span>Deploy</span>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
+}
+
+function deriveAppName(solution: Solution | null): string {
+  const aiState = solution?.ai_state ?? {};
+
+  const candidate =
+    typeof aiState.solution_title === 'string' && aiState.solution_title.trim()
+      ? aiState.solution_title.trim()
+      : typeof aiState.app_name === 'string' && aiState.app_name.trim()
+        ? aiState.app_name.trim()
+        : typeof solution?.title === 'string' && solution.title.trim()
+          ? solution.title.trim()
+          : 'My MVP';
+
+  return candidate
+    .replace(/[_-]+/g, ' ')
+    .replace(/[^a-zA-Z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 6)
+    .join(' ')
+    .trim() || 'My MVP';
+}
+
+function deriveBuildBrief(solution: Solution | null): string {
+  const aiState = solution?.ai_state ?? {};
+
+  const directText =
+    typeof aiState.business_description === 'string' && aiState.business_description.trim()
+      ? aiState.business_description.trim()
+      : typeof aiState.solution_summary === 'string' && aiState.solution_summary.trim()
+        ? aiState.solution_summary.trim()
+        : typeof aiState.summary === 'string' && aiState.summary.trim()
+          ? aiState.summary.trim()
+          : typeof aiState.value_proposition === 'string' && aiState.value_proposition.trim()
+            ? aiState.value_proposition.trim()
+            : '';
+
+  if (directText) return directText;
+
+  const moduleValues = [
+    ...(Array.isArray(aiState.confirmed_modules) ? aiState.confirmed_modules : []),
+    ...(Array.isArray(aiState.identified_solutions) ? aiState.identified_solutions : []),
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .slice(0, 4);
+
+  if (moduleValues.length > 0) {
+    const base = solution?.title ? `Build a ${solution.title} MVP` : 'Build an MVP';
+    return `${base} with core modules: ${moduleValues.join(', ')}.`;
+  }
+
+  return solution?.description?.trim() || '';
 }
 
 function ConfigureModal({
@@ -223,24 +331,31 @@ function ConfigureModal({
   onConfigured: () => void;
 }) {
   const [appName, setAppName] = useState('');
-  const [envText, setEnvText] = useState('');
+  const [envPairs, setEnvPairs] = useState<{ key: string; value: string }[]>([
+    { key: '', value: '' },
+  ]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const addPair = () => setEnvPairs((prev) => [...prev, { key: '', value: '' }]);
+  const removePair = (idx: number) => setEnvPairs((prev) => prev.filter((_, i) => i !== idx));
+  const updatePair = (idx: number, field: 'key' | 'value', val: string) =>
+    setEnvPairs((prev) => prev.map((p, i) => (i === idx ? { ...p, [field]: val } : p)));
 
   const handleConfigure = async () => {
     setLoading(true);
     setError(null);
     const env: Record<string, unknown> = {};
-    for (const line of envText.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const eq = trimmed.indexOf('=');
-      if (eq === -1) {
-        setError(`Invalid env line: ${trimmed}. Expected KEY=VALUE.`);
+    for (const pair of envPairs) {
+      const k = pair.key.trim();
+      const v = pair.value.trim();
+      if (!k) continue;
+      if (k.includes(' ')) {
+        setError(`Invalid key: "${k}". Keys must not contain spaces.`);
         setLoading(false);
         return;
       }
-      env[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
+      env[k] = v;
     }
     try {
       await mvpApi.configure(build.build_id, {
@@ -257,220 +372,144 @@ function ConfigureModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl bg-[#0e1424] border border-white/10 p-6 space-y-4 shadow-2xl">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <Settings2 className="w-4 h-4 text-indigo-400" />
-            Tune Build #{build.build_number}
-          </h3>
-          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <GearSix className="w-4 h-4 text-primary" />
+            Configure Build #{build.build_number}
+          </DialogTitle>
+          <DialogDescription>Override the app name and set environment variables.</DialogDescription>
+        </DialogHeader>
 
         {error && (
-          <p className="text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2">{error}</p>
+          <div className="rounded-lg bg-destructive/10 border border-destructive/30 px-3 py-2">
+            <p className="text-xs text-destructive font-mono">{error}</p>
+          </div>
         )}
 
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-slate-300">App Name (optional)</label>
-          <input
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-muted-foreground">App Name (optional)</label>
+          <Input
             value={appName}
             onChange={(e) => setAppName(e.target.value)}
             placeholder="my-production-app"
-            className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-white/10 text-white text-xs font-mono focus:outline-none focus:border-indigo-500 transition-colors"
+            className="font-mono"
           />
         </div>
 
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-slate-300">Environment Overrides</label>
-          <textarea
-            value={envText}
-            onChange={(e) => setEnvText(e.target.value)}
-            rows={6}
-            placeholder={'SECRET_KEY=change-me\nDATABASE_URL=...'}
-            className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-white/10 text-white text-xs font-mono focus:outline-none focus:border-indigo-500 transition-colors resize-none"
-          />
-          <p className="text-[11px] text-slate-500">One KEY=VALUE per line. Written to .env.local.</p>
-        </div>
+        <Separator />
 
-        <div className="flex justify-end gap-2 pt-2">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleConfigure}
-            disabled={loading}
-            className="flex items-center gap-2 px-5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-semibold shadow-lg shadow-indigo-600/25 transition-all hover:scale-105 disabled:opacity-40"
-          >
-            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-            <span>Apply Overlay</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function BuildCard({
-  build,
-  isDeployed,
-  onDeploy,
-  onConfigure,
-  onDownload,
-  onDestroy,
-}: {
-  build: MVPBuild;
-  isDeployed: boolean;
-  onDeploy: () => void;
-  onConfigure: () => void;
-  onDownload: () => void;
-  onDestroy: () => void;
-}) {
-  return (
-    <div className="p-5 rounded-2xl bg-slate-900/40 border border-white/5 space-y-3 transition-all hover:border-white/10">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-indigo-500/15 border border-indigo-500/20 text-indigo-300 flex items-center justify-center text-xs font-bold">
-            v{build.build_number}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-semibold text-muted-foreground">Environment Variables</label>
+            <Button variant="ghost" size="xs" onClick={addPair} className="gap-1">
+              <Plus className="w-3 h-3" />
+              <span>Add</span>
+            </Button>
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h4 className="text-sm font-bold text-white">Build #{build.build_number}</h4>
-              <StatusBadge status={build.status} />
-            </div>
-            <p className="text-[11px] text-slate-500 font-mono mt-0.5">
-              {build.file_count} files · {build.build_id.slice(0, 8)}
-            </p>
+          <div className="flex flex-col gap-2">
+            {envPairs.map((pair, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <Input
+                  value={pair.key}
+                  onChange={(e) => updatePair(idx, 'key', e.target.value)}
+                  placeholder="KEY"
+                  className="font-mono flex-1"
+                />
+                <Input
+                  value={pair.value}
+                  onChange={(e) => updatePair(idx, 'value', e.target.value)}
+                  placeholder="value"
+                  className="font-mono flex-1"
+                />
+                {envPairs.length > 1 && (
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={() => removePair(idx)}
+                    className="flex-shrink-0"
+                  >
+                    <X className="w-3 h-3" />
+                  </Button>
+                )}
+              </div>
+            ))}
           </div>
+          <p className="text-[11px] text-muted-foreground">Written to .env.local on deploy.</p>
         </div>
 
-        {build.repo_url && (
-          <a
-            href={build.repo_url}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 transition-colors"
-          >
-            <ExternalLink className="w-3 h-3" />
-            <span>Deployed</span>
-          </a>
-        )}
-      </div>
-
-      {build.error_message && (
-        <p className="text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2 font-mono">
-          {build.error_message}
-        </p>
-      )}
-
-      <div className="flex items-center gap-2 flex-wrap">
-        {build.status === 'complete' && (
-          <>
-            <button
-              onClick={onDownload}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-200 border border-white/10 transition-colors"
-            >
-              <Download className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Download ZIP</span>
-            </button>
-            <button
-              onClick={onConfigure}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-200 border border-white/10 transition-colors"
-            >
-              <Settings2 className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Tune</span>
-            </button>
-            <button
-              onClick={onDeploy}
-              disabled={isDeployed}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-semibold shadow-md shadow-indigo-600/20 transition-all hover:scale-105 disabled:opacity-40"
-            >
-              <Rocket className="w-3.5 h-3.5" />
-              <span>{isDeployed ? 'Deployed' : 'Deploy to GitHub'}</span>
-            </button>
-          </>
-        )}
-        {(build.status === 'failed' || build.status === 'cancelled') && (
-          <button
-            onClick={onDestroy}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-xs font-semibold text-rose-400 border border-rose-500/20 transition-colors"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Destroy</span>
-          </button>
-        )}
-      </div>
-
-      <FileTree build={build} />
-    </div>
+        <DialogFooter>
+          <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
+          <Button size="sm" onClick={handleConfigure} disabled={loading} className="gap-1.5">
+            {loading ? (
+              <CircleNotch weight="bold" className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Check className="w-3.5 h-3.5" />
+            )}
+            <span>Save</span>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 export default function MvpPage() {
   const params = useParams();
-  const solutionId = (params?.id as string) || 'sol-demo-1';
+  const solutionId = (params?.id as string) || '';
 
   const [solution, setSolution] = useState<Solution | null>(null);
-  const [templates, setTemplates] = useState<MVPTemplate[]>([]);
   const [builds, setBuilds] = useState<MVPBuild[]>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<string | null>('todo');
+  const [buildsLoaded, setBuildsLoaded] = useState(false);
+  const [buildsLoading, setBuildsLoading] = useState(true);
+  const [buildsError, setBuildsError] = useState<string | null>(null);
   const [appName, setAppName] = useState('');
-  const [forceBuild, setForceBuild] = useState(false);
+  const [buildConcept, setBuildConcept] = useState('');
   const [starting, setStarting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [deployTarget, setDeployTarget] = useState<MVPBuild | null>(null);
   const [configureTarget, setConfigureTarget] = useState<MVPBuild | null>(null);
 
   const loadBuilds = useCallback(async () => {
+    setBuildsLoading(true);
+    setBuildsError(null);
     try {
-      setBuilds(await mvpApi.listBuilds(solutionId));
-    } catch {
-      // backend unavailable — keep current list
+      const nextBuilds = await mvpApi.listBuilds(solutionId);
+      setBuilds((prev) => {
+        if (nextBuilds.length === 0 && prev.length > 0) {
+          return prev;
+        }
+        return nextBuilds;
+      });
+      setBuildsLoaded(true);
+    } catch (err) {
+      setBuildsError(err instanceof Error ? err.message : 'Could not load build history.');
+      setBuildsLoaded(true);
+    } finally {
+      setBuildsLoading(false);
     }
   }, [solutionId]);
 
   useEffect(() => {
     solutionApi
       .get(solutionId)
-      .then(setSolution)
+      .then((nextSolution) => {
+        setSolution(nextSolution);
+        const generatedName = deriveAppName(nextSolution);
+        setAppName((prev) => (prev.trim() ? prev : generatedName));
+        const recommendedBrief = deriveBuildBrief(nextSolution);
+        setBuildConcept((prev) => (prev.trim() ? prev : recommendedBrief));
+      })
       .catch(() => {
-        setSolution({
-          id: solutionId,
-          workspace_id: 'ws-demo-1',
-          title: 'Omnichannel Retail POS & Inventory Platform',
-          description: 'Enterprise architecture generated by AI Solution Builder.',
-          status: 'complete',
-          created_at: new Date().toISOString(),
-        });
+        setSolution(null);
       });
   }, [solutionId]);
 
   useEffect(() => {
-    mvpApi
-      .listTemplates()
-      .then(setTemplates)
-      .catch(() => setTemplates(SAMPLE_TEMPLATES));
-  }, []);
+    loadBuilds();
+  }, [loadBuilds]);
 
-  useEffect(() => {
-    let cancelled = false;
-    mvpApi
-      .listBuilds(solutionId)
-      .then((list) => {
-        if (!cancelled) setBuilds(list);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [solutionId]);
-
-  // Poll builds while any is active
   useEffect(() => {
     const hasActive = builds.some((b) => b.status === 'pending' || b.status === 'building');
     if (!hasActive) return;
@@ -479,18 +518,32 @@ export default function MvpPage() {
   }, [builds, loadBuilds]);
 
   const handleStartBuild = async () => {
+    if (starting) return;
     setStarting(true);
     setActionError(null);
     try {
+      const generatedBrief = deriveBuildBrief(solution);
+      const generatedName = deriveAppName(solution);
+      const buildConceptToUse = buildConcept.trim() || generatedBrief || undefined;
+      const appNameToUse = appName.trim() || generatedName || undefined;
+
       await mvpApi.triggerBuild(solutionId, {
-        app_name: appName.trim() || undefined,
-        template: selectedTemplate || undefined,
-        force: forceBuild,
+        app_name: appNameToUse,
+        config: {
+          build_concept: buildConceptToUse || undefined,
+        },
+        force: solution?.status !== 'complete' || Boolean(buildConceptToUse),
       });
       setAppName('');
+      setBuildConcept('');
       await loadBuilds();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed to start build.');
+      const message = err instanceof Error ? err.message : 'Failed to start build.';
+      setActionError(
+        message.includes('status 409') || message.includes('artifacts must be generated')
+          ? 'This solution is not fully generated yet. Add a clear build brief below and start again.'
+          : message
+      );
     } finally {
       setStarting(false);
     }
@@ -498,14 +551,17 @@ export default function MvpPage() {
 
   const handleDownload = async (build: MVPBuild) => {
     try {
-      await mvpApi.downloadBuild(build.build_id, `mvp_${build.solution_id.slice(0, 8)}_build${build.build_number}.zip`);
+      await mvpApi.downloadBuild(
+        build.build_id,
+        `mvp_${build.solution_id.slice(0, 8)}_build${build.build_number}.zip`
+      );
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Download failed.');
     }
   };
 
   const handleDestroy = async (build: MVPBuild) => {
-    if (!window.confirm(`Destroy build #${build.build_number}? The workspace will be deleted.`)) return;
+    if (!window.confirm(`Destroy build #${build.build_number}? This cannot be undone.`)) return;
     try {
       await mvpApi.destroy(build.build_id);
       await loadBuilds();
@@ -515,178 +571,302 @@ export default function MvpPage() {
   };
 
   const handleDeployed = (repoUrl: string) => {
-    setBuilds((prev) => prev.map((b) => (b.status === 'complete' && b.build_id === deployTarget?.build_id ? { ...b, repo_url: repoUrl } : b)));
+    setBuilds((prev) =>
+      prev.map((b) =>
+        b.status === 'complete' && b.build_id === deployTarget?.build_id
+          ? { ...b, repo_url: repoUrl }
+          : b
+      )
+    );
   };
 
+  const sortedBuilds = [...builds].sort((a, b) => b.build_number - a.build_number);
+  const activeBuild = sortedBuilds.find((b) => b.status === 'pending' || b.status === 'building') || null;
+  const latestComplete = sortedBuilds.find((b) => b.status === 'complete') || null;
+  const visibleBuildResult = latestComplete || activeBuild;
+  const designReady = solution?.status === 'complete';
+  const noBuildsYet = builds.length === 0 && buildsLoaded && !buildsLoading && !buildsError;
+
   return (
-    <div className="space-y-8 max-w-6xl mx-auto">
+    <div className="p-6 lg:p-8 flex flex-col gap-6 max-w-[960px] mx-auto w-full">
       {/* Header */}
       <div className="flex items-center justify-between">
         <Link
           href={`/solution/${solutionId}`}
-          className="inline-flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors"
+          className="inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>Back to Blueprints</span>
+          <span>Back to Solution</span>
         </Link>
-
-        <div className="flex items-center gap-2 text-[11px] text-slate-500">
-          <span>Deploy prep:</span>
-          <Link
-            href="/settings"
-            className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 font-semibold border border-white/10 transition-colors"
-          >
-            Save GitHub Token
-          </Link>
-        </div>
       </div>
 
-      {/* Hero */}
-      <div className="p-8 rounded-3xl bg-gradient-to-r from-indigo-950/60 via-slate-900/80 to-purple-950/40 border border-white/5 shadow-2xl relative overflow-hidden">
-        <div className="relative z-10 space-y-2 max-w-2xl">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-semibold">
-            <Rocket className="w-3.5 h-3.5 text-indigo-400" />
-            <span>OpenCode MVP Builder</span>
-          </div>
-          <h2 className="text-2xl font-extrabold text-white tracking-tight">
-            Build a Deployable App from {solution?.title || 'this Solution'}
-          </h2>
-          <p className="text-xs text-slate-300 leading-relaxed">
-            Generate a working FastAPI + Next.js project from your validated blueprints, then push it straight to a fresh
-            GitHub repo ready for a Render blueprint auto-deploy.
-          </p>
-        </div>
-      </div>
+      {/* Build Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Rocket className="w-4 h-4 text-primary" />
+            <span>Build MVP</span>
+          </CardTitle>
+          <CardDescription>
+            Start from the generated solution. Add a small tweak only if you want something specific.
+          </CardDescription>
+        </CardHeader>
 
-      {/* Start New Build */}
-      <div className="p-6 rounded-2xl bg-slate-900/40 border border-white/5 space-y-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Play className="w-4 h-4 text-emerald-400" />
-              <span>Start a New Build</span>
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Pick a starter template and the full-blueprint slot-fill takes care of the rest. Costs MVP-build credits.
-            </p>
-          </div>
-          <button
-            onClick={loadBuilds}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] font-semibold text-slate-300 border border-white/10 transition-colors"
-          >
-            <RefreshCw className="w-3 h-3" />
-            <span>Refresh</span>
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {templates.map((tpl) => {
-            const selected = selectedTemplate === tpl.slug;
-            return (
-              <button
-                key={tpl.slug}
-                onClick={() => setSelectedTemplate(selected ? null : tpl.slug)}
-                className={`p-5 rounded-2xl border text-left transition-all ${
-                  selected
-                    ? 'bg-indigo-950/40 border-indigo-500/50 shadow-lg shadow-indigo-500/10'
-                    : 'bg-slate-900/60 border-white/5 hover:border-white/15'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-white">{tpl.title}</span>
-                  {selected && <Check className="w-4 h-4 text-indigo-400" />}
-                </div>
-                <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">{tpl.description}</p>
-                <div className="mt-3 flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[10px] font-semibold text-slate-400">
-                    {tpl.industry}
-                  </span>
-                  <code className="text-[10px] text-indigo-300 font-mono">{tpl.app_name}</code>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
-          <div className="flex-1 space-y-1.5">
-            <label className="text-xs font-semibold text-slate-300">App Name (optional)</label>
-            <input
-              value={appName}
-              onChange={(e) => setAppName(e.target.value)}
-              placeholder={`e.g. ${templates[0]?.app_name || 'my-app'}`}
-              className="w-full px-4 py-3 rounded-xl bg-slate-900 border border-white/10 text-white text-xs font-mono focus:outline-none focus:border-indigo-500 transition-colors"
+        <CardContent className="flex flex-col gap-5">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-semibold text-muted-foreground">Optional direction</label>
+            <textarea
+              value={buildConcept}
+              onChange={(e) => setBuildConcept(e.target.value)}
+              placeholder="Small tweak only: faster checkout flow, more premium UI, or different onboarding tone"
+              className="min-h-20 w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
             />
           </div>
-          <label className="flex items-center gap-2 text-xs text-slate-300 pb-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={forceBuild}
-              onChange={(e) => setForceBuild(e.target.checked)}
-              className="accent-indigo-500"
-            />
-            Force (solution not yet complete)
-          </label>
-          <button
-            onClick={handleStartBuild}
-            disabled={starting || (!selectedTemplate && !appName.trim())}
-            className="flex items-center gap-2 px-7 py-3 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-cyan-500 hover:opacity-95 text-white text-xs font-bold shadow-xl shadow-indigo-600/30 transition-all hover:scale-105 disabled:opacity-40"
-          >
-            {starting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
-            <span>Start MVP Build</span>
-          </button>
-        </div>
 
-        {actionError && (
-          <p className="text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2">{actionError}</p>
-        )}
-      </div>
-
-      {/* Builds */}
-      <div className="space-y-4">
-        <div>
-          <h3 className="text-base font-bold text-white">Builds</h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {builds.length} build{builds.length === 1 ? '' : 's'} for this solution. Status refreshes automatically while
-            building.
-          </p>
-        </div>
-
-        {builds.length === 0 ? (
-          <div className="p-10 rounded-2xl bg-slate-900/40 border border-dashed border-white/10 text-center">
-            <Rocket className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-            <p className="text-xs text-slate-500">No builds yet — start your first MVP build above.</p>
+          {/* App Name + Build Button */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
+            <div className="flex-1 flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-muted-foreground">App Name (optional)</label>
+              <Input
+                value={appName}
+                onChange={(e) => setAppName(e.target.value)}
+                placeholder={solution?.title || 'my-app'}
+                className="font-mono"
+              />
+            </div>
+            <Button
+              onClick={handleStartBuild}
+              disabled={starting || Boolean(activeBuild)}
+              className="gap-2 sm:w-auto"
+            >
+              {starting ? (
+                <CircleNotch weight="bold" className="w-4 h-4 animate-spin" />
+              ) : (
+                <Sparkle className="w-4 h-4" weight="fill" />
+              )}
+              <span>Start Build</span>
+              <span className="ml-1 text-xs opacity-70 flex items-center gap-1">
+                <Coins className="w-3 h-3" />
+                Unlimited
+              </span>
+            </Button>
           </div>
-        ) : (
-          builds.map((build) => (
-            <BuildCard
-              key={build.build_id}
-              build={build}
-              isDeployed={Boolean(build.repo_url)}
-              onDeploy={() => setDeployTarget(build)}
-              onConfigure={() => setConfigureTarget(build)}
-              onDownload={() => handleDownload(build)}
-              onDestroy={() => handleDestroy(build)}
-            />
-          ))
-        )}
-      </div>
 
-      {deployTarget && <DeployModal build={deployTarget} onClose={() => setDeployTarget(null)} onDeployed={handleDeployed} />}
-      {configureTarget && (
-        <ConfigureModal build={configureTarget} onClose={() => setConfigureTarget(null)} onConfigured={loadBuilds} />
+          {actionError && (
+            <div className="rounded-lg bg-destructive/10 border border-destructive/30 px-3 py-2">
+              <p className="text-xs text-destructive font-mono">{actionError}</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Build Status */}
+      {activeBuild && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <CardTitle className="text-sm">Build #{activeBuild.build_number}</CardTitle>
+                <StatusBadge status={activeBuild.status} />
+              </div>
+              <Button variant="ghost" size="xs" onClick={loadBuilds} className="gap-1">
+                <ArrowClockwise className="w-3 h-3" />
+                <span>Refresh</span>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <BuildLog build={activeBuild} />
+          </CardContent>
+        </Card>
       )}
 
-      {/* Footer CTA */}
-      <div className="flex justify-end">
-        <Link
-          href="/chat"
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 border border-white/10 transition-colors"
-        >
-          <span>Iterate Blueprints with AI</span>
-          <ArrowRight className="w-3.5 h-3.5" />
-        </Link>
-      </div>
+      {/* Build Results */}
+      {visibleBuildResult && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <CardTitle className="text-sm">Build #{visibleBuildResult.build_number}</CardTitle>
+                <StatusBadge status={visibleBuildResult.status} />
+                {visibleBuildResult.repo_url && (
+                  <a
+                    href={visibleBuildResult.repo_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
+                  >
+                    <span>Deployed</span>
+                  </a>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDownload(visibleBuildResult)}
+                  className="gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download ZIP</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setConfigureTarget(visibleBuildResult)}
+                  className="gap-1.5"
+                >
+                  <GearSix className="w-3.5 h-3.5" />
+                  <span>Configure</span>
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => setDeployTarget(visibleBuildResult)}
+                  disabled={Boolean(visibleBuildResult.repo_url)}
+                  className="gap-1.5"
+                >
+                  <Rocket className="w-3.5 h-3.5" />
+                  <span>{visibleBuildResult.repo_url ? 'Deployed' : 'Deploy to GitHub'}</span>
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {visibleBuildResult.error_message && (
+              <div className="rounded-lg bg-destructive/10 border border-destructive/30 px-3 py-2">
+                <p className="text-xs text-destructive font-mono">{visibleBuildResult.error_message}</p>
+              </div>
+            )}
+            <FileTree build={visibleBuildResult} />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* All Builds List */}
+      {buildsError && (
+        <div className="rounded-lg bg-destructive/10 border border-destructive/30 px-3 py-2">
+          <p className="text-xs text-destructive font-medium">{buildsError}</p>
+          <p className="mt-1 text-[11px] text-destructive/80">
+            The build service may be unavailable or the backend connection may be down.
+          </p>
+        </div>
+      )}
+
+      {noBuildsYet && (
+        <Card className="border-dashed border-border bg-transparent">
+          <CardContent className="py-8">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="rounded-md bg-primary/10 p-2">
+                  <Rocket className="w-4 h-4 text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">
+                    {designReady ? 'Design is complete — no MVP build exists yet' : 'MVP build not ready'}
+                  </h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {designReady
+                      ? 'Your solution has been generated, but the MVP has not been built yet.'
+                      : 'Complete the solution design first, then generate the MVP.'}
+                  </p>
+                </div>
+              </div>
+
+              {designReady && (
+                <Button
+                  onClick={handleStartBuild}
+                  disabled={starting || Boolean(activeBuild)}
+                  className="gap-2 whitespace-nowrap"
+                >
+                  {starting ? (
+                    <CircleNotch weight="bold" className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Sparkle className="w-4 h-4" weight="fill" />
+                  )}
+                  <span>Generate MVP</span>
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {sortedBuilds.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <h3 className="text-sm font-semibold text-foreground">Build history</h3>
+          <div className="flex flex-col gap-2">
+            {sortedBuilds.map((build) => (
+              <div
+                key={build.build_id}
+                className="flex items-center justify-between p-3 rounded-lg bg-card border border-border"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-mono text-muted-foreground">#{build.build_number}</span>
+                  <StatusBadge status={build.status} />
+                  <span className="text-xs text-muted-foreground font-mono">
+                    {build.file_count} files
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {build.status === 'complete' && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => handleDownload(build)}
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => setDeployTarget(build)}
+                      >
+                        <Rocket className="w-3.5 h-3.5" />
+                      </Button>
+                    </>
+                  )}
+                  {(build.status === 'failed' || build.status === 'cancelled') && (
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => handleDestroy(build)}
+                      className="text-destructive hover:text-destructive"
+                    >
+                      <Trash className="w-3.5 h-3.5" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Empty State */}
+      {buildsLoading && !buildsLoaded && (
+        <div className="flex flex-col gap-3 rounded-lg border border-border p-4">
+          <div className="h-4 w-32 animate-pulse rounded bg-secondary" />
+          <div className="h-10 animate-pulse rounded bg-secondary" />
+          <div className="h-10 animate-pulse rounded bg-secondary" />
+        </div>
+      )}
+
+      {/* Modals */}
+      {deployTarget && (
+        <DeployModal
+          build={deployTarget}
+          onClose={() => setDeployTarget(null)}
+          onDeployed={handleDeployed}
+        />
+      )}
+      {configureTarget && (
+        <ConfigureModal
+          build={configureTarget}
+          onClose={() => setConfigureTarget(null)}
+          onConfigured={loadBuilds}
+        />
+      )}
     </div>
   );
 }

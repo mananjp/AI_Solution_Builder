@@ -23,7 +23,7 @@ import {
   type NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Plus, Save, Trash2 } from 'lucide-react';
+import { Plus, FloppyDisk, Trash } from '@phosphor-icons/react/dist/ssr';
 import type { Artifact } from '@/types';
 
 // --- Node data shapes -------------------------------------------------
@@ -321,7 +321,7 @@ function WireframeCanvasInner({ wireframes, onUpdate }: WireframeCanvasInnerProp
             disabled={selectedIds.length === 0}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-300 text-xs font-semibold transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Trash className="w-3.5 h-3.5" />
             <span>Delete</span>
           </button>
         </div>
@@ -333,7 +333,7 @@ function WireframeCanvasInner({ wireframes, onUpdate }: WireframeCanvasInnerProp
             onClick={save}
             className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/25 text-emerald-300 text-xs font-bold transition-colors"
           >
-            <Save className="w-3.5 h-3.5" />
+            <FloppyDisk className="w-3.5 h-3.5" />
             <span>Save Layout</span>
           </button>
         </div>

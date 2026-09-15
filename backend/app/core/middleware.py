@@ -4,13 +4,15 @@ AI Solution Builder — Core Middleware
   * RequestIDMiddleware        — injects/extracts X-Request-ID and attaches it
                                   to request.state for logging & tracing
   * LogMiddleware              — structured request logging with duration
-  * RateLimitMiddleware        — Redis sliding-window limits per user/IP,
+  * RateLimitMiddleware        — sliding-window limits per user/IP,
                                   with a stricter limit on AI/chat routes
+  * InputSanitizationMiddleware — validates and sanitizes request bodies
   * AuditLogMiddleware         — records mutating requests in audit_logs
   * LanguageMiddleware         — content-language detection for the
                                   multilingual pipeline (Section 10)
 """
 
+import json
 import logging
 import time
 import uuid
@@ -23,13 +25,29 @@ from starlette.responses import Response
 from app.core.config import settings
 from app.core.database import async_session_factory
 from app.core.i18n import pick_best_language
-from app.core.redis import sliding_window_count
+from app.core.sanitization import sanitize_input, MAX_MESSAGE_LENGTH
 
 logger = logging.getLogger(__name__)
 
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 _HEALTH_PATHS = {"/health", "/ready", "/metrics", "/docs", "/redoc", "/openapi.json"}
 _AI_PATHS = ("/api/v1/chat", "/api/v1/export")
+
+
+def _client_identifier(request: Request) -> str:
+    """Use the authenticated user sub when present, else the client IP."""
+    sub = getattr(request.state, "user_sub", None)
+    if sub:
+        return f"user:{sub}"
+    forwarded = request.headers.get("X-Forwarded-For")
+    ip = (
+        forwarded.split(",")[0].strip()
+        if forwarded
+        else request.client.host
+        if request.client
+        else "unknown"
+    )
+    return f"ip:{ip}"
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
@@ -72,24 +90,8 @@ class LogMiddleware(BaseHTTPMiddleware):
         return response
 
 
-def _client_identifier(request: Request) -> str:
-    """Use the authenticated user sub when present, else the client IP."""
-    sub = getattr(request.state, "user_sub", None)
-    if sub:
-        return f"user:{sub}"
-    forwarded = request.headers.get("X-Forwarded-For")
-    ip = (
-        forwarded.split(",")[0].strip()
-        if forwarded
-        else request.client.host
-        if request.client
-        else "unknown"
-    )
-    return f"ip:{ip}"
-
-
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Redis sliding-window rate limiting (fail-open if Redis is down)."""
+    """Sliding-window rate limiting with automatic Redis/in-memory fallback."""
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         if not settings.RATE_LIMIT_ENABLED or request.url.path in _HEALTH_PATHS:
@@ -102,11 +104,34 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             settings.RATE_LIMIT_AI_WINDOW_SECONDS if is_ai else settings.RATE_LIMIT_WINDOW_SECONDS
         )
         key = f"rl:{ident}:{'ai' if is_ai else 'api'}"
-        allowed, current = await sliding_window_count(key, limit, window)
+
+        # Try Redis first, fall back to in-memory
+        allowed = True
+        current = 0
+        try:
+            from app.core.redis import sliding_window_count
+            allowed, current = await sliding_window_count(key, limit, window)
+        except Exception:
+            # Redis unavailable — use in-memory limiter
+            from app.core.rate_limiter import rate_limiter
+            info = rate_limiter.check(key, limit, window)
+            if isinstance(info, tuple):
+                allowed, info_dict = info
+                current = limit - info_dict.get('remaining', limit)
+            else:
+                # Fallback: allow the request
+                allowed = True
+
         if not allowed:
             response = Response(
                 status_code=429,
-                content='{"error":{"code":"RATE_LIMIT_EXCEEDED","message":"Rate limit exceeded. Please slow down.","details":[]}}',
+                content=json.dumps({
+                    "error": {
+                        "code": "RATE_LIMIT_EXCEEDED",
+                        "message": "Too many requests. Please slow down.",
+                        "retry_after_seconds": 60,
+                    }
+                }),
                 media_type="application/json",
             )
             response.headers["X-RateLimit-Limit"] = str(limit)
@@ -118,6 +143,74 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         response.headers["X-RateLimit-Limit"] = str(limit)
         response.headers["X-RateLimit-Remaining"] = str(max(0, limit - current))
         return response
+
+
+class InputSanitizationMiddleware(BaseHTTPMiddleware):
+    """
+    Validate and sanitize request bodies on mutating AI endpoints.
+    
+    Checks for prompt injection, harmful content, and length violations
+    before the request reaches any route handler.
+    """
+
+    _SANITIZE_PATHS = ("/api/v1/chat", "/api/v1/upload")
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        # Only sanitize mutating requests to specific paths
+        if request.method not in _MUTATING_METHODS or request.url.path in _HEALTH_PATHS:
+            return await call_next(request)
+
+        should_sanitize = any(request.url.path.startswith(p) for p in self._SANITIZE_PATHS)
+        if not should_sanitize:
+            return await call_next(request)
+
+        # Read and validate body
+        try:
+            body = await request.body()
+            if not body:
+                return await call_next(request)
+
+            data = json.loads(body)
+
+            # Check text fields for injection
+            text_fields = ["message", "content", "text", "prompt", "query", "url"]
+            for field in text_fields:
+                if field in data and isinstance(data[field], str):
+                    result = sanitize_input(data[field])
+                    if not result.is_safe:
+                        logger.warning(
+                            "Input rejected: field=%s reason=%s category=%s ip=%s",
+                            field,
+                            result.reason,
+                            result.category,
+                            _client_identifier(request),
+                        )
+                        return Response(
+                            status_code=400,
+                            content=json.dumps({
+                                "error": {
+                                    "code": "INPUT_REJECTED",
+                                    "message": result.reason,
+                                    "category": result.category,
+                                }
+                            }),
+                            media_type="application/json",
+                        )
+                    # Replace with sanitized version
+                    if result.sanitized_text:
+                        data[field] = result.sanitized_text
+
+            # Re-serialize and create new request
+            sanitized_body = json.dumps(data).encode("utf-8")
+            request._body = sanitized_body
+
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            # Not JSON or malformed — let the route handler deal with it
+            pass
+        except Exception:
+            logger.warning("Sanitization middleware error", exc_info=True)
+
+        return await call_next(request)
 
 
 class LanguageMiddleware(BaseHTTPMiddleware):

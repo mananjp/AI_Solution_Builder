@@ -49,6 +49,12 @@ async def get_admin_stats(
     solutions_count = (await db.execute(select(func.count(Solution.id)))).scalar() or 0
     workspaces_count = (await db.execute(select(func.count(Workspace.id)))).scalar() or 0
 
+    from app.models.credit import CreditTransaction
+
+    total_credits = (
+        await db.execute(select(func.coalesce(func.sum(CreditTransaction.credits_used), 0)))
+    ).scalar() or 0
+
     return {
         "total_users": users_count,
         "total_organizations": orgs_count,
@@ -56,7 +62,7 @@ async def get_admin_stats(
         "total_workspaces": workspaces_count,
         "active_llm_model": "Groq OSS 120B",
         "system_status": "Healthy",
-        "total_ai_credits_consumed": 42500,
+        "total_ai_credits_consumed": int(total_credits),
         "average_generation_time_sec": 4.2,
     }
 

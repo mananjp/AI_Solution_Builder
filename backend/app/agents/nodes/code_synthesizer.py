@@ -7,6 +7,7 @@ working application — real DDL for dynamic schema provisioning plus module
 manifests consumed by the Workable System Runtime Engine.
 """
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -15,16 +16,43 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.prompts import CODE_SYNTHESIZER_SYSTEM
 from app.agents.state import DiscoveryState
-from app.core.llm import get_llm
+from app.agents.utils import parse_llm_json
+from app.core.llm import get_llm, invoke_with_retry
 
 logger = logging.getLogger(__name__)
+
+RATE_LIMIT_DELAY = 15  # seconds — stay under Groq 6k TPM
+
+
+def _fallback(message: str) -> dict[str, Any]:
+    """Return minimal code artifacts so downstream nodes can still run."""
+    logger.warning("Code Synthesizer using fallback: %s", message)
+    return {
+        "generated_schema": {
+            "artifact_type": "database_schema",
+            "title": "Executable Database Schema",
+            "content": {"declarative": {"tables": []}, "ddl": ""},
+            "content_text": "",
+        },
+        "workable_modules": [],
+        "code_manifest": {"framework": "FastAPI + Next.js", "tree": [], "stack_version": "1.0"},
+        "workable_ready": True,
+        "current_agent": "code_synthesizer",
+        "status": "generating",
+        "agent_messages": [],
+    }
 
 
 async def code_synthesizer_node(state: DiscoveryState) -> dict[str, Any]:
     """Synthesize executable schema DDL and workable module manifests."""
+    await asyncio.sleep(RATE_LIMIT_DELAY)
     logger.info("Full-Stack Code Synthesizer: generating workable system")
 
-    llm = get_llm(temperature=0.1, max_tokens=8192, state=state)
+    try:
+        llm = get_llm(temperature=0.1, max_tokens=2048, state=state)
+    except Exception as exc:
+        logger.error("Code Synthesizer: failed to get LLM — %s", exc)
+        return _fallback(f"LLM init failed: {exc}")
 
     modules = state.get("confirmed_modules") or state.get("identified_solutions", [])
     er_artifact = state.get("er_diagram")
@@ -38,23 +66,22 @@ async def code_synthesizer_node(state: DiscoveryState) -> dict[str, Any]:
         HumanMessage(
             content=f"""Business: {state.get("business_description", "")}
 Modules: {json.dumps(modules)}
-ER Entities: {json.dumps(er.get("entities", []), default=str)}
-API Endpoints: {json.dumps(api_spec.get("endpoints", []), default=str)}
-Wireframe Modules: {json.dumps([wf.get("module") for wf in wireframes if isinstance(wf, dict)], default=str)}"""
+ER Entities: {json.dumps(er.get("entities", []), default=str)[:1500]}
+API Endpoints: {json.dumps(api_spec.get("endpoints", []), default=str)[:1500]}
+Wireframe Modules: {json.dumps([wf.get("module") for wf in wireframes if isinstance(wf, dict)], default=str)[:500]}"""
         ),
     ]
 
-    response = await llm.ainvoke(messages)
+    try:
+        response = await invoke_with_retry(llm, messages)
+    except Exception as exc:
+        logger.error("Code Synthesizer: LLM call failed — %s", exc)
+        return _fallback(f"LLM call failed: {exc}")
 
     try:
-        content = response.content
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0]
-        elif "```" in content:
-            content = content.split("```")[1].split("```")[0]
-        result = json.loads(content.strip())
+        result = parse_llm_json(response.content)
     except (json.JSONDecodeError, IndexError):
-        logger.error("Failed to parse code synthesizer response")
+        logger.error("Code Synthesizer: failed to parse JSON response")
         result = {
             "generated_schema": {"declarative": {"tables": []}, "ddl": ""},
             "workable_modules": [],

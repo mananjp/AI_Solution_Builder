@@ -16,6 +16,7 @@ artifacts via the OpenCode sidecar:
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -25,7 +26,6 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.credits import require_and_deduct_credit
 from app.core.database import async_session_factory, get_db
 from app.core.security import get_current_user
 from app.models.mvp_build import MVPBuild
@@ -51,6 +51,40 @@ router = APIRouter(prefix="/mvp", tags=["OpenCode MVP Builder"])
 _STATUS_END_STATES = {"complete", "failed", "cancelled"}
 
 
+def _module_from_concept(concept: str) -> str:
+    words = re.findall(r"[a-zA-Z0-9]+", concept.lower())
+    stop_words = {"a", "an", "the", "of", "for", "to", "and", "with", "app", "application"}
+    useful = [word for word in words if word not in stop_words][:4]
+    return "_".join(useful) or "custom_mvp"
+
+
+def _product_type_from_concept(concept: str) -> str:
+    text = concept.lower()
+    if any(term in text for term in ("landing page", "marketing page", "homepage", "pricing")):
+        return "landing_page"
+    if any(term in text for term in ("dashboard", "admin", "analytics", "crm", "portal")):
+        return "dashboard_app"
+    if any(term in text for term in ("marketplace", "store", "ecommerce", "e-commerce", "shop")):
+        return "commerce_app"
+    if any(term in text for term in ("booking", "calendar", "appointment", "reservation")):
+        return "booking_app"
+    return "full_stack_app"
+
+
+def _seed_ai_state_from_concept(
+    *, concept: str, title: str, existing_state: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    state = dict(existing_state or {})
+    module = _module_from_concept(concept)
+    state.setdefault("solution_title", title or concept[:80] or "Custom MVP")
+    state.setdefault("business_description", concept)
+    state.setdefault("industry", "general")
+    state.setdefault("product_type", _product_type_from_concept(concept))
+    state.setdefault("confirmed_modules", [module])
+    state.setdefault("identified_solutions", [module])
+    return state
+
+
 async def _get_solution_for_user(db: AsyncSession, solution_id: UUID, user: User) -> Solution:
     result = await db.execute(
         select(Solution)
@@ -72,6 +106,19 @@ async def _next_build_number(db: AsyncSession, solution_id: UUID) -> int:
     )
     last = result.scalar_one_or_none()
     return (last or 0) + 1
+
+
+async def _active_build_for_solution(db: AsyncSession, solution_id: UUID) -> MVPBuild | None:
+    result = await db.execute(
+        select(MVPBuild)
+        .where(
+            MVPBuild.solution_id == solution_id,
+            MVPBuild.status.in_(["pending", "building"]),
+        )
+        .order_by(desc(MVPBuild.build_number))
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 def _build_response(build: MVPBuild, include_files: bool = False) -> MVPBuildResponse:
@@ -160,10 +207,12 @@ async def _run_build_job(build_id: UUID) -> None:
                 await db.commit()
                 return
 
-            title = (build.app_config or {}).get("app_name") or solution.title
+            config = build.app_config or {}
+            build_concept = str(config.get("build_concept") or "").strip()
+            title = config.get("app_name") or solution.title or build_concept or "Custom MVP"
 
             ai_state = solution.ai_state or {}
-            template_slug = (build.app_config or {}).get("template")
+            template_slug = config.get("template")
             if template_slug:
                 tpl = templates.get_template(template_slug)
                 if tpl is None:
@@ -179,6 +228,22 @@ async def _run_build_job(build_id: UUID) -> None:
                     }
                 if not title or title == solution.title:
                     title = seeded.get("solution_title", title)
+            elif build_concept and not (
+                ai_state.get("confirmed_modules") or ai_state.get("identified_solutions")
+            ):
+                ai_state = _seed_ai_state_from_concept(
+                    concept=build_concept,
+                    title=title,
+                    existing_state=ai_state,
+                )
+
+            if build_concept:
+                ai_state = {
+                    **ai_state,
+                    "business_description": build_concept,
+                    "product_type": ai_state.get("product_type")
+                    or _product_type_from_concept(build_concept),
+                }
 
             result = await builder.run_build(solution.id, ai_state, build.build_number, title=title)
             build.status = "complete"
@@ -222,19 +287,21 @@ async def trigger_build(
 ) -> MVPBuildResponse:
     """Kick off an OpenCode MVP build for a completed solution (async)."""
     solution = await _get_solution_for_user(db, solution_id, current_user)
-    if solution.status != "complete" and not payload.force:
+    if solution.status not in ("complete", "generating") and not payload.force:
         raise HTTPException(
             status_code=409,
-            detail="Solution artifacts must be generated before building an MVP. Use force=true to override.",
+            detail="Solution artifacts must be generated before building an MVP. Generate blueprints first, then build.",
         )
 
-    await require_and_deduct_credit(
-        db,
-        current_user,
-        "mvp_build",
-        f"MVP build: {solution.title}",
-        solution_id=solution.id,
-    )
+    existing = await _active_build_for_solution(db, solution.id)
+    if existing is not None:
+        logger.info(
+            "Reusing active MVP build for solution=%s (build=%s, status=%s)",
+            solution.id,
+            existing.build_number,
+            existing.status,
+        )
+        return _build_response(existing)
 
     build_number = await _next_build_number(db, solution.id)
     workspace = builder.build_workspace_dir(solution.id, build_number)

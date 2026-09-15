@@ -3,14 +3,15 @@
 import React, { useState } from 'react';
 import { 
   Play, 
-  CheckCircle2, 
+  CheckCircle, 
   GitFork, 
-  AlertTriangle, 
-  Layers, 
+  WarningCircle, 
+  Stack, 
   Cpu, 
   User, 
-  Sparkles
-} from 'lucide-react';
+  Lightbulb
+} from '@phosphor-icons/react/dist/ssr';
+import { Button } from '@/components/ui/button';
 import { BpmnNode, BpmnProcess } from '@/types';
 
 interface BpmnViewerProps {
@@ -20,7 +21,6 @@ interface BpmnViewerProps {
 export default function BpmnViewer({ processData }: BpmnViewerProps) {
   const [selectedNode, setSelectedNode] = useState<BpmnNode | null>(null);
 
-  // Default rich BPMN process if not provided
   const process: BpmnProcess = processData || {
     processName: 'Order Placement & Real-Time Inventory Allocation Workflow',
     swimlanes: ['Customer / POS Client', 'API Gateway & Auth', 'Inventory Engine', 'Payment Gateway', 'Fulfillment'],
@@ -99,34 +99,32 @@ export default function BpmnViewer({ processData }: BpmnViewerProps) {
   const getNodeIcon = (node: BpmnNode) => {
     switch (node.type) {
       case 'start':
-        return <Play className="w-3.5 h-3.5 text-emerald-400" />;
+        return <Play className="w-3.5 h-3.5 text-success" />;
       case 'gateway':
-        return <GitFork className="w-3.5 h-3.5 text-amber-400" />;
+        return <GitFork className="w-3.5 h-3.5 text-primary" />;
       case 'end':
-        return <CheckCircle2 className="w-3.5 h-3.5 text-rose-400" />;
+        return <CheckCircle className="w-3.5 h-3.5 text-destructive" />;
       default:
-        return <Cpu className="w-3.5 h-3.5 text-indigo-400" />;
+        return <Cpu className="w-3.5 h-3.5 text-primary" />;
     }
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-950 border border-white/5 rounded-2xl overflow-hidden shadow-2xl">
-      {/* Top BPMN Header */}
-      <div className="p-4 border-b border-white/5 bg-slate-900/60 flex flex-wrap items-center justify-between gap-4">
+    <div className="flex flex-col h-full bg-background border border-border rounded-lg overflow-hidden">
+      <div className="p-4 border-b border-border bg-card/60 flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30">
               BPMN 2.0 Process Intelligence
             </span>
-            <span className="text-xs text-slate-400">Process Flow & Swimlanes</span>
+            <span className="text-xs text-muted-foreground">Process Flow & Swimlanes</span>
           </div>
-          <h3 className="text-base font-bold text-white mt-1">{process.processName}</h3>
+          <h3 className="text-base font-bold text-foreground mt-1">{process.processName}</h3>
         </div>
 
-        {/* Bottleneck Alert Badge */}
         {process.bottlenecks && process.bottlenecks.length > 0 && (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs">
-            <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded bg-primary/10 border border-primary/20 text-primary text-xs">
+            <WarningCircle className="w-4 h-4 text-primary flex-shrink-0" />
             <span>
               <strong>AI Bottleneck Predictor:</strong> {process.bottlenecks[0]}
             </span>
@@ -134,12 +132,10 @@ export default function BpmnViewer({ processData }: BpmnViewerProps) {
         )}
       </div>
 
-      {/* Swimlane Diagram Container */}
-      <div className="flex-1 p-6 overflow-y-auto space-y-6">
-        {/* Swimlanes Overview */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">
-            <Layers className="w-4 h-4 text-indigo-400" />
+      <div className="flex-1 p-6 overflow-y-auto flex flex-col gap-6">
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            <Stack className="w-4 h-4 text-primary" />
             <span>Process Steps & Decision Graph</span>
           </div>
 
@@ -148,45 +144,44 @@ export default function BpmnViewer({ processData }: BpmnViewerProps) {
               <div
                 key={node.id}
                 onClick={() => setSelectedNode(node)}
-                className={`p-4 rounded-xl border text-left cursor-pointer transition-all relative select-none flex flex-col justify-between min-h-[130px] ${
+                className={`p-4 rounded border text-left cursor-pointer transition-all relative select-none flex flex-col justify-between min-h-[130px] ${
                   selectedNode?.id === node.id
-                    ? 'bg-indigo-950/40 border-indigo-500/60 shadow-lg shadow-indigo-500/20 scale-[1.02]'
+                    ? 'bg-card/40 border-primary/60'
                     : node.isBottleneck
-                    ? 'bg-amber-950/20 border-amber-500/30 hover:border-amber-500/50'
-                    : 'bg-slate-900/40 border-white/5 hover:border-white/20 hover:bg-slate-900/60'
+                    ? 'bg-card/20 border-primary/30 hover:border-primary/50'
+                    : 'bg-card/40 border-border hover:border-white/[0.08] hover:bg-card/60'
                 }`}
               >
-                {/* Node Step Header */}
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-white/5 border border-white/5">
+                    <div className="p-1.5 rounded-lg bg-accent border border-border">
                       {getNodeIcon(node)}
                     </div>
-                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                    <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                       Step {idx + 1}
                     </span>
                   </div>
 
                   {node.isBottleneck ? (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-primary/20 text-primary border border-primary/30 animate-pulse">
                       Bottleneck
                     </span>
                   ) : (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-white/5 text-slate-400">
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-accent text-muted-foreground">
                       {node.type.toUpperCase()}
                     </span>
                   )}
                 </div>
 
                 <div>
-                  <h4 className="font-bold text-sm text-white leading-tight">{node.label}</h4>
-                  <div className="flex items-center gap-1.5 text-[11px] text-indigo-400 mt-1.5">
+                  <h4 className="font-bold text-sm text-foreground leading-tight">{node.label}</h4>
+                  <div className="flex items-center gap-1.5 text-[11px] text-primary mt-1.5">
                     <User className="w-3 h-3" />
                     <span>{node.actor}</span>
                   </div>
                 </div>
 
-                <p className="text-[11px] text-slate-500 mt-2 line-clamp-2 leading-relaxed">
+                <p className="text-[11px] text-muted-foreground/70 mt-2 line-clamp-2 leading-relaxed">
                   {node.description}
                 </p>
               </div>
@@ -194,40 +189,41 @@ export default function BpmnViewer({ processData }: BpmnViewerProps) {
           </div>
         </div>
 
-        {/* Selected Node Inspector Drawer */}
         {selectedNode && (
-          <div className="p-5 rounded-2xl bg-indigo-950/30 border border-indigo-500/30 space-y-3 animate-fade-in">
+          <div className="p-5 rounded-lg bg-card/30 border border-primary/30 flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-indigo-400" />
-                <h4 className="font-bold text-white text-sm">Step Deep-Dive: {selectedNode.label}</h4>
+                <Lightbulb className="w-4 h-4 text-primary" />
+                <h4 className="font-bold text-foreground text-sm">Step Deep-Dive: {selectedNode.label}</h4>
               </div>
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => setSelectedNode(null)}
-                className="text-xs text-slate-400 hover:text-white"
+                className="text-xs text-muted-foreground hover:text-foreground"
               >
                 Close
-              </button>
+              </Button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-              <div className="p-3 rounded-xl bg-slate-900/60 border border-white/5">
-                <span className="text-slate-500 font-medium">Actor / Swimlane:</span>
-                <p className="font-semibold text-slate-200 mt-1">{selectedNode.actor}</p>
+              <div className="p-3 rounded bg-card/60 border border-border">
+                <span className="text-muted-foreground/70 font-medium">Actor / Swimlane:</span>
+                <p className="font-semibold text-foreground mt-1">{selectedNode.actor}</p>
               </div>
-              <div className="p-3 rounded-xl bg-slate-900/60 border border-white/5">
-                <span className="text-slate-500 font-medium">Element Classification:</span>
-                <p className="font-semibold text-indigo-300 mt-1 capitalize">{selectedNode.type} Event</p>
+              <div className="p-3 rounded bg-card/60 border border-border">
+                <span className="text-muted-foreground/70 font-medium">Element Classification:</span>
+                <p className="font-semibold text-primary mt-1 capitalize">{selectedNode.type} Event</p>
               </div>
-              <div className="p-3 rounded-xl bg-slate-900/60 border border-white/5">
-                <span className="text-slate-500 font-medium">Performance Profile:</span>
-                <p className={`font-semibold mt-1 ${selectedNode.isBottleneck ? 'text-amber-400' : 'text-emerald-400'}`}>
+              <div className="p-3 rounded bg-card/60 border border-border">
+                <span className="text-muted-foreground/70 font-medium">Performance Profile:</span>
+                <p className={`font-semibold mt-1 ${selectedNode.isBottleneck ? 'text-primary' : 'text-success'}`}>
                   {selectedNode.isBottleneck ? 'High Latency / Manual Gate' : 'Automated (< 50ms)'}
                 </p>
               </div>
             </div>
 
-            <p className="text-xs text-slate-300 bg-slate-950/60 p-3 rounded-xl border border-white/5 leading-relaxed">
+            <p className="text-xs text-muted-foreground bg-background/60 p-3 rounded border border-border leading-relaxed">
               {selectedNode.description}
             </p>
           </div>

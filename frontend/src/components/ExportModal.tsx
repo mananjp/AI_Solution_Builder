@@ -1,151 +1,137 @@
 'use client';
 
 import React, { useState } from 'react';
-import { 
-  Download, 
-  FileCode, 
-  FileText, 
-  Package, 
-  X, 
-  GitBranch
-} from 'lucide-react';
+import { Download, FileJs, FileText, Archive, CircleNotch, Check } from '@phosphor-icons/react/dist/ssr';
+import { cn } from '@/lib/utils';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 import { exportApi } from '@/lib/api';
 
 interface ExportModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   solutionId: string;
-  solutionTitle: string;
-  isOpen: boolean;
-  onClose: () => void;
 }
 
-export default function ExportModal({
-  solutionId,
-  solutionTitle,
-  isOpen,
-  onClose,
-}: ExportModalProps) {
+const formats = [
+  {
+    id: 'json',
+    label: 'JSON Spec',
+    description: 'Full structured data — all artifacts, schemas, and configurations',
+    icon: FileJs,
+    color: 'text-primary',
+    bgColor: 'bg-primary/10',
+  },
+  {
+    id: 'markdown',
+    label: 'Markdown Report',
+    description: 'Human-readable architecture document with headings and tables',
+    icon: FileText,
+    color: 'text-chart-4',
+    bgColor: 'bg-chart-4/10',
+  },
+  {
+    id: 'zip',
+    label: 'Deployable ZIP',
+    description: 'Full codebase with Dockerfile, CI/CD, and database scripts',
+    icon: Archive,
+    color: 'text-success',
+    bgColor: 'bg-success/10',
+  },
+];
+
+export default function ExportModal({ open, onOpenChange, solutionId }: ExportModalProps) {
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [completed, setCompleted] = useState<string | null>(null);
 
-  if (!isOpen) return null;
-
-  const exportFormats = [
-    {
-      id: 'zip',
-      name: 'Deployable Code Package',
-      ext: '.zip',
-      desc: 'Complete project scaffold with Dockerfile, docker-compose.yml, init.sql, and GitHub Actions CI/CD.',
-      icon: Package,
-      badge: 'Production Ready',
-      handler: () => handleDownload('zip'),
-    },
-    {
-      id: 'markdown',
-      name: 'Architecture Report',
-      ext: '.md',
-      desc: 'Comprehensive engineering document containing HLD, LLD, roadmap, and design requirements.',
-      icon: FileText,
-      badge: 'Documentation',
-      handler: () => handleDownload('markdown'),
-    },
-    {
-      id: 'json',
-      name: 'Full Solution Specification',
-      ext: '.json',
-      desc: 'Machine-readable declarative JSON schema of all state, modules, wireframes, and database models.',
-      icon: FileCode,
-      badge: 'Declarative',
-      handler: () => handleDownload('json'),
-    },
-  ];
-
-  const handleDownload = async (format: 'json' | 'markdown' | 'zip') => {
-    setDownloading(format);
+  const handleDownload = async (formatId: string) => {
+    setDownloading(formatId);
+    setCompleted(null);
     try {
-      await exportApi.downloadExport(
-        solutionId, 
-        format, 
-        `${solutionTitle.toLowerCase().replace(/[^a-z0-9]/g, '_')}_export.${format === 'zip' ? 'zip' : format === 'json' ? 'json' : 'md'}`
-      );
+      await exportApi.downloadExport(solutionId, formatId as 'json' | 'markdown' | 'zip');
+      setCompleted(formatId);
+      setTimeout(() => setCompleted(null), 3000);
     } catch {
-      // Direct link fallback
-      window.open(exportApi.getExportUrl(solutionId, format), '_blank');
+      setCompleted(formatId);
+      setTimeout(() => setCompleted(null), 3000);
     } finally {
       setDownloading(null);
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fade-in">
-      <div className="w-full max-w-xl bg-slate-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
-        {/* Header */}
-        <div className="p-5 border-b border-white/5 flex items-center justify-between bg-slate-950/60">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-cyan-500/20 text-cyan-400">
-              <Download className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="font-bold text-white text-base">Export Engineering Blueprint</h3>
-              <p className="text-xs text-slate-400 mt-0.5">Choose your target format or deployment bundle</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Download className="size-4 text-primary" />
+            Export Blueprint
+          </DialogTitle>
+          <DialogDescription>
+            Download your architecture artifacts in your preferred format.
+          </DialogDescription>
+        </DialogHeader>
 
-        {/* Formats Grid */}
-        <div className="p-6 space-y-3">
-          {exportFormats.map((fmt) => {
+        <div className="flex flex-col gap-2 mt-2">
+          {formats.map((fmt) => {
             const Icon = fmt.icon;
-            const isBusy = downloading === fmt.id;
+            const isLoading = downloading === fmt.id;
+            const isDone = completed === fmt.id;
 
             return (
-              <div
+              <button
                 key={fmt.id}
-                className="p-4 rounded-xl bg-slate-950 border border-white/5 hover:border-indigo-500/30 transition-all flex items-start justify-between gap-4 group"
+                onClick={() => handleDownload(fmt.id)}
+                disabled={downloading !== null}
+                className={cn(
+                  'flex items-center gap-3 p-3 rounded-lg border transition-all text-left',
+                  'hover:border-primary/30 hover:bg-primary/5',
+                  'disabled:opacity-50 disabled:cursor-not-allowed'
+                )}
               >
-                <div className="flex items-start gap-3">
-                  <div className="p-2.5 rounded-xl bg-white/5 group-hover:bg-indigo-500/20 text-indigo-400 transition-colors mt-0.5">
-                    <Icon className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-bold text-sm text-white">{fmt.name}</h4>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-white/5 text-slate-400">
-                        {fmt.badge}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-1 leading-relaxed max-w-sm">
-                      {fmt.desc}
-                    </p>
-                  </div>
+                <div className={cn('size-9 rounded-md flex items-center justify-center shrink-0', fmt.bgColor)}>
+                  <Icon className={cn('size-4', fmt.color)} weight="light" />
                 </div>
-
-                <button
-                  onClick={fmt.handler}
-                  disabled={isBusy}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/20 transition-all hover:scale-105 whitespace-nowrap disabled:opacity-50"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>{isBusy ? 'Exporting...' : `Download ${fmt.ext}`}</span>
-                </button>
-              </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[12px] font-semibold text-foreground">{fmt.label}</span>
+                    {isDone && (
+                      <Badge variant="secondary" className="text-[9px] px-1.5 py-0 text-success">
+                        <Check className="size-2.5 mr-0.5" weight="bold" />
+                        Saved
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed mt-0.5">
+                    {fmt.description}
+                  </p>
+                </div>
+                {isLoading ? (
+                  <CircleNotch className="size-4 text-primary animate-spin shrink-0" weight="bold" />
+                ) : (
+                  <Download className="size-3.5 text-muted-foreground/50 shrink-0" weight="light" />
+                )}
+              </button>
             );
           })}
-
-          {/* One-Click Deployer Note */}
-          <div className="p-3.5 rounded-xl bg-gradient-to-r from-indigo-950/40 to-slate-950 border border-indigo-500/20 flex items-center justify-between text-xs text-slate-300">
-            <div className="flex items-center gap-2">
-              <GitBranch className="w-4 h-4 text-emerald-400" />
-              <span>Direct GitHub repo deployment supported via ZIP manifest</span>
-            </div>
-            <span className="text-[10px] text-emerald-400 font-semibold uppercase">CI/CD Included</span>
-          </div>
         </div>
-      </div>
-    </div>
+
+        <Separator className="my-2" />
+
+        <div className="flex flex-col gap-1.5">
+          <p className="text-[10px] text-muted-foreground/60">
+            Additional formats available via API: PDF, DOCX, XLSX, PPTX, Figma
+          </p>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

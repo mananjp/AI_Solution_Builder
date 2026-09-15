@@ -60,6 +60,14 @@ async def require_and_deduct_credit(
 
     action = "regeneration" if action_type in ("regeneration", "regenerate") else action_type
     cost = action_cost(action)
+    if not settings.CREDIT_METERING_ENABLED:
+        logger.info(
+            "Credit metering disabled; skipping deduction for org=%s action=%s cost=%s",
+            getattr(user, "org_id", None),
+            action,
+            cost,
+        )
+        return {"credits_remaining": None, "deducted": 0, "cost": 0}
     if cost <= 0:
         return {"credits_remaining": None, "deducted": 0, "cost": 0}
 

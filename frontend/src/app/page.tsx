@@ -1,208 +1,272 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { 
-  Sparkles, 
-  Cpu, 
-  Database, 
-  ArrowRight, 
-  CheckCircle2, 
-  Zap, 
-  FileText, 
-  Compass,
-  Terminal
-} from 'lucide-react';
+import Image from 'next/image';
+import { ArrowRight } from '@phosphor-icons/react/dist/ssr/ArrowRight';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+
+function Reveal({ children, className = '', delay = 0 }: {
+  children: React.ReactNode;
+  className?: string;
+  delay?: number;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([e]) => {
+        if (e.isIntersecting) {
+          el.style.opacity = '1';
+          el.style.transform = 'translateY(0)';
+          obs.unobserve(el);
+        }
+      },
+      { threshold: 0.08 }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+  return (
+    <div
+      ref={ref}
+      className={className}
+      style={{
+        opacity: 0,
+        transform: 'translateY(20px)',
+        transition: `opacity 0.6s cubic-bezier(0.16,1,0.3,1) ${delay}s, transform 0.6s cubic-bezier(0.16,1,0.3,1) ${delay}s`,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
 export default function LandingPage() {
-  const features = [
-    {
-      title: '6-Agent Autonomous Swarm',
-      desc: 'Business Analyst, Solutions Architect, UX Specialist, Database Engineer, and Blueprint Generator work in harmony.',
-      icon: Cpu,
-      gradient: 'from-indigo-500 to-purple-500',
-    },
-    {
-      title: 'Multi-Format PRD Ingestion',
-      desc: 'Drag and drop PDFs, DOCX, CSV schemas, or Excel sheets. Instant text extraction and requirement synthesis.',
-      icon: FileText,
-      gradient: 'from-blue-500 to-cyan-500',
-    },
-    {
-      title: 'Industry Template Intelligence',
-      desc: 'Pre-seeded vertical patterns for E-Commerce, Logistics, Healthcare, FinTech, and B2B SaaS workflows.',
-      icon: Compass,
-      gradient: 'from-emerald-500 to-teal-500',
-    },
-    {
-      title: 'Full Engineering Artifacts',
-      desc: 'Generates production-grade HLD, LLD, ER diagrams, PostgreSQL DDL schemas, OpenAPI specs, and delivery roadmaps.',
-      icon: Database,
-      gradient: 'from-purple-500 to-pink-500',
-    },
-  ];
-
   return (
-    <div className="min-h-screen bg-[#070a13] text-slate-100 selection:bg-indigo-500 selection:text-white relative overflow-hidden">
-      {/* Dynamic Background Glows */}
-      <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-indigo-600/15 rounded-full blur-[140px] pointer-events-none" />
-      <div className="absolute top-1/3 right-1/4 w-[500px] h-[500px] bg-cyan-500/10 rounded-full blur-[140px] pointer-events-none" />
-      <div className="absolute bottom-10 left-1/3 w-[700px] h-[700px] bg-purple-600/10 rounded-full blur-[160px] pointer-events-none" />
-
-      {/* Grid Pattern */}
-      <div className="absolute inset-0 bg-grid-pattern opacity-40 pointer-events-none" />
-
-      {/* Navigation Header */}
-      <header className="relative z-20 max-w-7xl mx-auto px-6 h-20 flex items-center justify-between border-b border-white/5">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30">
-            <Sparkles className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="font-extrabold text-white text-lg tracking-tight">AI Solution</span>
-            <span className="text-xs text-indigo-400 font-semibold tracking-wider uppercase ml-1.5 px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20">
-              Builder OS
-            </span>
-          </div>
+    <div className="min-h-screen bg-background text-foreground grain">
+      {/* Top bar */}
+      <header className="fixed top-0 left-0 right-0 z-50 h-12 border-b border-border bg-background/80 backdrop-blur-xl flex items-center justify-between px-6 lg:px-10">
+        <div className="flex items-center gap-8">
+          <span className="font-semibold text-[15px] tracking-tight">
+            AI Solution<span className="text-primary ml-1 font-mono text-[10px] tracking-[0.15em] uppercase">Builder</span>
+          </span>
+          <span className="hidden md:block text-[11px] text-muted-foreground font-mono">
+            multi-agent architecture engine
+          </span>
         </div>
-
-        <div className="flex items-center gap-4">
-          <Link
-            href="/login"
-            className="px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/5 rounded-xl transition-all"
-          >
-            Sign In
+        <div className="flex items-center gap-5">
+          <Link href="/login" className="text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+            Sign in
           </Link>
-          <Link
-            href="/dashboard"
-            className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white shadow-lg shadow-indigo-500/25 transition-all hover:scale-105"
-          >
-            <span>Open Studio</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </Link>
+          <Button render={<Link href="/dashboard" />} nativeButton={false} size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 font-medium text-[12px] px-4">
+            Open studio
+          </Button>
         </div>
       </header>
 
-      {/* Hero Section */}
-      <main className="relative z-10 max-w-6xl mx-auto px-6 pt-20 pb-28 text-center">
-        {/* Top Badge */}
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-semibold mb-8 animate-fade-in">
-          <Zap className="w-3.5 h-3.5 text-indigo-400" />
-          <span>Powered by Groq 120B & LangGraph Swarm Intelligence</span>
-        </div>
-
-        <h1 className="text-4xl sm:text-6xl lg:text-7xl font-extrabold text-white tracking-tight leading-[1.1] max-w-5xl mx-auto">
-          Turn Rough Business Ideas Into{' '}
-          <span className="gradient-text">Complete System Blueprints</span>{' '}
-          In Minutes.
-        </h1>
-
-        <p className="mt-6 text-base sm:text-lg text-slate-400 max-w-3xl mx-auto leading-relaxed">
-          Autonomous multi-agent pipeline that dissects user prompts, analyzes PRD documents, recommends vertical architectures, and generates production-ready High-Level Designs, wireframe specs, database schemas, and delivery roadmaps.
-        </p>
-
-        {/* CTA Group */}
-        <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-          <Link
-            href="/chat"
-            className="flex items-center gap-2.5 px-6 py-3.5 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-cyan-500 hover:opacity-95 text-white font-semibold text-sm shadow-xl shadow-indigo-600/30 transition-all hover:scale-105"
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>Start AI Architecture Session</span>
-          </Link>
-          <Link
-            href="/dashboard"
-            className="flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-slate-900/80 hover:bg-slate-800/80 border border-white/10 text-slate-200 font-semibold text-sm transition-all"
-          >
-            <span>Explore Workspaces</span>
-          </Link>
-        </div>
-
-        {/* Interactive Architecture Swarm Visualizer */}
-        <div className="mt-16 text-left max-w-4xl mx-auto p-1 rounded-2xl bg-gradient-to-b from-white/10 to-transparent shadow-2xl">
-          <div className="bg-[#0b0f19] rounded-2xl p-6 border border-white/10 overflow-hidden">
-            <div className="flex items-center justify-between pb-4 border-b border-white/5 text-xs text-slate-400">
-              <div className="flex items-center gap-2">
-                <Terminal className="w-4 h-4 text-indigo-400" />
-                <span className="font-mono text-slate-200">Autonomous Execution Pipeline</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-emerald-400 font-mono text-[11px]">System Online</span>
-              </div>
+      <main className="pt-14">
+        {/* HERO */}
+        <section className="min-h-[100dvh] flex items-center px-6 lg:px-10">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-6 items-center w-full">
+            <div className="lg:col-span-6">
+              <Reveal>
+                <h1 className="text-[clamp(2.2rem,5vw,4.5rem)] font-bold leading-[1.02] tracking-[-0.03em]">
+                  Describe your system.
+                  <br />
+                  <span className="text-primary">We build it.</span>
+                </h1>
+              </Reveal>
+              <Reveal delay={0.05}>
+                <p className="mt-6 text-[15px] text-muted-foreground max-w-md leading-relaxed">
+                  Six autonomous agents handle the full pipeline. From a rough
+                  prompt or document upload to live PostgreSQL schemas, REST APIs,
+                  and deployable code. Not mockups.
+                </p>
+              </Reveal>
+              <Reveal delay={0.1}>
+                <div className="mt-8 flex items-center gap-4">
+<Button render={<Link href="/chat" />} nativeButton={false} className="bg-primary text-primary-foreground hover:bg-primary/90 font-semibold text-[13px]">
+                    Start building
+                    <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                  </Button>
+                  <Button render={<Link href="/dashboard" />} nativeButton={false} variant="outline" className="border-border text-foreground hover:bg-accent font-medium text-[13px]">
+                    View workspaces
+                  </Button>
+                </div>
+              </Reveal>
             </div>
 
-            <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="p-4 rounded-xl bg-slate-900/80 border border-indigo-500/20 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-indigo-300">1. Discovery & Analysis</span>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+            <div className="lg:col-span-6">
+              <Reveal delay={0.15}>
+                <div className="relative rounded-lg overflow-hidden border border-border">
+                  <Image
+                    src="https://picsum.photos/seed/ai-arch-dashboard/800/520"
+                    alt="AI Solution Builder dashboard showing architecture workspace"
+                    width={800}
+                    height={520}
+                    className="w-full h-auto object-cover"
+                    priority
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-background/60 via-transparent to-transparent" />
                 </div>
-                <p className="text-[11px] text-slate-400">
-                  User prompt parsed, confidence 94%, domain categorized as Omnichannel Retail.
-                </p>
-              </div>
-
-              <div className="p-4 rounded-xl bg-slate-900/80 border border-cyan-500/20 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-cyan-300">2. Module Matching</span>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  Synthesized 4 core subsystems: Inventory Engine, Point-of-Sale, Analytics, Loyalty.
-                </p>
-              </div>
-
-              <div className="p-4 rounded-xl bg-slate-900/80 border border-purple-500/20 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-purple-300">3. Blueprint Synthesis</span>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  Produced HLD, LLD, PostgreSQL DDL schemas, OpenAPI specs, and 12-week roadmap.
-                </p>
-              </div>
+              </Reveal>
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* Features Grid */}
-        <div className="mt-28">
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <h2 className="text-2xl sm:text-3xl font-bold text-white">
-              Enterprise-Grade Architecture Generation
+        {/* HOW IT WORKS */}
+        <section className="px-6 lg:px-10 py-20 lg:py-28">
+          <Reveal>
+            <h2 className="text-[clamp(1.5rem,3vw,2.5rem)] font-bold tracking-tight mb-14 max-w-xl">
+              From rough idea to production artifacts.
             </h2>
-            <p className="text-sm text-slate-400 mt-3">
-              Everything engineering leads and product owners need to jumpstart system delivery.
-            </p>
-          </div>
+          </Reveal>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
-            {features.map((feat, idx) => {
-              const Icon = feat.icon;
-              return (
-                <div
-                  key={idx}
-                  className="p-6 rounded-2xl bg-slate-900/40 border border-white/5 hover:border-indigo-500/30 transition-all hover:bg-slate-900/60"
-                >
-                  <div className={`w-10 h-10 rounded-xl bg-gradient-to-tr ${feat.gradient} flex items-center justify-center text-white mb-4 shadow-md`}>
-                    <Icon className="w-5 h-5" />
+          <div className="flex flex-col">
+            {[
+              {
+                title: 'Ingest anything',
+                body: 'PDFs, DOCX, CSV schemas, Excel, OpenAPI specs, raw URLs. The parser normalizes every format into structured text that the agents consume.',
+              },
+              {
+                title: 'Autonomous analysis',
+                body: 'Six specialized agents run in sequence: domain classification, module recommendation, architecture design, UX wireframing, database engineering, blueprint synthesis.',
+              },
+              {
+                title: 'Production artifacts',
+                body: 'HLD, LLD, ER diagrams, PostgreSQL DDL with row-level security, OpenAPI 3.1 specs, BPMN 2.0 workflows, responsive wireframes, delivery roadmaps.',
+              },
+              {
+                title: 'Mounted live systems',
+                body: 'Tenant-isolated PostgreSQL schemas provisioned automatically. Dynamic CRUD REST endpoints generated from the schema. Synthetic data seeded. Interactive sandbox.',
+              },
+              {
+                title: 'One-click deploy',
+                body: 'Push the generated codebase to a fresh GitHub repository with Render blueprint auto-deploy. Dockerfile, CI workflow, and infrastructure included.',
+              },
+            ].map((item, i) => (
+              <Reveal key={item.title} delay={i * 0.04}>
+                <div className="grid grid-cols-12 gap-4 py-6 border-t border-border group">
+                  <div className="col-span-2 md:col-span-1">
+                    <span className="font-mono text-[11px] text-primary">{String(i + 1).padStart(2, '0')}</span>
                   </div>
-                  <h3 className="text-lg font-semibold text-white mb-2">{feat.title}</h3>
-                  <p className="text-xs text-slate-400 leading-relaxed">{feat.desc}</p>
+                  <div className="col-span-10 md:col-span-3">
+                    <h3 className="text-[15px] font-semibold group-hover:text-primary transition-colors">
+                      {item.title}
+                    </h3>
+                  </div>
+                  <div className="col-span-12 md:col-span-8">
+                    <p className="text-[13px] text-muted-foreground leading-relaxed max-w-2xl">
+                      {item.body}
+                    </p>
+                  </div>
                 </div>
-              );
-            })}
+              </Reveal>
+            ))}
           </div>
-        </div>
+        </section>
+
+        {/* ARCHITECTURE */}
+        <section className="px-6 lg:px-10 py-20 lg:py-28">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+            <div className="lg:col-span-5">
+              <Reveal>
+                <h2 className="text-[clamp(1.5rem,3vw,2.2rem)] font-bold tracking-tight leading-snug">
+                  Five services.
+                  <br />
+                  One shared volume.
+                  <br />
+                  <span className="text-muted-foreground">Zero network hops.</span>
+                </h2>
+              </Reveal>
+              <Reveal delay={0.05}>
+                <p className="mt-6 text-[13px] text-muted-foreground leading-relaxed max-w-md">
+                  The backend and OpenCode sidecar share a Docker volume.
+                  Generated source files are visible to the API instantly.
+                  No polling, no file transfer, no race conditions.
+                </p>
+              </Reveal>
+            </div>
+
+            <div className="lg:col-span-7">
+              <Reveal delay={0.1}>
+                <div className="border border-border bg-card rounded-lg overflow-hidden">
+                  <div className="px-3 py-2 border-b border-border">
+                    <span className="font-mono text-[9px] text-muted-foreground tracking-wider uppercase">
+                      service topology
+                    </span>
+                  </div>
+                  <div className="p-6 font-mono text-[12px] leading-[2] text-muted-foreground">
+                    <div><span className="text-primary">frontend</span><span className="text-muted-foreground/60">:3000</span> <span className="text-muted-foreground/60">next.js standalone</span></div>
+                    <div><span className="text-muted-foreground/60">  |</span></div>
+                    <div><span className="text-muted-foreground/60">  +--&gt;</span> <span className="text-foreground">backend</span><span className="text-muted-foreground/60">:8000</span> <span className="text-muted-foreground/60">fastapi + langgraph</span></div>
+                    <div><span className="text-muted-foreground/60">  |     +--&gt;</span> <span className="text-foreground">postgres</span><span className="text-muted-foreground/60">:5432</span> <span className="text-muted-foreground/60">pgvector + rls</span></div>
+                    <div><span className="text-muted-foreground/60">  |     +--&gt;</span> <span className="text-foreground">redis</span><span className="text-muted-foreground/60">:6379</span> <span className="text-muted-foreground/60">rate limit + cache</span></div>
+                    <div><span className="text-muted-foreground/60">  |     +--&gt;</span> <span className="text-foreground">opencode</span><span className="text-muted-foreground/60">:4096</span> <span className="text-muted-foreground/60">mvp-builder agent</span></div>
+                    <div><span className="text-muted-foreground/60">  |</span></div>
+                    <div><span className="text-muted-foreground/60">  +--&gt;</span> <span className="text-primary">shared volume</span> <span className="text-muted-foreground/60">mvp_workspace</span></div>
+                    <div className="mt-3 pt-3 border-t border-border"><span className="text-success">status: all healthy</span></div>
+                  </div>
+                </div>
+              </Reveal>
+            </div>
+          </div>
+        </section>
+
+        {/* STATS */}
+        <section className="px-6 lg:px-10 py-16">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
+            {[
+              { value: '6', label: 'agents in the swarm' },
+              { value: '7+', label: 'input formats' },
+              { value: '9', label: 'artifact types' },
+              { value: '1-click', label: 'github deploy' },
+            ].map((s) => (
+              <Reveal key={s.label}>
+                <div>
+                  <p className="text-[clamp(2rem,4vw,3.5rem)] font-bold text-primary leading-none tracking-tight">
+                    {s.value}
+                  </p>
+                  <p className="mt-2 font-mono text-[10px] text-muted-foreground tracking-wider uppercase">
+                    {s.label}
+                  </p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </section>
+
+        {/* CTA */}
+        <section className="px-6 lg:px-10 py-20 lg:py-28">
+          <Reveal>
+            <div className="max-w-2xl">
+              <h2 className="text-[clamp(1.5rem,3vw,2.5rem)] font-bold tracking-tight">
+                Describe your system in plain language.
+              </h2>
+              <p className="mt-4 text-[15px] text-muted-foreground max-w-lg">
+                The agent swarm handles the rest. Upload a document, paste a
+                URL, or just tell it what you need.
+              </p>
+              <div className="mt-8">
+                <Button render={<Link href="/chat" />} nativeButton={false} className="bg-primary text-primary-foreground hover:bg-primary/90 font-semibold text-[13px]">
+                  Launch the architect
+                  <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                </Button>
+              </div>
+            </div>
+          </Reveal>
+        </section>
 
         {/* Footer */}
-        <footer className="mt-28 pt-8 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
-          <p>© 2026 AI Solution Builder OS. Alpine PostgreSQL + Groq 120B.</p>
-          <div className="flex items-center gap-6">
-            <Link href="/dashboard" className="hover:text-slate-300">Dashboard</Link>
-            <Link href="/chat" className="hover:text-slate-300">AI Architect</Link>
-            <Link href="/login" className="hover:text-slate-300">Account</Link>
+        <footer className="px-6 lg:px-10 py-6 border-t border-border flex items-center justify-between text-[11px] text-muted-foreground font-mono">
+          <span>2026 AI Solution Builder</span>
+          <div className="flex items-center gap-5">
+            <Link href="/dashboard" className="hover:text-foreground transition-colors">Dashboard</Link>
+            <Link href="/chat" className="hover:text-foreground transition-colors">Architect</Link>
+            <Link href="/login" className="hover:text-foreground transition-colors">Account</Link>
           </div>
         </footer>
       </main>

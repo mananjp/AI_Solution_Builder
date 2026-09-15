@@ -273,7 +273,9 @@ def build_mvp_prompt(
         or "MVP"
     )
     industry = ai_state.get("industry", "general")
+    product_type = ai_state.get("product_type", "full_stack_app")
     modules = ai_state.get("confirmed_modules") or ai_state.get("identified_solutions", [])
+    brief = _compact(ai_state.get("business_description", ""), 900)
 
     hld = (
         ai_state.get("hld", {}).get("content", {}) if isinstance(ai_state.get("hld"), dict) else {}
@@ -319,61 +321,55 @@ def build_mvp_prompt(
     hld_overview = _compact(hld.get("system_overview") or hld.get("architecture"))
     lld_modules = lld.get("modules", [])
 
-    return "\n".join(
-        [
-            "# MVP Slot-Fill Request",
-            "",
-            f"**App:** {title} · **Industry:** {industry}",
-            f"**Description:** {_compact(ai_state.get('business_description', ''), 600)}",
-            f"**Modules:** {', '.join(map(str, modules))}",
-            "",
-            "A working scaffold already exists at `" + target_dir + "` (FastAPI backend, "
-            "Next.js frontend, docker-compose, Render blueprint, CI workflow). "
-            "Do NOT rewrite the scaffold. Fill the artifact-specific slots below and "
-            "add the module code only.",
-            "",
-            "## What to implement",
-            "1. **models.py** — one SQLAlchemy 2.0 async model per ER entity (insert above "
-            "`__MODEL_INSERTION_POINT__`), matching the DDL exactly.",
-            "2. **schemas.py** — Pydantic v2 create/read/update schemas for each model.",
-            "3. **routers.py** — one APIRouter per module with full CRUD (insert above "
-            "`__ROUTER_INSERTION_POINT__`) and register it in `main.py`.",
-            "4. **demo auth** — keep the provided JWT helper; add a simple `auth/login` + "
-            "`auth/register` endpoint if the API spec includes one.",
-            "5. **frontend** — one CRUD page per module under `src/app/{module_slug}/`, a "
-            "dashboard card per module in `src/app/page.tsx` (replace `__MODULE_LINKS__`), "
-            "wired through the typed client in `src/lib/api.ts`.",
-            "6. **Alembic** — one initial migration for the full schema.",
-            "",
-            "## Architecture context",
-            f"HLD: {hld_overview or '_none provided_'}"
-            + (
-                f"\nLLD modules: {', '.join(str(m.get('name')) for m in lld_modules if isinstance(m, dict))}"
-                if lld_modules
-                else ""
-            ),
-            "",
-            "## ER entities",
-            _entity_summary(er) or "_none provided_",
-            "",
-            "## API spec",
-            _endpoint_summary(api_spec) or "_none provided_",
-            "",
-            "## Wireframe screens",
-            "\n".join(f"- {s}" for s in wireframe_screens) or "_none provided_",
-            "",
-            "## Database DDL",
-            "```sql",
-            ddl.strip() or "_none provided_",
-            "```",
-            "",
-            "## Rules",
-            "- Never hardcode secrets. `.env.example` uses `change-me` placeholders only.",
-            "- Keep existing scaffold files intact unless a slot requires an edit.",
-            "- Do not run installs, builds, or start servers — just edit files.",
-            "- Report which modules/entities you implemented when finished.",
-        ]
-    )
+    build_context = [
+        "# MVP Slot-Fill Request",
+        "",
+        f"**App:** {title} | **Industry:** {industry}",
+        f"**Product type:** {product_type}",
+        f"**Description:** {brief}",
+        f"**Modules:** {', '.join(map(str, modules)) or 'general'}",
+        f"**Target dir:** `{target_dir}`",
+        "",
+        "Do NOT rewrite the scaffold. Preserve the existing scaffold and only fill the required app-specific slots.",
+        "Use the artifacts below as the source of truth; keep the build focused and complete.",
+        "",
+        "## Required edits",
+        "- Insert model definitions above `__MODEL_INSERTION_POINT__` in models.py.",
+        "- Insert CRUD routes above `__ROUTER_INSERTION_POINT__` in routers.py.",
+        "- Keep the existing FastAPI + Next.js scaffold intact, but replace placeholder screens, forms, and copy with real product-specific code.",
+        "- Build working module pages, navigation, and backend wiring from the supplied artifacts; do not leave generic templates in place.",
+        "",
+        "## Architecture context",
+        f"HLD: {hld_overview or '_none provided_'}",
+        f"LLD modules: {', '.join(str(m.get('name')) for m in lld_modules if isinstance(m, dict)) or 'none'}",
+        "",
+        "## ER entities",
+        _entity_summary(er) or "_none provided_",
+        "",
+        "## API spec",
+        _endpoint_summary(api_spec) or "_none provided_",
+        "",
+        "## Wireframes",
+        "\n".join(f"- {s}" for s in wireframe_screens) or "_none provided_",
+        "",
+        "## Database DDL",
+        "```sql",
+        ddl.strip() or "_none provided_",
+        "```",
+        "",
+        "## Rules",
+        "- No secrets or placeholders; `.env.example` is the only place for example values.",
+        "- No empty cards, lorem ipsum, or TODO comments.",
+        "- Prefer a small complete product over a broad unfinished skeleton.",
+        "- If a page is only a template, replace it with the actual workflow the artifacts describe.",
+        "- Do not run installs, builds, or start servers; just edit files.",
+        "- Report the finished screens, routes, and backend endpoints when done.",
+    ]
+
+    prompt = "\n".join(build_context)
+    if len(prompt) > 3000:
+        prompt = prompt[:2950].rstrip() + "\n..."
+    return prompt
 
 
 # ── Build execution ────────────────────────────────────────────────────

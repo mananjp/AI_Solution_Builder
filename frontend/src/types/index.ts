@@ -138,6 +138,12 @@ export interface BillingUsage {
   monthly_limit: number;
   current_balance: number;
   credits_used: number;
+  credit_costs?: {
+    generate: number;
+    regenerate: number;
+    mvp_build: number;
+    export: number;
+  };
 }
 
 export interface CreditTransaction {

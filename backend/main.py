@@ -26,11 +26,13 @@ from app.api.upload import router as upload_router
 from app.api.workable import router as workable_router
 from app.api.workspaces import router as workspaces_router
 from app.core.config import settings
-from app.core.database import Base, engine
+from app.core.database import Base, async_session_factory, engine
 from app.core.errors import register_exception_handlers
+from app.core.security import ensure_dev_demo_user
 from app.core.metrics import MetricsMiddleware
 from app.core.middleware import (
     AuditLogMiddleware,
+    InputSanitizationMiddleware,
     LanguageMiddleware,
     LogMiddleware,
     RateLimitMiddleware,
@@ -55,14 +57,22 @@ async def lifespan(app: FastAPI):
     await init_redis()
 
     # Create all tables if they don't exist (dev convenience — use Alembic in production)
-    async with engine.begin() as conn:
-        # Import all models so they register with Base.metadata
-        import app.models  # noqa: F401
+    try:
+        async with engine.begin() as conn:
+            # Import all models so they register with Base.metadata
+            import app.models  # noqa: F401
 
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        await conn.run_sync(Base.metadata.create_all)
+            if "sqlite" not in settings.DATABASE_URL.lower():
+                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            await conn.run_sync(Base.metadata.create_all)
 
-    logger.info("Database tables created/verified")
+        async with async_session_factory() as db:
+            await ensure_dev_demo_user(db)
+
+        logger.info("Database tables created/verified")
+    except Exception as exc:  # pragma: no cover - degraded local mode
+        logger.warning("Database unavailable during startup; continuing in degraded mode: %s", exc)
+
     yield
 
     # Shutdown
@@ -93,6 +103,7 @@ app.add_middleware(
 
 # ── Core Middleware (order matters: outermost runs first) ──
 app.add_middleware(AuditLogMiddleware)
+app.add_middleware(InputSanitizationMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(MetricsMiddleware)
 app.add_middleware(LanguageMiddleware)

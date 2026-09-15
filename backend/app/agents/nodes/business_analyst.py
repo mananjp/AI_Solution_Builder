@@ -13,16 +13,45 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.prompts import BUSINESS_ANALYST_SYSTEM
 from app.agents.state import DiscoveryState
-from app.core.llm import get_llm
+from app.agents.utils import parse_llm_json
+from app.core.llm import get_llm, invoke_with_retry
 
 logger = logging.getLogger(__name__)
+
+
+def _fallback(current_message: str, *, confidence: float = 0.5) -> dict[str, Any]:
+    """Return a minimal analysis so the pipeline can still route."""
+    logger.warning("Business Analyst using fallback (confidence=%.2f)", confidence)
+    return {
+        "business_description": current_message,
+        "industry": "general",
+        "business_size": "sme",
+        "business_stage": "idea",
+        "stakeholders": [],
+        "pain_points": [],
+        "identified_solutions": [],
+        "confidence_score": confidence,
+        "clarification_questions": [
+            "Could you tell me more about your business and what systems you need?"
+        ],
+        "analysis_summary": "Analysis was unavailable due to a temporary error.",
+        "current_agent": "business_analyst",
+        "status": "analyzing",
+        "agent_messages": [],
+    }
 
 
 async def business_analyst_node(state: DiscoveryState) -> dict[str, Any]:
     """Analyze user input and extract structured business requirements."""
     logger.info("Business Analyst Agent: starting analysis")
 
-    llm = get_llm(temperature=0.3, max_tokens=4096)
+    current_message = state.get("user_message", "")
+
+    try:
+        llm = get_llm(temperature=0.3, max_tokens=2048)
+    except Exception as exc:
+        logger.error("Business Analyst: failed to get LLM — %s", exc)
+        return _fallback(current_message)
 
     # Build conversation context
     messages: list[HumanMessage | SystemMessage] = [SystemMessage(content=BUSINESS_ANALYST_SYSTEM)]
@@ -38,27 +67,22 @@ async def business_analyst_node(state: DiscoveryState) -> dict[str, Any]:
             messages.append(HumanMessage(content=msg["content"]))
 
     # Current message with context
-    current_message = state.get("user_message", "")
     if context_parts:
         current_message = "\n\n".join(context_parts) + "\n\nUSER MESSAGE: " + current_message
 
     messages.append(HumanMessage(content=current_message))
 
-    # Invoke LLM
-    response = await llm.ainvoke(messages)
+    try:
+        response = await invoke_with_retry(llm, messages)
+    except Exception as exc:
+        logger.error("Business Analyst: LLM call failed — %s", exc)
+        return _fallback(current_message)
 
     # Parse structured response
     try:
-        # Extract JSON from response (handle markdown code blocks)
-        content = response.content
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0]
-        elif "```" in content:
-            content = content.split("```")[1].split("```")[0]
-
-        analysis = json.loads(content.strip())
+        analysis = parse_llm_json(response.content)
     except (json.JSONDecodeError, IndexError):
-        logger.warning("Failed to parse BA response as JSON, using defaults")
+        logger.warning("Business Analyst: failed to parse JSON response, using defaults")
         analysis = {
             "business_description": current_message,
             "industry": "general",

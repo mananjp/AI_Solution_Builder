@@ -9,10 +9,10 @@ import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, Integer, String
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.core.db_types import UUID
 
 
 class AuditLog(Base):

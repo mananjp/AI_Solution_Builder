@@ -1,16 +1,199 @@
 'use client';
 
 import React, { useState } from 'react';
-import { User, Copy, Check, Sparkles } from 'lucide-react';
+import { Copy, Check } from '@phosphor-icons/react/dist/ssr';
+import { cn } from '@/lib/utils';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 
 interface ChatMessageProps {
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant';
   content: string;
-  agent?: string;
+  agentName?: string;
   timestamp?: string;
 }
 
-export default function ChatMessage({ role, content, agent }: ChatMessageProps) {
+function renderMarkdown(text: string): React.ReactNode {
+  const lines = text.split('\n');
+  const elements: React.ReactNode[] = [];
+  let i = 0;
+  let key = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Code block
+    if (line.trim().startsWith('```')) {
+      const codeLines: string[] = [];
+      const lang = line.trim().replace('```', '').trim();
+      i++;
+      while (i < lines.length && !lines[i].trim().startsWith('```')) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      i++; // skip closing ```
+      elements.push(
+        <pre key={key++} className="bg-secondary rounded-md p-3 my-2 overflow-x-auto">
+          {lang && (
+            <div className="text-[9px] font-mono text-muted-foreground/60 mb-2 uppercase tracking-wider">
+              {lang}
+            </div>
+          )}
+          <code className="text-[12px] font-mono text-foreground/90 leading-relaxed">
+            {codeLines.join('\n')}
+          </code>
+        </pre>
+      );
+      continue;
+    }
+
+    // Heading
+    if (line.startsWith('### ')) {
+      elements.push(<h3 key={key++} className="text-[13px] font-bold mt-4 mb-2 text-foreground">{line.replace('### ', '')}</h3>);
+      i++;
+      continue;
+    }
+    if (line.startsWith('## ')) {
+      elements.push(<h2 key={key++} className="text-[14px] font-bold mt-5 mb-2 text-foreground">{line.replace('## ', '')}</h2>);
+      i++;
+      continue;
+    }
+    if (line.startsWith('# ')) {
+      elements.push(<h1 key={key++} className="text-[15px] font-bold mt-6 mb-3 text-foreground">{line.replace('# ', '')}</h1>);
+      i++;
+      continue;
+    }
+
+    // Table
+    if (line.includes('|') && i + 1 < lines.length && lines[i + 1]?.includes('---')) {
+      const headers = line.split('|').filter(Boolean).map((h) => h.trim());
+      i += 2; // skip header + separator
+      const rows: string[][] = [];
+      while (i < lines.length && lines[i].includes('|')) {
+        rows.push(lines[i].split('|').filter(Boolean).map((c) => c.trim()));
+        i++;
+      }
+      elements.push(
+        <div key={key++} className="my-3 overflow-x-auto">
+          <table className="w-full text-[11px] border-collapse">
+            <thead>
+              <tr className="border-b border-border">
+                {headers.map((h, hi) => (
+                  <th key={hi} className="text-left py-1.5 px-2 font-semibold text-muted-foreground">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, ri) => (
+                <tr key={ri} className="border-b border-border/50">
+                  {row.map((cell, ci) => (
+                    <td key={ci} className="py-1.5 px-2 text-foreground/80">
+                      {renderInline(cell)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+      continue;
+    }
+
+    // Unordered list
+    if (line.match(/^[\s]*[-*]\s/)) {
+      const listItems: string[] = [];
+      while (i < lines.length && lines[i].match(/^[\s]*[-*]\s/)) {
+        listItems.push(lines[i].replace(/^[\s]*[-*]\s/, ''));
+        i++;
+      }
+      elements.push(
+        <ul key={key++} className="my-2 flex flex-col gap-0.5">
+          {listItems.map((item, li) => (
+            <li key={li} className="flex items-start gap-2 text-[12px] text-foreground/80 leading-relaxed">
+              <span className="text-primary mt-1.5 shrink-0">•</span>
+              <span>{renderInline(item)}</span>
+            </li>
+          ))}
+        </ul>
+      );
+      continue;
+    }
+
+    // Ordered list
+    if (line.match(/^[\s]*\d+\.\s/)) {
+      const listItems: string[] = [];
+      while (i < lines.length && lines[i].match(/^[\s]*\d+\.\s/)) {
+        listItems.push(lines[i].replace(/^[\s]*\d+\.\s/, ''));
+        i++;
+      }
+      elements.push(
+        <ol key={key++} className="my-2 flex flex-col gap-0.5">
+          {listItems.map((item, li) => (
+            <li key={li} className="flex items-start gap-2 text-[12px] text-foreground/80 leading-relaxed">
+              <span className="text-primary font-mono text-[10px] mt-0.5 shrink-0">{li + 1}.</span>
+              <span>{renderInline(item)}</span>
+            </li>
+          ))}
+        </ol>
+      );
+      continue;
+    }
+
+    // Empty line
+    if (line.trim() === '') {
+      i++;
+      continue;
+    }
+
+    // Paragraph
+    elements.push(
+      <p key={key++} className="text-[12px] text-foreground/80 leading-relaxed my-1.5">
+        {renderInline(line)}
+      </p>
+    );
+    i++;
+  }
+
+  return elements;
+}
+
+function renderInline(text: string): React.ReactNode {
+  // Handle **bold**, `code`, and plain text
+  const parts: React.ReactNode[] = [];
+  const regex = /(\*\*.*?\*\*|`[^`]+`)/g;
+  let lastIndex = 0;
+  let match;
+  let key = 0;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    const token = match[0];
+    if (token.startsWith('**')) {
+      parts.push(<strong key={key++} className="font-semibold text-foreground">{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith('`')) {
+      parts.push(
+        <code key={key++} className="bg-secondary px-1 py-0.5 rounded text-[11px] font-mono text-primary">
+          {token.slice(1, -1)}
+        </code>
+      );
+    }
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : text;
+}
+
+export default function ChatMessage({ role, content, agentName, timestamp }: ChatMessageProps) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -19,109 +202,58 @@ export default function ChatMessage({ role, content, agent }: ChatMessageProps) 
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const isAssistant = role === 'assistant';
-
-  // Format message lines (handles bold text, bullet points, numbered lists)
-  const formatContent = (text: string) => {
-    return text.split('\n').map((line, i) => {
-      // Bullet points
-      if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
-        const bulletText = line.trim().substring(2);
-        return (
-          <li key={i} className="ml-4 list-disc text-slate-300 my-1 leading-relaxed">
-            {renderFormattedInline(bulletText)}
-          </li>
-        );
-      }
-      // Numbered lists
-      const numberedMatch = line.trim().match(/^(\d+)\.\s+(.*)/);
-      if (numberedMatch) {
-        return (
-          <li key={i} className="ml-4 list-decimal text-slate-300 my-1 leading-relaxed">
-            {renderFormattedInline(numberedMatch[2])}
-          </li>
-        );
-      }
-      // Headers
-      if (line.startsWith('### ')) {
-        return <h4 key={i} className="text-sm font-bold text-indigo-300 mt-3 mb-1">{line.replace('### ', '')}</h4>;
-      }
-      if (line.startsWith('## ')) {
-        return <h3 key={i} className="text-base font-bold text-white mt-4 mb-1.5">{line.replace('## ', '')}</h3>;
-      }
-      if (line.startsWith('# ')) {
-        return <h2 key={i} className="text-lg font-extrabold text-white mt-4 mb-2">{line.replace('# ', '')}</h2>;
-      }
-      // Regular paragraph
-      if (!line.trim()) {
-        return <div key={i} className="h-2" />;
-      }
-      return (
-        <p key={i} className="my-1 leading-relaxed">
-          {renderFormattedInline(line)}
-        </p>
-      );
-    });
-  };
-
-  const renderFormattedInline = (text: string) => {
-    // Bold formatting **text**
-    const parts = text.split(/(\*\*.*?\*\*)/g);
-    return parts.map((part, index) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return (
-          <strong key={index} className="text-indigo-200 font-semibold">
-            {part.slice(2, -2)}
-          </strong>
-        );
-      }
-      return part;
-    });
-  };
-
   return (
-    <div className={`flex gap-3.5 my-4 ${isAssistant ? 'justify-start' : 'justify-end'}`}>
-      {/* Assistant Avatar */}
-      {isAssistant && (
-        <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center text-white flex-shrink-0 shadow-md shadow-indigo-500/20 mt-1">
-          <Sparkles className="w-4 h-4" />
-        </div>
+    <div className={cn('flex gap-3 group', role === 'user' ? 'justify-end' : 'justify-start')}>
+      {role === 'assistant' && (
+        <Avatar className="size-6 shrink-0 mt-0.5">
+          <AvatarFallback className="bg-primary/15 text-primary text-[9px] font-bold border border-primary/20">
+            AI
+          </AvatarFallback>
+        </Avatar>
       )}
 
-      {/* Message Bubble */}
-      <div
-        className={`relative max-w-[85%] md:max-w-[75%] rounded-2xl p-4 text-sm ${
-          isAssistant
-            ? 'bg-slate-900/80 border border-white/5 text-slate-200 shadow-lg'
-            : 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-500/10'
-        }`}
-      >
-        {/* Agent header pill */}
-        {isAssistant && (
-          <div className="flex items-center justify-between gap-4 mb-2 pb-2 border-b border-white/5">
-            <span className="text-[11px] font-semibold text-indigo-400 flex items-center gap-1.5 uppercase tracking-wider">
-              <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
-              {agent || 'AI Solution Architect'}
-            </span>
-            <button
-              onClick={handleCopy}
-              className="text-slate-400 hover:text-slate-200 text-xs p-1 rounded hover:bg-white/5 transition-colors"
-              title="Copy message"
-            >
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            </button>
+      <div className={cn('flex flex-col gap-1 max-w-[85%]', role === 'user' && 'items-end')}>
+        {agentName && role === 'assistant' && (
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-medium text-primary">{agentName}</span>
+            {timestamp && (
+              <span className="text-[9px] text-muted-foreground/50 font-mono">{timestamp}</span>
+            )}
           </div>
         )}
 
-        {/* Content */}
-        <div className="space-y-1">{formatContent(content)}</div>
+        <div
+          className={cn(
+            'rounded-lg px-3 py-2.5 text-[12px]',
+            role === 'user'
+              ? 'bg-primary/10 text-foreground border border-primary/15'
+              : 'bg-secondary text-foreground/90 border border-border'
+          )}
+        >
+          {role === 'assistant' ? renderMarkdown(content) : (
+            <p className="leading-relaxed">{content}</p>
+          )}
+        </div>
+
+        {role === 'assistant' && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleCopy}
+            className="h-5 px-1.5 text-[9px] text-muted-foreground/50 hover:text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            {copied ? <Check className="size-2.5" /> : <Copy className="size-2.5" />}
+            {copied ? 'Copied' : 'Copy'}
+          </Button>
+        )}
       </div>
 
-      {/* User Avatar */}
-      {!isAssistant && (
-        <div className="w-8 h-8 rounded-xl bg-slate-800 border border-white/10 flex items-center justify-center text-slate-300 flex-shrink-0 mt-1">
-          <User className="w-4 h-4" />
-        </div>
+      {role === 'user' && (
+        <Avatar className="size-6 shrink-0 mt-0.5">
+          <AvatarFallback className="bg-secondary text-[9px] font-bold border border-border">
+            U
+          </AvatarFallback>
+        </Avatar>
       )}
     </div>
   );

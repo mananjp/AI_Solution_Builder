@@ -9,10 +9,16 @@ and tests run without network access or credentials.
 
 The mock provider inspects the system prompt to return valid,
 node-specific JSON so the full LangGraph pipeline completes offline.
+
+Supports multi-key rotation for Groq: when a key hits 429, the next
+key in the pool is used automatically.
 """
 
+import asyncio
+import itertools
 import json
 import logging
+import time
 from typing import Any
 
 from langchain_core.messages import SystemMessage
@@ -22,6 +28,126 @@ from pydantic import SecretStr
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+MAX_RETRIES = 2
+BASE_DELAY = 10  # seconds — start of exponential backoff for 429s
+_COOLDOWN_SECONDS = 60  # how long a rate-limited key is skipped
+
+
+class _GroqKeyPool:
+    """Round-robin pool of Groq API keys with per-key cooldown on 429."""
+
+    def __init__(self, keys: list[str]) -> None:
+        self._keys = [k for k in keys if k]
+        self._cycle = itertools.cycle(range(len(self._keys)))
+        self._cooldowns: dict[int, float] = {}  # index → epoch when key is usable again
+        self._lock = asyncio.Lock()
+        if not self._keys:
+            logger.warning("GroqKeyPool initialised with zero usable keys")
+
+    def _available_indices(self) -> list[int]:
+        now = time.time()
+        return [
+            i for i in range(len(self._keys))
+            if self._cooldowns.get(i, 0) <= now
+        ]
+
+    async def next_key(self) -> str | None:
+        """Return the next available key, or None if all are cooled down."""
+        async with self._lock:
+            available = self._available_indices()
+            if not available:
+                return None
+            # Pick the next key in round-robin from the available set
+            idx = next(self._cycle)
+            while idx not in available:
+                idx = next(self._cycle)
+            return self._keys[idx]
+
+    async def mark_rate_limited(self, key: str) -> None:
+        """Put a key on cooldown for _COOLDOWN_SECONDS."""
+        async with self._lock:
+            try:
+                idx = self._keys.index(key)
+                self._cooldowns[idx] = time.time() + _COOLDOWN_SECONDS
+                logger.warning(
+                    "Groq key [...%s] rate-limited — cooling down for %ds (pool size=%d)",
+                    key[-6:],
+                    _COOLDOWN_SECONDS,
+                    len(self._keys),
+                )
+            except ValueError:
+                pass
+
+    @property
+    def key_count(self) -> int:
+        return len(self._keys)
+
+
+def _build_groq_key_pool() -> _GroqKeyPool:
+    """Collect all configured Groq API keys into a pool."""
+    keys = [
+        settings.GROQ_API_KEY,
+        settings.GROQ_API_KEY_2,
+        settings.GROQ_API_KEY_3,
+    ]
+    return _GroqKeyPool(keys)
+
+
+# Module-level singleton (created once at import)
+_groq_pool: _GroqKeyPool | None = None
+
+
+def _get_groq_pool() -> _GroqKeyPool:
+    global _groq_pool
+    if _groq_pool is None:
+        _groq_pool = _build_groq_key_pool()
+        logger.info("Groq key pool: %d key(s) loaded", _groq_pool.key_count)
+    return _groq_pool
+
+
+async def invoke_with_retry(
+    llm: Any,
+    messages: list,
+    *,
+    max_retries: int = MAX_RETRIES,
+) -> Any:
+    """Call ``llm.ainvoke`` with exponential back-off on rate-limit (429) errors.
+
+    For Groq, the ``llm`` is typically a ``_GroqKeyRotator`` that handles
+    key rotation internally on 429. This function adds an outer retry loop
+    for any remaining transient failures.
+
+    Non-429 errors are raised immediately.  Returns the LLM response on
+    success or the last exception after exhausting retries.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            return await llm.ainvoke(messages)
+        except Exception as exc:
+            last_exc = exc
+            err_text = str(exc).lower()
+            is_retryable = (
+                "429" in err_text
+                or "413" in err_text
+                or "rate" in err_text
+                or "too many requests" in err_text
+                or "payload too large" in err_text
+                or "tokens per minute" in err_text
+            )
+            if not is_retryable or attempt == max_retries:
+                raise
+            delay = BASE_DELAY * (2 ** attempt)
+            logger.warning(
+                "Rate-limited (attempt %d/%d) — retrying in %ds: %s",
+                attempt + 1,
+                max_retries + 1,
+                delay,
+                exc,
+            )
+            await asyncio.sleep(delay)
+    raise last_exc  # type: ignore[misc]
 
 try:
     from langchain_openai import ChatOpenAI
@@ -429,9 +555,65 @@ class MockChatModel:
         self.state: dict[str, Any] = kwargs.get("state", {})
 
     async def ainvoke(self, messages: list[Any]) -> MockMessage:
-        content = _build_mock_content(messages, self.state)
+        try:
+            content = _build_mock_content(messages, self.state)
+        except Exception as e:
+            logger.warning("MockLLM build failed: %s — returning fallback", e)
+            content = json.dumps({
+                "error": "Mock generation failed",
+                "status": "fallback",
+                "message": str(e),
+            })
         logger.debug("MockLLM returned %d characters", len(content))
         return MockMessage(content)
+
+
+class _GroqKeyRotator:
+    """Wraps the key pool — creates a fresh ChatGroq on each call, rotating
+    keys when a 429 is detected. The node calls
+    ``invoke_with_retry(rotator, messages)`` and the rotator transparently
+    picks a new key for each attempt."""
+
+    def __init__(self, pool: _GroqKeyPool, **default_kwargs: Any) -> None:
+        self._pool = pool
+        self._default_kwargs = default_kwargs
+        self._current_key: str | None = None
+        self._llm: ChatGroq | None = None
+
+    async def _ensure_llm(self) -> ChatGroq:
+        key = await self._pool.next_key()
+        if key is None:
+            raise RuntimeError("All Groq API keys are rate-limited — try again later")
+        if key != self._current_key:
+            self._current_key = key
+            self._llm = ChatGroq(
+                api_key=SecretStr(key),
+                max_retries=0,  # disable SDK-level retries; we handle retry + rotation ourselves
+                **self._default_kwargs,
+            )
+            logger.debug("Groq: switched to key [...%s]", key[-6:])
+        return self._llm
+
+    async def ainvoke(self, messages: list[Any]) -> Any:
+        llm = await self._ensure_llm()
+        try:
+            return await llm.ainvoke(messages)
+        except Exception as exc:
+            err_text = str(exc).lower()
+            is_retryable = (
+                "429" in err_text
+                or "413" in err_text
+                or "rate" in err_text
+                or "too many requests" in err_text
+                or "payload too large" in err_text
+                or "tokens per minute" in err_text
+            )
+            if is_retryable and self._current_key:
+                await self._pool.mark_rate_limited(self._current_key)
+                # Rotate to next key and retry once
+                llm = await self._ensure_llm()
+                return await llm.ainvoke(messages)
+            raise
 
 
 def get_llm(**kwargs: Any) -> Any:
@@ -439,6 +621,9 @@ def get_llm(**kwargs: Any) -> Any:
 
     Accepts temperature/max_tokens overrides. Falls back to the mock provider
     when the configured provider has no API key (dev/test convenience).
+
+    For Groq, returns a ``_GroqKeyRotator`` that automatically rotates
+    through all configured API keys on 429 rate-limit errors.
     """
     provider = settings.LLM_PROVIDER.lower()
 
@@ -447,11 +632,12 @@ def get_llm(**kwargs: Any) -> Any:
     state = kwargs.pop("state", {})
 
     if provider == "groq" and settings.GROQ_API_KEY:
-        return ChatGroq(
-            api_key=SecretStr(settings.GROQ_API_KEY),
+        pool = _get_groq_pool()
+        return _GroqKeyRotator(
+            pool,
             model=settings.GROQ_MODEL_NAME,
             temperature=kwargs.get("temperature", 0.3),
-            max_tokens=kwargs.get("max_tokens", 4096),
+            max_tokens=kwargs.get("max_tokens", 2048),
         )
 
     if provider == "openai" and _HAS_OPENAI and settings.OPENAI_API_KEY:

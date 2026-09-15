@@ -46,12 +46,12 @@ async def register(payload: UserRegister, db: AsyncSession = Depends(get_db)) ->
     free_plan_result = await db.execute(select(Plan).where(Plan.name == "free"))
     free_plan = free_plan_result.scalar_one_or_none()
     if not free_plan:
-        free_plan = Plan(name="free", monthly_credits=200, max_workable_systems=1, price_usd=0)
+        free_plan = Plan(name="free", monthly_credits=10000, max_workable_systems=3, price_usd=0)
         db.add(free_plan)
         await db.flush()
 
-    # Create organization
-    org = Organization(name=payload.org_name, plan_id=free_plan.id, credits_remaining=200)
+    # Create organization with full monthly credits
+    org = Organization(name=payload.org_name, plan_id=free_plan.id, credits_remaining=free_plan.monthly_credits)
     db.add(org)
     await db.flush()
 

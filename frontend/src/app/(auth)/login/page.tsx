@@ -3,148 +3,161 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Sparkles, Lock, Mail, AlertCircle, Loader2 } from 'lucide-react';
+import { ArrowRight } from '@phosphor-icons/react/dist/ssr/ArrowRight';
 import { authApi } from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent } from '@/components/ui/card';
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    setError('');
     setLoading(true);
-
     try {
       await authApi.login({ email, password });
       router.push('/dashboard');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed. Please verify credentials.');
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Invalid credentials');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDemoLogin = async () => {
-    setEmail('architect@enterprise.io');
-    setPassword('architect123');
-    setError(null);
+  const handleSampleLogin = async () => {
+    setError('');
     setLoading(true);
-
     try {
-      // Try login first; if user does not exist, auto-register
-      try {
-        await authApi.login({ email: 'architect@enterprise.io', password: 'architect123' });
-      } catch {
-        await authApi.register({
-          email: 'architect@enterprise.io',
-          password: 'architect123',
-          org_name: 'Alpha Systems',
-          full_name: 'Lead Architect',
-        });
+      // quick reachability check to surface network errors clearly
+      const apiRoot = (process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api/v1').replace('/api/v1', '');
+      const res = await fetch(`${apiRoot}/`, { method: 'GET' });
+      if (!res.ok) {
+        throw new Error(`Backend responded with status ${res.status}`);
       }
+      await authApi.login({
+        email: 'demo@aibuilder.example',
+        password: 'DemoPass123!',
+      });
       router.push('/dashboard');
-    } catch {
-      // Fallback: set mock token if backend DB not yet seeded
-      localStorage.setItem('access_token', 'demo_token_architect');
-      router.push('/dashboard');
+    } catch (err: any) {
+      const msg = err?.message || err?.response?.data?.detail || 'Sample user login failed';
+      setError(`Unable to reach backend: ${msg}`);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#070a13] flex items-center justify-center p-6 relative overflow-hidden">
-      {/* Background glow */}
-      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-indigo-600/15 rounded-full blur-[140px] pointer-events-none" />
-
-      <div className="w-full max-w-md relative z-10">
-        <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2.5 mb-3 group">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30 group-hover:scale-105 transition-transform">
-              <Sparkles className="w-5 h-5" />
-            </div>
-            <span className="font-extrabold text-white text-xl tracking-tight">AI Solution Builder</span>
+    <div className="min-h-screen bg-background text-foreground flex grain">
+      {/* Left: brand */}
+      <div className="hidden lg:flex lg:w-[55%] relative flex-col justify-between p-10 border-r border-border">
+        <div>
+          <Link href="/" className="inline-flex items-center gap-2 mb-20">
+            <span className="font-semibold text-[15px] tracking-tight">
+              AI Solution<span className="text-primary ml-1 font-mono text-[10px] tracking-[0.15em] uppercase">Builder</span>
+            </span>
           </Link>
-          <h2 className="text-xl font-bold text-white">Welcome back</h2>
-          <p className="text-xs text-slate-400 mt-1">Sign in to your architecture workspace</p>
+
+          <h1 className="text-[clamp(2rem,4vw,3.5rem)] font-bold tracking-tight leading-[0.95]">
+            From a rough prompt
+            <br />
+            to running software.
+          </h1>
+          <p className="mt-6 text-[14px] text-muted-foreground max-w-sm leading-relaxed">
+            Six autonomous agents. Production schemas, APIs, wireframes, and
+            deployable code. Not mockups.
+          </p>
         </div>
 
-        <div className="p-8 rounded-2xl bg-slate-900/60 border border-white/5 backdrop-blur-xl shadow-2xl">
-          {error && (
-            <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
+        <div className="flex items-center gap-5 text-[11px] text-muted-foreground font-mono">
+          <span>backend / fastapi</span>
+          <span className="text-primary">|</span>
+          <span>agents / langgraph</span>
+          <span className="text-primary">|</span>
+          <span>frontend / next.js</span>
+        </div>
+      </div>
 
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Email Address</label>
-              <div className="relative">
-                <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@company.com"
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-white/10 text-white text-xs placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 transition-colors"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Password</label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-white/10 text-white text-xs placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 transition-colors"
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-semibold shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-            >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Sign In</span>}
-            </button>
-          </form>
-
-          <div className="relative my-6 text-center">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-white/5" />
-            </div>
-            <span className="relative px-3 bg-slate-900/60 text-[11px] text-slate-500 uppercase tracking-wider">
-              Or Instant Demo
-            </span>
-          </div>
-
-          <button
-            onClick={handleDemoLogin}
-            disabled={loading}
-            className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 text-xs font-semibold flex items-center justify-center gap-2 transition-all"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-            <span>One-Click Demo Access</span>
-          </button>
-
-          <div className="mt-6 text-center text-xs text-slate-400">
-            Don&apos;t have an account?{' '}
-            <Link href="/register" className="text-indigo-400 hover:text-indigo-300 font-medium">
-              Create Organization
+      {/* Right: form */}
+      <div className="flex-1 flex items-center justify-center px-6 py-12">
+        <div className="w-full max-w-sm">
+          <div className="lg:hidden mb-10">
+            <Link href="/" className="font-semibold text-[15px] tracking-tight">
+              AI Solution<span className="text-primary ml-1 font-mono text-[10px] tracking-[0.15em] uppercase">Builder</span>
             </Link>
           </div>
+
+          <h2 className="text-[20px] font-bold tracking-tight mb-1">Welcome back</h2>
+          <p className="text-[12px] text-muted-foreground mb-8">
+            Sign in to your workspace
+          </p>
+
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] text-muted-foreground font-mono uppercase tracking-wider">
+                Email
+              </label>
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                placeholder="architect@enterprise.io"
+                className="bg-secondary border-border text-sm placeholder:text-muted-foreground/60 focus-visible:ring-primary/30"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] text-muted-foreground font-mono uppercase tracking-wider">
+                Password
+              </label>
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                placeholder="Enter password"
+                className="bg-secondary border-border text-sm placeholder:text-muted-foreground/60 focus-visible:ring-primary/30"
+              />
+            </div>
+
+            {error && (
+              <p className="text-[12px] text-destructive">{error}</p>
+            )}
+
+            <Button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-semibold text-[13px]"
+              size="default"
+            >
+              {loading ? 'Signing in...' : 'Sign in'}
+              {!loading && <ArrowRight className="w-3.5 h-3.5 ml-1.5" />}
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleSampleLogin}
+              disabled={loading}
+              className="w-full border-border bg-secondary/50 hover:bg-secondary text-sm"
+            >
+              Use sample user
+            </Button>
+          </form>
+
+          <p className="mt-6 text-center text-[12px] text-muted-foreground">
+            No account?{' '}
+            <Link href="/register" className="text-primary hover:text-primary/80 transition-colors font-medium">
+              Create one
+            </Link>
+          </p>
         </div>
       </div>
     </div>

@@ -149,7 +149,7 @@ async def test_check_credits_returns_org_balance(auth_client, session_factory):
         assert exc.value.status_code == 404
 
 
-async def test_require_and_deduct_credit(auth_client, session_factory):
+async def test_require_and_deduct_credit_unlimited_by_default(auth_client, session_factory):
     async with session_factory() as db:
         user = (
             await db.execute(select(User).where(User.email == auth_client["email"]))
@@ -159,15 +159,18 @@ async def test_require_and_deduct_credit(auth_client, session_factory):
         ).scalar_one()
 
         result = await require_and_deduct_credit(db, user, "generation", "Test deduction")
-        assert result["cost"] == action_cost("generation")
-        assert org.credits_remaining == 200 - result["cost"]
+        assert result == {"credits_remaining": None, "deducted": 0, "cost": 0}
+        assert org.credits_remaining == 200
 
-        # 'regenerate' aliases to regeneration metering
+        # 'regenerate' aliases to regeneration metering while unlimited mode is active
         regen = await require_and_deduct_credit(db, user, "regenerate", "Regen")
-        assert regen["cost"] == action_cost("regeneration")
+        assert regen == {"credits_remaining": None, "deducted": 0, "cost": 0}
 
 
-async def test_require_and_deduct_credit_402(auth_client, session_factory):
+async def test_require_and_deduct_credit_402_when_metering_enabled(auth_client, session_factory, monkeypatch):
+    from app import core
+    monkeypatch.setattr(core.credits.settings, "CREDIT_METERING_ENABLED", True)
+
     async with session_factory() as db:
         user = (
             await db.execute(select(User).where(User.email == auth_client["email"]))
@@ -365,6 +368,13 @@ async def test_get_current_user_token_unknown_user(client):
     resp = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 401
     assert resp.json()["error"]["message"] == "User not found"
+
+
+async def test_get_current_user_accepts_uuid_string_subject(client):
+    ctx = await register_user(client)
+    resp = await client.get("/api/v1/auth/me", headers=ctx["headers"])
+    assert resp.status_code == 200
+    assert resp.json()["email"] == ctx["email"]
 
 
 async def test_get_current_user_deactivated(auth_client, session_factory):

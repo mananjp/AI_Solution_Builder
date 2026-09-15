@@ -11,11 +11,11 @@ from datetime import UTC, datetime
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.config import settings
 from app.core.database import Base
+from app.core.db_types import UUID
 
 
 class ContextChunk(Base):

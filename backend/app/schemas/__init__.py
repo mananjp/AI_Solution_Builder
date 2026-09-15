@@ -119,6 +119,11 @@ class SolutionResponse(BaseModel):
         from_attributes = True
 
 
+class SolutionUpdate(BaseModel):
+    title: str | None = Field(None, min_length=1, max_length=500)
+    description: str | None = Field(None, max_length=2000)
+
+
 class SolutionDetailResponse(SolutionResponse):
     ai_state: dict[str, Any] | None = None
     conversation_history: list[dict[str, Any]] | None = None

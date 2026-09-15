@@ -3,14 +3,15 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Plus,
-  Trash2,
+  Trash,
   Database,
-  Sparkles,
-  Search,
+  Lightbulb,
+  MagnifyingGlass,
   Terminal,
-  Loader2,
-} from 'lucide-react';
+  CircleNotch,
+} from '@phosphor-icons/react/dist/ssr';
 import { workableApi, type RawWorkableModule } from '@/lib/api';
+import { Button } from '@/components/ui/button';
 import { WorkableModule, type WorkableRecord } from '@/types';
 
 interface WorkablePreviewProps {
@@ -49,7 +50,6 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
       const rows = await workableApi.listRows(solutionId, moduleName, entityName);
       setRecords(rows);
     } catch {
-      // Keep existing demo records
     }
   }, [solutionId]);
 
@@ -145,7 +145,6 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
     }
   }, [formatModules, loadRecords, handleFallbackDemo, solutionId]);
 
-  // Load modules or provision
   useEffect(() => {
     async function initWorkable() {
       try {
@@ -175,7 +174,6 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
       await workableApi.seedData(solutionId, 5);
       await loadRecords(selectedModule, selectedEntity);
     } catch {
-      // Simulate synthetic rows in demo
       const activeEnt = getActiveEntity();
       if (activeEnt) {
         const newRow: WorkableRecord = {
@@ -229,54 +227,57 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
   );
 
   return (
-    <div className="flex flex-col h-full bg-slate-950 border border-white/5 rounded-2xl overflow-hidden shadow-2xl">
-      {/* Top Banner: Workable System Status */}
-      <div className="p-4 border-b border-white/5 bg-slate-900/80 backdrop-blur-md flex flex-wrap items-center justify-between gap-4">
+    <div className="flex flex-col h-full bg-background border border-border rounded-lg overflow-hidden">
+      <div className="p-4 border-b border-border bg-card/80 backdrop-blur-md flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+          <div className="w-8 h-8 rounded bg-success/20 text-success flex items-center justify-center">
             <Database className="w-4 h-4" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="font-bold text-white text-sm">Mounted Live Application Runtime</h3>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-[10px] text-emerald-400 font-mono">Live PostgreSQL Schema</span>
+              <h3 className="font-bold text-foreground text-sm">Mounted Live Application Runtime</h3>
+              <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
+              <span className="text-[10px] text-success font-mono">Live PostgreSQL Schema</span>
             </div>
-            <p className="text-[11px] text-slate-400 mt-0.5">
+            <p className="text-[11px] text-muted-foreground mt-0.5">
               Interact with real operational tables and REST APIs provisioned from your blueprint.
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2.5">
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={handleSeedSynthetic}
             disabled={seeding}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-indigo-300 border border-indigo-500/30 transition-all disabled:opacity-40"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-accent bg-accent text-xs font-semibold text-primary border border-primary/30 transition-all disabled:opacity-40"
           >
-            {seeding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-indigo-400" />}
+            {seeding ? <CircleNotch className="w-3.5 h-3.5 animate-spin" /> : <Lightbulb className="w-3.5 h-3.5 text-primary" />}
             <span>Seed Synthetic Records</span>
-          </button>
+          </Button>
 
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setShowApiDrawer(!showApiDrawer)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-secondary hover:bg-secondary text-xs font-semibold text-muted-foreground transition-colors"
           >
-            <Terminal className="w-3.5 h-3.5 text-cyan-400" />
+            <Terminal className="w-3.5 h-3.5 text-muted-foreground" />
             <span>API Docs</span>
-          </button>
+          </Button>
         </div>
       </div>
 
-      {/* Module and Entity Tabs */}
-      <div className="flex flex-wrap items-center justify-between px-4 pt-3 pb-2 border-b border-white/5 bg-slate-900/40 gap-3">
-        {/* Module switcher */}
+      <div className="flex flex-wrap items-center justify-between px-4 pt-3 pb-2 border-b border-border bg-card/40 gap-3">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500 font-medium">Subsystem:</span>
+          <span className="text-xs text-muted-foreground/70 font-medium">Subsystem:</span>
           <div className="flex gap-1">
             {modules.map(mod => (
-              <button
+              <Button
                 key={mod.name}
+                variant="ghost"
+                size="sm"
                 onClick={() => {
                   setSelectedModule(mod.name);
                   if (mod.entities.length > 0) {
@@ -286,67 +287,68 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
                 }}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                   selectedModule === mod.name
-                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                    ? 'bg-primary text-foreground'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                 }`}
               >
                 {mod.label}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
 
-        {/* Entity switcher */}
         {getActiveModule() && (
           <div className="flex items-center gap-1.5">
             {getActiveModule()?.entities.map(ent => (
-              <button
+              <Button
                 key={ent.name}
+                variant="ghost"
+                size="sm"
                 onClick={() => {
                   setSelectedEntity(ent.name);
                   loadRecords(selectedModule, ent.name);
                 }}
                 className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
                   selectedEntity === ent.name
-                    ? 'bg-white/10 text-indigo-300 font-medium border border-indigo-500/30'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? 'bg-accent text-primary font-medium border border-primary/30'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 {ent.label}
-              </button>
+              </Button>
             ))}
           </div>
         )}
       </div>
 
-      {/* Action Toolbar */}
       <div className="p-4 flex items-center justify-between gap-4">
         <div className="relative flex-1 max-w-xs">
-          <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+          <MagnifyingGlass className="w-3.5 h-3.5 text-muted-foreground/70 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={`Search ${activeEntity?.label || 'records'}...`}
-            className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-900 border border-white/10 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
+            className="w-full pl-9 pr-3 py-1.5 rounded bg-card border border-border text-xs text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:border-primary"
           />
         </div>
 
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-semibold shadow-md shadow-indigo-500/20 transition-all hover:scale-105"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-primary hover:bg-primary/80 text-foreground text-xs font-semibold transition-all"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>Add {activeEntity?.label || 'Record'}</span>
-        </button>
+        </Button>
       </div>
 
-      {/* Live Data Grid */}
       <div className="flex-1 overflow-auto px-4 pb-4">
         {filteredRecords.length > 0 ? (
-          <div className="border border-white/5 rounded-xl overflow-hidden bg-slate-900/40">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-900 text-slate-400 uppercase text-[10px] tracking-wider border-b border-white/5">
+          <div className="border border-border rounded overflow-hidden bg-card/40">
+            <table className="w-full text-left text-xs text-muted-foreground">
+              <thead className="bg-card text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
                 <tr>
                   <th className="p-3">#</th>
                   {fields.map(f => (
@@ -355,14 +357,14 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
                   <th className="p-3 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5">
+              <tbody className="divide-y divide-white/[0.04]">
                 {filteredRecords.map((row, idx) => (
                   <tr key={row.id || idx} className="hover:bg-white/[0.02] transition-colors">
-                    <td className="p-3 text-slate-500 font-mono text-[11px]">{idx + 1}</td>
+                    <td className="p-3 text-muted-foreground/70 font-mono text-[11px]">{idx + 1}</td>
                     {fields.map(f => (
                       <td key={f.name} className="p-3">
                         {typeof row[f.name] === 'boolean' ? (
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] ${row[f.name] ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] ${row[f.name] ? 'bg-success/20 text-success' : 'bg-destructive/20 text-destructive'}`}>
                             {row[f.name] ? 'True' : 'False'}
                           </span>
                         ) : (
@@ -371,13 +373,15 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
                       </td>
                     ))}
                     <td className="p-3 text-right">
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
                         onClick={() => handleDeleteRecord(row.id)}
-                        className="text-slate-500 hover:text-rose-400 transition-colors p-1"
+                        className="text-muted-foreground/70 hover:text-destructive transition-colors p-1"
                         title="Delete record"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                        <Trash className="w-3.5 h-3.5" />
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -385,43 +389,43 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
             </table>
           </div>
         ) : (
-          <div className="h-64 flex flex-col items-center justify-center text-center space-y-3 text-slate-500 border border-dashed border-white/10 rounded-xl">
-            <Database className="w-8 h-8 text-slate-600" />
-            <p className="text-xs text-slate-400">No records found in this operational table.</p>
-            <button
+          <div className="h-64 flex flex-col items-center justify-center text-center flex flex-col gap-3 text-muted-foreground/70 border border-dashed border-border rounded">
+            <Database className="w-8 h-8 text-muted-foreground/70" />
+            <p className="text-xs text-muted-foreground">No records found in this operational table.</p>
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={handleSeedSynthetic}
-              className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-500 transition-colors"
+              className="px-3 py-1.5 rounded-lg bg-primary text-foreground text-xs font-semibold hover:bg-primary/80 transition-colors"
             >
               Seed 5 Sample Records
-            </button>
+            </Button>
           </div>
         )}
       </div>
 
-      {/* Live API Drawer */}
       {showApiDrawer && (
-        <div className="p-4 border-t border-white/5 bg-slate-900/90 text-xs font-mono space-y-2">
-          <div className="flex items-center justify-between text-slate-400">
-            <span className="font-bold text-slate-200">Headless REST Endpoint for this table:</span>
-            <button onClick={() => setShowApiDrawer(false)} className="hover:text-white">Close</button>
+        <div className="p-4 border-t border-border bg-card/90 text-xs font-mono flex flex-col gap-2">
+          <div className="flex items-center justify-between text-muted-foreground">
+            <span className="font-bold text-foreground">Headless REST Endpoint for this table:</span>
+            <Button variant="ghost" size="sm" onClick={() => setShowApiDrawer(false)} className="hover:text-foreground">Close</Button>
           </div>
-          <div className="p-2.5 rounded-lg bg-black/60 border border-white/10 text-cyan-300 select-all">
+          <div className="p-2.5 rounded-lg bg-black/60 border border-border text-muted-foreground select-all">
             GET /api/v1/workable/{solutionId}/{selectedModule}/{selectedEntity}
           </div>
         </div>
       )}
 
-      {/* Add Record Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-slate-900 border border-white/10 rounded-2xl p-6 shadow-2xl space-y-4">
-            <h4 className="text-base font-bold text-white">Create New {activeEntity?.label}</h4>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-card border border-border rounded-lg p-6 flex flex-col gap-4">
+            <h4 className="text-base font-bold text-foreground">Create New {activeEntity?.label}</h4>
 
-            <form onSubmit={handleCreateRecord} className="space-y-3">
+            <form onSubmit={handleCreateRecord} className="flex flex-col gap-3">
               {fields.map(f => (
                 <div key={f.name}>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    {f.name} {f.required && <span className="text-rose-400">*</span>}
+                  <label className="block text-xs font-semibold text-muted-foreground mb-1">
+                    {f.name} {f.required && <span className="text-destructive">*</span>}
                   </label>
                   <input
                     type={f.type === 'number' ? 'number' : 'text'}
@@ -429,25 +433,29 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
                     value={formData[f.name] || ''}
                     onChange={(e) => setFormData({ ...formData, [f.name]: f.type === 'number' ? Number(e.target.value) : e.target.value })}
                     placeholder={`Enter ${f.name}...`}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-xs text-white focus:outline-none focus:border-indigo-500"
+                    className="w-full px-3 py-2 rounded bg-background border border-border text-xs text-foreground focus:outline-none focus:border-primary"
                   />
                 </div>
               ))}
 
               <div className="pt-2 flex justify-end gap-2">
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
                   onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition-colors"
+                  className="px-4 py-2 rounded bg-accent bg-accent text-muted-foreground text-xs font-semibold transition-colors"
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/25 transition-all"
+                  variant="default"
+                  size="sm"
+                  className="px-4 py-2 rounded bg-primary hover:bg-primary/80 text-foreground text-xs font-semibold transition-all"
                 >
                   Insert Record
-                </button>
+                </Button>
               </div>
             </form>
           </div>

@@ -34,7 +34,7 @@ A **working full-stack scaffold already exists** in the target directory you are
    - `models.py` — insert one SQLAlchemy 2.0 async model per ER entity above `__MODEL_INSERTION_POINT__`
    - `schemas.py` — Pydantic v2 create/read/update schemas for the models
    - `routers.py` — one APIRouter per module with full CRUD above `__ROUTER_INSERTION_POINT__`, then register routers in `main.py`
-   - `frontend/src/app/page.tsx` — replace `__MODULE_LINKS__` with one dashboard card per module
+  - `frontend/src/app/page.tsx` — replace `__MODULE_LINKS__` with one dashboard card per module and make the landing page feel like a real product, not a demo template
 2. Add one CRUD page per module under `frontend/src/app/{module_slug}/`.
 3. Add an initial Alembic migration matching the DDL.
 4. If the API spec includes auth endpoints, add `auth/login` + `auth/register` using the provided JWT helper in `core/security.py`.
@@ -48,6 +48,7 @@ A **working full-stack scaffold already exists** in the target directory you are
 5. Modern, clean, dependency-light code. No over-engineering, no redundant abstraction.
 6. **Do not** init git, run installs, run builds, or start servers — just edit files.
 7. Work only inside the target directory you are given.
+8. Do not stop at a generic template or placeholder UI when the artifacts describe a specific product. Implement the actual screens, interactions, and backend wiring implied by the input.
 
 ## Reporting
 

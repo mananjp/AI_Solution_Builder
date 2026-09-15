@@ -1,70 +1,90 @@
 'use client';
 
 import React from 'react';
-import { Check } from 'lucide-react';
+import { Check } from '@phosphor-icons/react/dist/ssr';
+import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { RecommendedModule } from '@/types';
 
 interface RecommendationCardProps {
   module: RecommendedModule;
-  selected: boolean;
+  enabled: boolean;
   onToggle: () => void;
 }
 
-export default function RecommendationCard({ module, selected, onToggle }: RecommendationCardProps) {
+const categoryColors: Record<string, string> = {
+  Core: 'bg-primary/10 text-primary border-primary/20',
+  Integration: 'bg-chart-4/10 text-chart-4 border-chart-4/20',
+  Data: 'bg-success/10 text-success border-success/20',
+  UI: 'bg-chart-5/10 text-chart-5 border-chart-5/20',
+  Auth: 'bg-destructive/10 text-destructive border-destructive/20',
+  Infrastructure: 'bg-muted-foreground/10 text-muted-foreground border-muted-foreground/20',
+};
+
+const priorityLabels: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline' }> = {
+  must_have: { label: 'Must Have', variant: 'default' },
+  should_have: { label: 'Should Have', variant: 'secondary' },
+  nice_to_have: { label: 'Nice to Have', variant: 'outline' },
+};
+
+export default function RecommendationCard({ module, enabled, onToggle }: RecommendationCardProps) {
+  const priority = priorityLabels[module.priority || 'must_have'] || priorityLabels.must_have;
+  const colorClass = categoryColors[module.category || 'Infrastructure'] || categoryColors.Infrastructure;
+
   return (
     <div
+      className={cn(
+        'rounded-lg border p-3 transition-all cursor-pointer',
+        enabled
+          ? 'border-primary/30 bg-primary/5'
+          : 'border-border bg-card opacity-60'
+      )}
       onClick={onToggle}
-      className={`relative p-4 rounded-xl border transition-all cursor-pointer select-none text-left ${
-        selected
-          ? 'bg-indigo-950/40 border-indigo-500/60 shadow-lg shadow-indigo-500/10'
-          : 'bg-slate-900/40 border-white/5 hover:border-white/20 hover:bg-slate-900/60'
-      }`}
     >
-      {/* Checkbox indicator */}
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="flex items-center gap-2">
-          <div className={`w-5 h-5 rounded-md flex items-center justify-center border transition-colors ${
-            selected
-              ? 'bg-indigo-600 border-indigo-500 text-white'
-              : 'border-white/20 bg-white/5 text-transparent'
-          }`}>
-            <Check className="w-3.5 h-3.5" />
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[12px] font-semibold text-foreground truncate">
+              {module.name}
+            </span>
+            <Badge variant={priority.variant} className="text-[9px] px-1.5 py-0 shrink-0">
+              {priority.label}
+            </Badge>
           </div>
-          <h4 className="font-semibold text-sm text-slate-100">{module.name}</h4>
+          <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2 mb-2">
+            {module.description}
+          </p>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className={cn('text-[9px] px-1.5 py-0', colorClass)}>
+              {module.category}
+            </Badge>
+            <span className="text-[10px] text-muted-foreground/60">
+              {module.features?.length || 0} features
+            </span>
+          </div>
         </div>
 
-        {module.priority && (
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-            module.priority === 'Must Have'
-              ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-              : module.priority === 'Should Have'
-              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-              : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-          }`}>
-            {module.priority}
-          </span>
-        )}
+        <Switch
+          checked={enabled}
+          onCheckedChange={onToggle}
+          onClick={(e) => e.stopPropagation()}
+          className="shrink-0 mt-1"
+        />
       </div>
 
-      <p className="text-xs text-slate-400 mb-3 line-clamp-2 leading-relaxed">
-        {module.description}
-      </p>
-
-      {/* Feature list preview */}
-      {module.features && module.features.length > 0 && (
-        <div className="space-y-1 pt-2 border-t border-white/5">
-          <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Included Features</span>
-          <div className="flex flex-wrap gap-1 mt-1">
-            {module.features.slice(0, 3).map((feat, idx) => (
-              <span
-                key={idx}
-                className="text-[10px] px-2 py-0.5 rounded-md bg-white/5 text-slate-300 border border-white/5"
-              >
-                {feat}
-              </span>
+      {/* Feature preview */}
+      {enabled && module.features && module.features.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-border/50">
+          <div className="flex flex-col gap-1">
+            {module.features.slice(0, 3).map((feat, i) => (
+              <div key={i} className="flex items-center gap-1.5">
+                <Check className="size-2.5 text-success shrink-0" weight="bold" />
+                <span className="text-[10px] text-muted-foreground">{feat}</span>
+              </div>
             ))}
             {module.features.length > 3 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/5 text-slate-500">
+              <span className="text-[10px] text-muted-foreground/50 ml-4">
                 +{module.features.length - 3} more
               </span>
             )}

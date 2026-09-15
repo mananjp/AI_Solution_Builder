@@ -5,7 +5,13 @@ import uuid
 
 from sqlalchemy import select
 
-from app.core.security import create_access_token, hash_password
+from app.core.security import (
+    DEV_DEMO_EMAIL,
+    DEV_DEMO_PASSWORD,
+    create_access_token,
+    ensure_dev_demo_user,
+    hash_password,
+)
 from app.models.user import User
 
 
@@ -25,6 +31,18 @@ async def test_health_ready_metrics_root(client):
     resp = await client.get("/metrics")
     assert resp.status_code == 200
     assert "http_requests_total" in resp.text
+
+
+async def test_dev_demo_account_seed_and_login(session_factory, client):
+    async with session_factory() as db:
+        await ensure_dev_demo_user(db)
+
+    resp = await client.post(
+        "/api/v1/auth/login",
+        json={"email": DEV_DEMO_EMAIL, "password": DEV_DEMO_PASSWORD},
+    )
+    assert resp.status_code == 200, resp.text
+    assert "access_token" in resp.json()
 
 
 async def test_register_login_me_flows(client):

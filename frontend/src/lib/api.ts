@@ -19,7 +19,8 @@ import {
   MVPDeployResult,
 } from '@/types';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+// Prefer explicit env var, otherwise try 127.0.0.1 which can avoid localhost resolution issues
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api/v1';
 
 export interface RawWorkableEntity {
   name?: string;
@@ -63,32 +64,69 @@ export function removeAuthToken() {
   }
 }
 
-async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const token = getAuthToken();
+async function request<T>(endpoint: string, options: RequestInit = {}, retries = 2): Promise<T> {
+  let token = getAuthToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
   };
 
+  if (!token && process.env.NODE_ENV === 'development' && !endpoint.startsWith('/auth/')) {
+    try {
+      const demo = await authApi.login({
+        email: 'demo@aibuilder.example',
+        password: 'DemoPass123!',
+      });
+      token = demo.access_token;
+      setAuthToken(token);
+    } catch {
+      // leave unauthenticated; the chat page will prompt the user to sign in
+    }
+  }
+
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        ...options,
+        headers,
+      });
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ detail: 'Network request failed' }));
-    throw new Error(errorData.detail || `Request failed with status ${response.status}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Network request failed' }));
+        const detail = errorData.detail;
+        const message =
+          typeof detail === 'string'
+            ? detail
+            : Array.isArray(detail)
+              ? detail.map((item) => item?.msg || item?.message || JSON.stringify(item)).join(', ')
+              : detail?.error?.message || detail?.message || errorData.message;
+        throw new Error(message || `Request failed with status ${response.status}`);
+      }
+
+      if (response.status === 204) {
+        return {} as T;
+      }
+
+      return response.json();
+    } catch (error) {
+      const isRetryable =
+        attempt < retries &&
+        (error instanceof TypeError ||
+          (error instanceof Error && /Failed to fetch|fetch failed|network/i.test(error.message)));
+
+      if (!isRetryable) {
+        throw error;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
   }
 
-  if (response.status === 204) {
-    return {} as T;
-  }
-
-  return response.json();
+  throw new Error('Request failed after retries');
 }
 
 // ── Auth ──────────────────────────────────────────
@@ -160,6 +198,13 @@ export const solutionApi = {
 
   async get(id: string) {
     return request<Solution>(`/solutions/${id}`);
+  },
+
+  async update(id: string, data: { title?: string; description?: string }) {
+    return request<Solution>(`/solutions/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
   },
 
   async delete(id: string) {
@@ -253,20 +298,36 @@ export const exportApi = {
 };
 
 // ── OpenCode MVP Builder & Deploy ────────────────
+const MVP_BUILD_CACHE_TTL_MS = 5000;
+const mvpBuildCache = new Map<string, { expiresAt: number; data: MVPBuild[] }>();
+
 export const mvpApi = {
   async listTemplates(): Promise<MVPTemplate[]> {
     return request<MVPTemplate[]>('/mvp/templates');
   },
 
   async triggerBuild(solutionId: string, payload: MVPBuildPayload = {}): Promise<MVPBuild> {
-    return request<MVPBuild>(`/mvp/${solutionId}/build`, {
+    const result = await request<MVPBuild>(`/mvp/${solutionId}/build`, {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+    mvpBuildCache.delete(solutionId);
+    return result;
   },
 
   async listBuilds(solutionId: string): Promise<MVPBuild[]> {
-    return request<MVPBuild[]>(`/mvp/${solutionId}/builds`);
+    const now = Date.now();
+    const cached = mvpBuildCache.get(solutionId);
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
+    }
+
+    const result = await request<MVPBuild[]>(`/mvp/${solutionId}/builds`);
+    mvpBuildCache.set(solutionId, {
+      expiresAt: now + MVP_BUILD_CACHE_TTL_MS,
+      data: result,
+    });
+    return result;
   },
 
   async getStatus(buildId: string): Promise<MVPBuild> {
@@ -294,26 +355,32 @@ export const mvpApi = {
     buildId: string,
     data: { app_name?: string; env?: Record<string, unknown> }
   ): Promise<{ applied: Record<string, unknown>; build_id: string }> {
-    return request<{ applied: Record<string, unknown>; build_id: string }>(
+    const result = await request<{ applied: Record<string, unknown>; build_id: string }>(
       `/mvp/builds/${buildId}/configure`,
       {
         method: 'POST',
         body: JSON.stringify(data),
       }
     );
+    mvpBuildCache.clear();
+    return result;
   },
 
   async deploy(buildId: string, payload: MVPDeployPayload): Promise<MVPDeployResult> {
-    return request<MVPDeployResult>(`/mvp/builds/${buildId}/deploy`, {
+    const result = await request<MVPDeployResult>(`/mvp/builds/${buildId}/deploy`, {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+    mvpBuildCache.clear();
+    return result;
   },
 
   async destroy(buildId: string) {
-    return request<void>(`/mvp/builds/${buildId}`, {
+    const result = await request<void>(`/mvp/builds/${buildId}`, {
       method: 'DELETE',
     });
+    mvpBuildCache.clear();
+    return result;
   },
 };
 
