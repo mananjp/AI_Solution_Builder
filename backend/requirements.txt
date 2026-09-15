@@ -17,6 +17,7 @@ PyJWT[crypto]==2.14.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.2.1
 email-validator==2.3.0
+cryptography>=44.0.0
 
 # Redis (async client for rate limiting, cache, queues)
 redis>=5.2.0,<6.0.0
