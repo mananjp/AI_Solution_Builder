@@ -439,3 +439,68 @@ def test_development_allows_placeholder_jwt_secret():
 
     s = Settings(APP_ENV="development", JWT_SECRET_KEY="change-me")
     assert s.JWT_SECRET_KEY == "change-me"
+
+
+def test_secrets_encryption_roundtrip():
+    from app.core.secrets import decrypt_secret, encrypt_secret
+
+    plaintext = "ghp_super_secret_pat_token_12345"
+    encrypted = encrypt_secret(plaintext)
+    assert encrypted.startswith("enc:")
+    assert encrypted != plaintext
+    assert decrypt_secret(encrypted) == plaintext
+
+
+def test_secrets_encryption_idempotent():
+    from app.core.secrets import encrypt_secret
+
+    plaintext = "ghp_token_abc"
+    encrypted = encrypt_secret(plaintext)
+    assert encrypt_secret(encrypted) == encrypted
+
+
+def test_secrets_decrypt_legacy_plaintext():
+    from app.core.secrets import decrypt_secret
+
+    legacy_plaintext = "ghp_legacy_unencrypted_token"
+    assert decrypt_secret(legacy_plaintext) == legacy_plaintext
+
+
+def test_secrets_decrypt_invalid_token_returns_original():
+    from app.core.secrets import decrypt_secret
+
+    corrupted = "enc:not-a-valid-fernet-payload"
+    assert decrypt_secret(corrupted) == corrupted
+
+
+def test_status_code_name_unknown():
+    from app.core.errors import _status_code_name
+
+    assert _status_code_name(999) == "HTTP_ERROR"
+
+
+async def test_unhandled_exception_handler():
+    from unittest.mock import MagicMock
+
+    from app.core.errors import unhandled_exception_handler
+
+    req = MagicMock()
+    req.method = "GET"
+    req.url.path = "/test-unhandled"
+    resp = await unhandled_exception_handler(req, RuntimeError("boom"))
+    assert resp.status_code == 500
+
+
+async def test_metrics_middleware_exception():
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.core.metrics import MetricsMiddleware
+
+    app = MagicMock()
+    middleware = MetricsMiddleware(app)
+    req = MagicMock()
+    req.url.path = "/api/v1/fail"
+    req.method = "GET"
+    call_next = AsyncMock(side_effect=RuntimeError("crash"))
+    with pytest.raises(RuntimeError):
+        await middleware.dispatch(req, call_next)
