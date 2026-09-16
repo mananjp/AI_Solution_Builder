@@ -8,7 +8,7 @@
 #
 # Services:
 #   1. ai-solution-builder-app      public web    Next.js (:3000, proxies /api -> 127.0.0.1:8000) + FastAPI
-#   2. ai-solution-builder-builder  private       opencode (:4096) + background build worker (shared /workspace)
+#   2. ai-solution-builder-builder  worker (internal)  opencode (:4096) + background build worker (shared /workspace)
 
 services:
   # ── App (FastAPI + Next.js) ────────────────────────────────────────────────
@@ -70,7 +70,7 @@ services:
 
   # ── Builder (opencode + background worker) ─────────────────────────────────
   - name: ai-solution-builder-builder
-    type: private_service
+    type: worker
     runtime: docker
     plan: starter
     dockerfilePath: ./builder.Dockerfile
