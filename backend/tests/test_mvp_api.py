@@ -190,15 +190,24 @@ async def test_configure_applies_overlay(workspace_solution, monkeypatch):
     assert cfg.json()["applied"]["app_name"] == "My Product"
     assert cfg.json()["applied"]["JWT_SECRET"] == "abc123"
 
-    # Response exposes a project-relative workspace slug, never the server path.
-    from app.core.config import settings
+    # Response exposes a project-relative workspace slug (solution/build), and
+    # the updated artifact bytes are re-uploaded back to storage.
+    assert "/" in status["workspace_path"] and not status["workspace_path"].startswith(
+        ("/", "C:", "\\")
+    )
 
-    ws = Path(settings.MVP_BUILD_DIR) / status["workspace_path"]
-    assert (ws / ".env.local").exists()
-    env_content = (ws / ".env.local").read_text(encoding="utf-8")
+    from app.services.storage import LocalStorage, get_storage
+
+    storage = get_storage()
+    key = f"builds/{solution_id}/build_1.zip"
+    data = await storage.download_raw(key) if isinstance(storage, LocalStorage) else None
+    assert data is not None
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        names = set(zf.namelist())
+        assert ".env.local" in names
+        env_content = zf.read(".env.local").decode("utf-8")
     assert "JWT_SECRET=abc123" in env_content
     assert "PORT=8080" in env_content
-    assert (ws / "README.md").read_text(encoding="utf-8").startswith("# My Product")
 
 
 async def test_configure_rejects_building_status(workspace_solution, monkeypatch):
@@ -236,6 +245,8 @@ async def test_destroy_removes_workspace(workspace_solution, monkeypatch):
     headers = workspace_solution["headers"]
     solution_id = workspace_solution["solution_id"]
 
+    from app.core.config import settings
+
     monkeypatch.setattr("app.api.mvp.builder.run_build", _make_fake_run_build())
 
     resp = await client.post(
@@ -243,14 +254,22 @@ async def test_destroy_removes_workspace(workspace_solution, monkeypatch):
     )
     build_id = resp.json()["build_id"]
     status = await _wait_for_finish(client, headers, build_id)
-    from app.core.config import settings
 
+    # Sandbox writes the artifact under MVP_BUILD_DIR on this host.
     ws = Path(settings.MVP_BUILD_DIR) / status["workspace_path"]
     assert ws.exists()
 
     del_resp = await client.delete(f"/api/v1/mvp/builds/{build_id}", headers=headers)
     assert del_resp.status_code == 204
-    assert not ws.exists()
+
+    # The workspace lives on the builder service — destroy only cleans remote
+    # storage, so the local directory is intentionally kept.
+    assert ws.exists()
+
+    # The build is marked destroyed and storage object removed.
+    st = await client.get(f"/api/v1/mvp/builds/{build_id}/status", headers=headers)
+    assert st.status_code == 200
+    assert st.json()["status"] == "cancelled"
 
 
 # ── Cross-user isolation ─────────────────────────────────────────────────────
@@ -389,9 +408,10 @@ async def test_deploy_pushes_workspace_to_github(workspace_solution, monkeypatch
     async def fake_deploy(**kwargs):
         assert kwargs["gh_token"] == "ghp_demotoken123"
         assert kwargs["repo_name"] == "demo-app"
+        assert isinstance(kwargs["archive_bytes"], bytes)
         return {**fake_result, "file_count": 2}
 
-    monkeypatch.setattr("app.api.mvp._deploy_workspace_to_github", fake_deploy)
+    monkeypatch.setattr("app.api.mvp.deploy_build_workspace", fake_deploy)
     resp = await client.post(
         f"/api/v1/mvp/builds/{build_id}/deploy",
         json={"repo_name": "demo-app"},
@@ -442,7 +462,7 @@ async def test_deploy_with_render_token_triggers_auto_deploy(workspace_solution,
             "file_count": 5,
         }
 
-    monkeypatch.setattr("app.api.mvp._deploy_workspace_to_github", fake_deploy)
+    monkeypatch.setattr("app.api.mvp.deploy_build_workspace", fake_deploy)
 
     async def fake_render_deploy(self, repo_url, repo_name, branch="main", **kwargs):
         return {

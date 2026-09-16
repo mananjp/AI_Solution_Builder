@@ -4,6 +4,10 @@ import os
 import uuid
 
 os.environ.setdefault("LLM_PROVIDER", "mock")
+# Force local disk storage for tests so builds never upload to real Cloudinary.
+os.environ["STORAGE_BACKEND"] = "local"
+# Isolate sidecar auth header tests from any developer .env OPENCODE_SERVER_PASSWORD.
+os.environ["OPENCODE_SERVER_PASSWORD"] = ""
 
 import httpx
 import pytest_asyncio
@@ -13,14 +17,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 import app.models  # noqa: F401  (registers all tables on Base.metadata)
 from app.core.config import settings
-from app.core.database import Base, get_db
+from app.core.database import Base, get_db, normalize_database_url
 from app.core.database import engine as app_engine
 from main import app
 
 
 @pytest_asyncio.fixture()
 async def db_engine():
-    engine = create_async_engine(settings.DATABASE_URL, echo=False)
+    engine = create_async_engine(normalize_database_url(settings.DATABASE_URL), echo=False)
     async with engine.begin() as conn:
         await conn.execute(sa_text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)

@@ -50,9 +50,7 @@ async def main() -> int:
                     )
                     db.add(plan)
                     await db.flush()
-                org = Organization(
-                    name="Demo Org", plan_id=plan.id, credits_remaining=None
-                )
+                org = Organization(name="Demo Org", plan_id=plan.id, credits_remaining=None)
                 db.add(org)
                 await db.flush()
             user = User(

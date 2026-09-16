@@ -9,6 +9,9 @@ GitHub/network failure.
 
 import json
 import logging
+import zipfile
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 import httpx
@@ -20,6 +23,79 @@ logger = logging.getLogger(__name__)
 
 class DeployError(RuntimeError):
     """Raised when a deployment cannot be completed."""
+
+
+def _extract_mvp_files(root: Path) -> dict[str, str]:
+    """Flatten a generated MVP workspace into the GitHub file map.
+
+    Files under ``infra/`` are hoisted to the repo root when they are part of
+    the standard Render/docker scaffold (``render.yaml``, ``docker-compose.yml``,
+    ``README.md``, ``.github/*``) so Render's blueprint auto-detects them.
+    """
+    files: dict[str, str] = {}
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        if any(part in {".git", "node_modules", "__pycache__", ".next"} for part in path.parts):
+            continue
+        rel = path.relative_to(root).as_posix()
+        content = path.read_text(encoding="utf-8", errors="replace")
+        if rel.startswith("infra/"):
+            top = rel[len("infra/") :]
+            if (
+                top == "render.yaml"
+                or top == "docker-compose.yml"
+                or top == "README.md"
+                or top.startswith(".github/")
+            ):
+                files[top] = content
+            else:
+                files[rel] = content
+        else:
+            files[rel] = content
+    return files
+
+
+async def deploy_build_workspace(
+    *,
+    gh_token: str,
+    repo_name: str,
+    archive_bytes: bytes,
+    description: str = "",
+    private: bool = False,
+) -> dict[str, Any]:
+    """Push a finished MVP build (as a ZIP archive) to a fresh GitHub repo.
+
+    The archive is unpacked into a temporary directory — the API service must
+    not rely on the builder service's local workspace. Returns the deployment
+    result plus a ``file_count``.
+    """
+    with TemporaryDirectory(prefix="mvp-deploy-") as tmp:
+        root = Path(tmp)
+        artifact = root / "artifact.zip"
+        artifact.write_bytes(archive_bytes)
+        with zipfile.ZipFile(artifact, "r") as zf:
+            zf.extractall(root)
+
+        files = _extract_mvp_files(root)
+        if not files:
+            raise DeployError("Build archive contains no files to deploy")
+
+        result = await deploy_to_github(
+            gh_token,
+            repo_name,
+            files,
+            description=description or "Auto-generated MVP by AI Solution Builder",
+            private=private,
+        )
+        logger.info(
+            "Deployed MVP %s -> %s (%d files, branch %s)",
+            repo_name,
+            result["url"],
+            len(files),
+            result["branch"],
+        )
+        return {**result, "file_count": len(files)}
 
 
 def build_repo_files(bundle: dict[str, Any], workflow: str) -> dict[str, str]:

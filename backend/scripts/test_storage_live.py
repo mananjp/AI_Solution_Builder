@@ -85,7 +85,7 @@ async def run_live_test() -> int:
         try:
             # 1. Upload
             print(f"\n[1/4] Uploading raw asset to Cloudinary (key: {test_key})...")
-            uploaded_key = await storage.upload_file(tmp_path, test_key)
+            uploaded_key = await storage.upload_bytes(zip_bytes, test_key)
             print(f"      Upload success! Returned key: {uploaded_key}")
 
             # 2. Get download URL

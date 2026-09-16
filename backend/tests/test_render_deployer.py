@@ -3,9 +3,10 @@ Tests for Render automated deployer (app.services.render_deployer).
 """
 
 import pytest
+
 from app.services.render_deployer import (
-    RenderDeployError,
     RenderDeployer,
+    RenderDeployError,
     clean_service_name,
     get_1click_deploy_url,
 )
@@ -55,10 +56,20 @@ async def test_get_owner_id_success(monkeypatch):
         async def get(self, url, **kwargs):
             return _FakeRenderResponse(
                 200,
-                [{"owner": {"id": "usr-test-owner-123", "name": "Test User", "email": "test@example.com"}}],
+                [
+                    {
+                        "owner": {
+                            "id": "usr-test-owner-123",
+                            "name": "Test User",
+                            "email": "test@example.com",
+                        }
+                    }
+                ],
             )
 
-    monkeypatch.setattr("app.services.render_deployer.httpx.AsyncClient", lambda *a, **k: _FakeClient())
+    monkeypatch.setattr(
+        "app.services.render_deployer.httpx.AsyncClient", lambda *a, **k: _FakeClient()
+    )
 
     deployer = RenderDeployer("rnd_validtoken123")
     owner_id = await deployer.get_owner_id()
@@ -77,7 +88,9 @@ async def test_get_owner_id_unauthorized(monkeypatch):
         async def get(self, url, **kwargs):
             return _FakeRenderResponse(401, text="Unauthorized: Invalid API key")
 
-    monkeypatch.setattr("app.services.render_deployer.httpx.AsyncClient", lambda *a, **k: _FakeClient())
+    monkeypatch.setattr(
+        "app.services.render_deployer.httpx.AsyncClient", lambda *a, **k: _FakeClient()
+    )
 
     deployer = RenderDeployer("rnd_invalid")
     with pytest.raises(RenderDeployError, match="Failed to retrieve Render workspaces"):
@@ -115,7 +128,9 @@ async def test_deploy_repo_success(monkeypatch):
                 },
             )
 
-    monkeypatch.setattr("app.services.render_deployer.httpx.AsyncClient", lambda *a, **k: _FakeClient())
+    monkeypatch.setattr(
+        "app.services.render_deployer.httpx.AsyncClient", lambda *a, **k: _FakeClient()
+    )
 
     deployer = RenderDeployer("rnd_secret_token")
     res = await deployer.deploy_repo(
@@ -145,7 +160,9 @@ async def test_deploy_repo_fallback_on_api_error(monkeypatch):
         async def post(self, url, json, **kwargs):
             return _FakeRenderResponse(400, text="GitHub repository requires organization grant")
 
-    monkeypatch.setattr("app.services.render_deployer.httpx.AsyncClient", lambda *a, **k: _FakeClient())
+    monkeypatch.setattr(
+        "app.services.render_deployer.httpx.AsyncClient", lambda *a, **k: _FakeClient()
+    )
 
     deployer = RenderDeployer("rnd_secret_token")
     res = await deployer.deploy_repo(
@@ -170,7 +187,9 @@ async def test_destroy_service(monkeypatch):
         async def delete(self, url, **kwargs):
             return _FakeRenderResponse(204)
 
-    monkeypatch.setattr("app.services.render_deployer.httpx.AsyncClient", lambda *a, **k: _FakeClient())
+    monkeypatch.setattr(
+        "app.services.render_deployer.httpx.AsyncClient", lambda *a, **k: _FakeClient()
+    )
 
     deployer = RenderDeployer("rnd_secret_token")
     success = await deployer.destroy_service("srv-prod-456")

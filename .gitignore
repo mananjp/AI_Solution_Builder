@@ -44,6 +44,7 @@ coverage.xml
 
 # Runtime data & storage
 .data/
+backend/builds/
 *.log
 
 # Node & Frontend

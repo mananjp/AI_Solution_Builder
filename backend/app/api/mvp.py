@@ -15,7 +15,10 @@ artifacts via the OpenCode sidecar:
 """
 
 import asyncio
+import io
 import logging
+import tempfile
+import zipfile
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -46,13 +49,12 @@ from app.schemas import (
 )
 from app.services import mvp_builder as builder
 from app.services import templates
-from app.services.deployer import DeployError, deploy_to_github
+from app.services.deployer import DeployError, deploy_build_workspace
 from app.services.render_deployer import (
-    RenderDeployError,
     RenderDeployer,
     get_1click_deploy_url,
 )
-from app.services.storage import LocalStorage, get_storage
+from app.services.storage import get_storage
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,11 @@ router = APIRouter(prefix="/mvp", tags=["OpenCode MVP Builder"])
 _STATUS_END_STATES = {"complete", "failed", "cancelled"}
 
 _build_tasks: set[asyncio.Task[None]] = set()
+
+
+def _storage_key(build: MVPBuild) -> str:
+    """Deterministic Cloudinary key for a build artifact."""
+    return f"builds/{build.solution_id}/build_{build.build_number}.zip"
 
 
 def _spawn_build_job(build_id: UUID) -> None:
@@ -117,19 +124,10 @@ async def _next_build_number(db: AsyncSession, solution_id: UUID) -> int:
 def _build_response(build: MVPBuild, include_files: bool = False) -> MVPBuildResponse:
     files: list[MVPFileEntry] = []
     if include_files:
-        workspace = Path(build.workspace_path)
-        if workspace.exists():
-            files = [
-                MVPFileEntry(path=p, size=0, is_dir=False)
-                for p in builder.relative_paths(workspace)
-            ]
+        files = [MVPFileEntry(path=p, size=0, is_dir=False) for p in (build.file_list or [])]
     # Only expose a project-relative workspace slug (solution/build), never the
-    # server filesystem path.
-    workspace_path = (
-        str(Path(build.workspace_path).relative_to(Path(build.workspace_path).parent.parent))
-        if build.workspace_path
-        else ""
-    )
+    # server filesystem path (the workspace lives in the builder service).
+    workspace_path = f"{build.solution_id.hex[:12]}/build_{build.build_number}"
     app_config = build.app_config or {}
     render_deploy_url = app_config.get("render_deploy_url")
     if not render_deploy_url and build.repo_url:
@@ -149,56 +147,6 @@ def _build_response(build: MVPBuild, include_files: bool = False) -> MVPBuildRes
         render_deploy_url=render_deploy_url,
         files=files,
     )
-
-
-async def _deploy_workspace_to_github(
-    *,
-    gh_token: str,
-    repo_name: str,
-    workspace_path: str,
-    description: str,
-    private: bool,
-) -> dict[str, Any]:
-    """Flatten a build workspace into a file map and push it to GitHub."""
-    root = Path(workspace_path)
-    if not root.is_dir():
-        raise DeployError("Build workspace is missing on the server")
-
-    files: dict[str, str] = {}
-    for rel in builder.relative_paths(root):
-        path = root / rel
-        if not path.is_file():
-            continue
-        content = path.read_text(encoding="utf-8", errors="replace")
-        if rel.startswith("infra/"):
-            top = rel[len("infra/") :]
-            if (
-                top == "render.yaml"
-                or top == "docker-compose.yml"
-                or top == "README.md"
-                or top.startswith(".github/")
-            ):
-                files[top] = content
-            else:
-                files[rel] = content
-        else:
-            files[rel] = content
-
-    if not files:
-        raise DeployError("Build workspace contains no files to deploy")
-
-    description = description or "Auto-generated MVP by AI Solution Builder"
-    result = await deploy_to_github(
-        gh_token, repo_name, files, description=description, private=private
-    )
-    logger.info(
-        "Deployed MVP %s -> %s (%d files, branch %s)",
-        repo_name,
-        result["url"],
-        len(files),
-        result["branch"],
-    )
-    return {**result, "file_count": len(files)}
 
 
 async def execute_build_job(build_id: UUID) -> None:
@@ -264,6 +212,7 @@ async def execute_build_job(build_id: UUID) -> None:
             build.status = "complete"
             build.opencode_session_id = result["session_id"]
             build.file_count = result["file_count"]
+            build.file_list = result["files"]
             build.error_message = None
 
             # Mark associated BuildJob completed
@@ -272,29 +221,18 @@ async def execute_build_job(build_id: UUID) -> None:
             if job:
                 job.status = "completed"
 
-            # Upload to Cloudinary if configured
+            # Push the artifact to object storage (production: Cloudinary only,
+            # enforced by ``get_storage()`` — no silent local fallback).
+            key = _storage_key(build)
             storage = get_storage()
-            if not isinstance(storage, LocalStorage):
-                key = f"builds/{build.solution_id}/build_{build.build_number}.zip"
-                zip_file = builder.zip_path_for_build(result["local_dir"])
-                try:
-                    await storage.upload_file(zip_file, key)
-                    build.storage_key = key
-                    logger.info("Cloudinary upload succeeded for build %s (key=%s)", build.id, key)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "Cloudinary upload failed for build %s, falling back to local: %s",
-                        build.id,
-                        exc,
-                    )
-                finally:
-                    zip_file.unlink(missing_ok=True)
-
+            zip_data = builder.build_bytes(result["local_dir"])
+            await storage.upload_bytes(zip_data, key)
+            build.storage_key = key
             logger.info(
-                "MVP build %s complete — %d files in %s",
+                "MVP build %s complete — %d files, artifact uploaded to %s",
                 build.id,
                 result["file_count"],
-                result["local_dir"],
+                key,
             )
             await db.commit()
     except Exception as exc:  # noqa: BLE001 - persist any failure for retry
@@ -471,13 +409,13 @@ async def build_status(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> MVPBuildResponse:
-    """Get build status, error details, and the generated file tree."""
+    """Get build status, error details, and the generated file tree.
+
+    File metadata comes from the DB manifest (``file_list``) written at build
+    completion — the workspace itself lives on the builder service, so the API
+    never touches a local workspace directory.
+    """
     build = await _get_build_for_user(db, build_id, current_user)
-    if build.status in ("building", "queued"):
-        # Best-effort: reflect a locally-visible file count while running.
-        workspace = Path(build.workspace_path)
-        if workspace.exists():
-            build.file_count = len(builder.list_build_files(workspace))
     return _build_response(build, include_files=(build.status in _STATUS_END_STATES))
 
 
@@ -489,9 +427,9 @@ async def download_build(
 ) -> Response:
     """Download the generated MVP project as a ZIP archive.
 
-    When a build has been uploaded to remote storage (``storage_key`` is set),
-    the endpoint returns a 307 redirect to Cloudinary's secure URL.
-    Otherwise it falls through to the original local-disk StreamingResponse.
+    In production the artifact lives in object storage (Cloudinary); we return
+    a 307 redirect to a signed Cloudinary URL. If the remote URL can't be
+    produced, the raw bytes are streamed back through the API.
     """
     build = await _get_build_for_user(db, build_id, current_user)
     if build.status != "complete":
@@ -499,22 +437,21 @@ async def download_build(
             status_code=409, detail=f"Build is not complete (status={build.status})"
         )
 
-    # Prefer remote storage URL if available
-    if build.storage_key:
-        storage = get_storage()
-        url = await storage.get_download_url(build.storage_key)
-        if url:
-            return RedirectResponse(url=url, status_code=307)
+    storage = get_storage()
+    key = build.storage_key or _storage_key(build)
 
-    # Fallthrough: existing local-disk StreamingResponse
+    url = await storage.get_download_url(key)
+    if url:
+        return RedirectResponse(url=url, status_code=307)
+
     try:
-        buffer = builder.package_build(build.workspace_path)
-    except builder.MVPBuilderError as exc:
+        data = await storage.download_raw(key)
+    except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=410, detail=str(exc)) from exc
 
     filename = f"mvp_{build.solution_id.hex[:8]}_build{build.build_number}.zip"
     return StreamingResponse(
-        buffer,
+        io.BytesIO(data),
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -555,11 +492,19 @@ async def deploy_build(
             ),
         )
 
+    storage = get_storage()
+    build_key = build.storage_key or _storage_key(build)
+
     try:
-        result = await _deploy_workspace_to_github(
+        zip_data = await storage.download_raw(build_key)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=410, detail=str(exc)) from exc
+
+    try:
+        result = await deploy_build_workspace(
             gh_token=gh_token,
             repo_name=payload.repo_name,
-            workspace_path=build.workspace_path,
+            archive_bytes=zip_data,
             description=payload.description,
             private=payload.private,
         )
@@ -653,32 +598,43 @@ async def configure_build(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Apply a user configuration overlay (env values / app name) to a build."""
+    """Apply a user configuration overlay (env values / app name) to a build.
+
+    The artifact is pulled from object storage (Cloudinary), patched in a
+    temporary directory, then re-uploaded so downloads always reflect the
+    configured state.
+    """
     build = await _get_build_for_user(db, build_id, current_user)
     if build.status not in _STATUS_END_STATES:
         raise HTTPException(status_code=409, detail="Build must be finished before configuring")
 
+    storage = get_storage()
+    build_key = build.storage_key or _storage_key(build)
+
     try:
-        overlay = builder.apply_config_overlay(build.workspace_path, payload.app_name, payload.env)
-    except builder.MVPBuilderError as exc:
-        raise HTTPException(status_code=410, detail=str(exc)) from exc
+        zip_data = await storage.download_raw(build_key)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=410, detail=f"Artifact unavailable: {exc}") from exc
+
+    with tempfile.TemporaryDirectory(prefix="mvp-configure-") as tmp:
+        tmp_dir = Path(tmp)
+        zip_path = tmp_dir / "artifact.zip"
+        zip_path.write_bytes(zip_data)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(tmp_dir)
+
+        extracted = tmp_dir
+        try:
+            overlay = builder.apply_config_overlay(extracted, payload.app_name, payload.env)
+        except builder.MVPBuilderError as exc:
+            raise HTTPException(status_code=410, detail=str(exc)) from exc
+
+        updated = builder.build_bytes(extracted)
+        await storage.upload_bytes(updated, build_key)
 
     merged = {**(build.app_config or {}), **overlay}
     build.app_config = merged
-
-    # Invalidate stale remote artifact — the workspace on disk has changed,
-    # so the previously-uploaded ZIP no longer reflects the configured state.
-    if build.storage_key:
-        try:
-            storage = get_storage()
-            await storage.delete_file(build.storage_key)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Failed to delete stale storage object %s after configure: %s",
-                build.storage_key,
-                exc,
-            )
-        build.storage_key = None
+    build.storage_key = build_key
 
     await db.commit()
     return {"applied": overlay, "build_id": str(build.id)}
@@ -698,7 +654,8 @@ async def destroy_build(
         except Exception as exc:  # noqa: BLE001
             logger.warning("Abort session %s failed: %s", build.opencode_session_id, exc)
 
-    builder.cleanup_build(build.workspace_path)
+    # The workspace lives inside the builder service — it is not reachable
+    # from this API process, so local cleanup is intentionally skipped.
 
     # Clean up remote storage object if present
     if build.storage_key:

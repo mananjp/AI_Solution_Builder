@@ -5,7 +5,7 @@ Cloudinary credentials are needed in CI.
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -15,14 +15,21 @@ from app.services.storage import CloudinaryStorage, LocalStorage, get_storage
 
 
 @pytest.mark.asyncio
-async def test_local_storage_upload_noop(tmp_path: Path):
-    """upload_file is a silent no-op — the file is already on disk."""
+async def test_local_storage_upload_bytes(tmp_path: Path):
+    """upload_bytes writes the blob to the keyed path."""
     storage = LocalStorage()
-    fake_file = tmp_path / "build.zip"
-    fake_file.write_bytes(b"PK")
+    key = str(tmp_path / "builds" / "abc" / "build_1.zip")
+    await storage.upload_bytes(b"PK", key)
+    assert (tmp_path / "builds" / "abc" / "build_1.zip").read_bytes() == b"PK"
 
-    key = await storage.upload_file(fake_file, "builds/abc/build_1.zip")
-    assert key == "builds/abc/build_1.zip"
+
+@pytest.mark.asyncio
+async def test_local_storage_download_raw(tmp_path: Path):
+    """download_raw reads the blob back from disk."""
+    storage = LocalStorage()
+    key = str(tmp_path / "blob.bin")
+    (tmp_path / "blob.bin").write_bytes(b"payload")
+    assert await storage.download_raw(key) == b"payload"
 
 
 @pytest.mark.asyncio
@@ -45,27 +52,59 @@ async def test_local_storage_delete_noop():
 
 
 @pytest.mark.asyncio
-async def test_cloudinary_storage_upload_calls_uploader(tmp_path: Path):
-    """upload_file calls cloudinary.uploader.upload with resource_type='raw'."""
+async def test_cloudinary_storage_upload_bytes_calls_uploader():
+    """upload_bytes calls cloudinary.uploader.upload with resource_type='raw'."""
     storage = CloudinaryStorage(
         cloud_name="test-cloud",
         api_key="AKID",
         api_secret="SECRET",
     )
 
-    fake_file = tmp_path / "build.zip"
-    fake_file.write_bytes(b"PK\x03\x04fake-zip-content")
-
     mock_upload = MagicMock(return_value={"public_id": "builds/abc/build_1.zip"})
     with patch("cloudinary.uploader.upload", mock_upload):
-        key = await storage.upload_file(fake_file, "builds/abc/build_1.zip")
+        key = await storage.upload_bytes(b"PK\x03\x04fake-zip-content", "builds/abc/build_1.zip")
 
     assert key == "builds/abc/build_1.zip"
-    mock_upload.assert_called_once_with(
-        str(fake_file),
-        public_id="builds/abc/build_1.zip",
+    assert mock_upload.call_count == 1
+    args, kwargs = mock_upload.call_args
+    assert isinstance(args[0], __import__("io").BytesIO)
+    assert args[0].read() == b"PK\x03\x04fake-zip-content"
+    assert kwargs["public_id"] == "builds/abc/build_1.zip"
+    assert kwargs["resource_type"] == "raw"
+    assert kwargs["overwrite"] is True
+    assert kwargs["cloud_name"] == "test-cloud"
+    assert kwargs["api_key"] == "AKID"
+    assert kwargs["api_secret"] == "SECRET"
+
+
+@pytest.mark.asyncio
+async def test_cloudinary_storage_download_raw():
+    """download_raw fetches and returns the object bytes."""
+    storage = CloudinaryStorage(
+        cloud_name="test-cloud",
+        api_key="AKID",
+        api_secret="SECRET",
+    )
+
+    mock_resource = MagicMock(return_value={"secure_url": "https://cdn.example/build.zip"})
+    mock_resp = MagicMock(status_code=200, content=b"zip-bytes")
+
+    mock_client = MagicMock()
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with (
+        patch("cloudinary.api.resource", mock_resource),
+        patch("httpx.AsyncClient", return_value=mock_client) as mock_client_cls,
+    ):
+        data = await storage.download_raw("builds/abc/build_1.zip")
+
+    mock_client_cls.assert_called_once_with(timeout=60.0)
+    assert data == b"zip-bytes"
+    mock_resource.assert_called_once_with(
+        "builds/abc/build_1.zip",
         resource_type="raw",
-        overwrite=True,
         cloud_name="test-cloud",
         api_key="AKID",
         api_secret="SECRET",
@@ -136,15 +175,21 @@ def test_get_storage_returns_local_by_default():
     assert isinstance(storage, LocalStorage)
 
 
-def test_get_storage_falls_back_on_missing_creds():
-    """STORAGE_BACKEND=cloudinary with missing credentials falls back to LocalStorage."""
-    with patch("app.services.storage.settings") as mock_settings:
+def test_get_storage_raises_on_missing_creds():
+    """STORAGE_BACKEND=cloudinary with missing credentials raises RuntimeError.
+
+    The old silent fallback to LocalStorage is intentionally removed so MVP
+    artifacts can never leak onto a Render service disk in production.
+    """
+    with (
+        patch("app.services.storage.settings") as mock_settings,
+        pytest.raises(RuntimeError),
+    ):
         mock_settings.STORAGE_BACKEND = "cloudinary"
         mock_settings.CLOUDINARY_CLOUD_NAME = "my-cloud"
         mock_settings.CLOUDINARY_API_KEY = ""  # missing
         mock_settings.CLOUDINARY_API_SECRET = ""  # missing
-        storage = get_storage()
-    assert isinstance(storage, LocalStorage)
+        get_storage()
 
 
 def test_get_storage_returns_cloudinary_with_full_config():

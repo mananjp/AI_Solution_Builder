@@ -36,6 +36,7 @@ class MVPBuild(Base):
     )  # pending, building, complete, failed, cancelled
     opencode_session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     workspace_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    file_list: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True, default=None)
     app_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=True, default=dict)
     file_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     repo_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)

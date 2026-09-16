@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     # ── App ───────────────────────────────────────
     APP_NAME: str = "AI Solution Builder"
     APP_ENV: str = "development"
+    APP_ROLE: str = "app"  # "app" (API + frontend) | "builder" (worker + opencode)
     CORS_ORIGINS: str = "http://localhost:3000"
     LOG_LEVEL: str = "INFO"
 

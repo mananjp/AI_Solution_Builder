@@ -512,17 +512,10 @@ def package_build(build_dir: Path | str) -> io.BytesIO:
     return buffer
 
 
-def zip_path_for_build(build_dir: Path | str) -> Path:
-    """Write the in-memory ZIP to a temp file alongside the build and return its path.
-
-    This is used when the storage backend needs a file path (e.g. Cloudinary upload).
-    The caller is responsible for cleaning up the returned file.
-    """
-    buf = package_build(build_dir)
-    root = Path(build_dir)
-    zip_file = root.parent / f"{root.name}.zip"
-    zip_file.write_bytes(buf.read())
-    return zip_file
+def build_bytes(build_dir: Path | str) -> bytes:
+    """Zip the generated project into an in-memory buffer and return its bytes."""
+    buffer = package_build(build_dir)
+    return buffer.read()
 
 
 # ── User config overlay ────────────────────────────────────────────────

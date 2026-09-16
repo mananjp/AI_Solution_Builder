@@ -6,6 +6,7 @@ Provides session factory and dependency injection for FastAPI routes.
 """
 
 from collections.abc import AsyncGenerator
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -22,15 +23,23 @@ def normalize_database_url(url: str) -> str:
 
     - Translates scheme: postgres:// or postgresql:// -> postgresql+asyncpg://
     - Translates query parameter: sslmode=... -> ssl=... (asyncpg rejects sslmode)
+    - Drops unsupported query parameters (asyncpg rejects unknown ones like channel_binding).
     """
     if not url:
         return url
+    unsupported = {"channel_binding", "connect_timeout"}
     if url.startswith("postgres://"):
         url = "postgresql+asyncpg://" + url[len("postgres://") :]
     elif url.startswith("postgresql://") and not url.startswith("postgresql+asyncpg://"):
         url = "postgresql+asyncpg://" + url[len("postgresql://") :]
     if "sslmode=" in url:
         url = url.replace("sslmode=", "ssl=")
+    parsed = urlsplit(url)
+    if parsed.query:
+        filtered = urlencode(
+            [(k, v) for k, v in parse_qsl(parsed.query) if k.lower() not in unsupported]
+        )
+        url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, filtered, parsed.fragment))
     return url
 
 

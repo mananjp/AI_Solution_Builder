@@ -1,0 +1,21 @@
+# Root context is used by app.Dockerfile and builder.Dockerfile.
+.git
+.env
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.coverage
+.data
+backend/builds
+frontend/node_modules
+frontend/.next
+backend/.data
+docker-compose.yml
+docker-compose.prod.yml
+*.md
+*.pdf
+*.png
+*.mp4

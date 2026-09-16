@@ -218,7 +218,11 @@ async def test_unlimited_org_skips_metering(auth_client, session_factory):
 
         assert await check_credits(db, user.org_id) is None
         result = await require_and_deduct_credit(db, user, "generation", "Unlimited gen")
-        assert result == {"credits_remaining": None, "deducted": 0, "cost": action_cost("generation")}
+        assert result == {
+            "credits_remaining": None,
+            "deducted": 0,
+            "cost": action_cost("generation"),
+        }
         assert org.credits_remaining is None
 
 

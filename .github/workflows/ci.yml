@@ -49,15 +49,17 @@ jobs:
       - name: Type check (mypy)
         run: mypy app/
 
+      - name: Migrate test database
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5433/ai_solution_builder_test
+        run: alembic upgrade head
+
       - name: Unit + integration tests
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5433/ai_solution_builder_test
           REDIS_URL: redis://localhost:6379/0
           LLM_PROVIDER: mock
         run: pytest tests/ -v --cov=app --cov-report=term-missing
-
-      - name: Build image
-        run: docker build -t ai-solution-builder-backend:test .
 
       - name: Security audit (pip-audit)
         run: pip install pip-audit && pip-audit -r requirements.txt
@@ -85,3 +87,67 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  docker:
+    name: Build → scan → push → deploy (main only)
+    needs: [backend, frontend]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: meta
+        run: echo "tag=sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - name: Build app image
+        run: docker build -f app.Dockerfile -t ai-solution-builder-app:${{ steps.meta.outputs.tag }} .
+
+      - name: Build builder image
+        run: docker build -f builder.Dockerfile -t ai-solution-builder-builder:${{ steps.meta.outputs.tag }} .
+
+      - name: Scan app image (dockle)
+        uses: goodwithtech/dockle-action@main
+        with:
+          image: ai-solution-builder-app:${{ steps.meta.outputs.tag }}
+          format: list
+          exit-code: "0"
+          exit-level: fatal
+
+      - name: Scan builder image (dockle)
+        uses: goodwithtech/dockle-action@main
+        with:
+          image: ai-solution-builder-builder:${{ steps.meta.outputs.tag }}
+          format: list
+          exit-code: "0"
+          exit-level: fatal
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          for img in ai-solution-builder-app ai-solution-builder-builder; do
+            docker tag ${img}:${{ steps.meta.outputs.tag }} ${DOCKERHUB_USERNAME}/${img}:${{ steps.meta.outputs.tag }}
+            docker push ${DOCKERHUB_USERNAME}/${img}:${{ steps.meta.outputs.tag }}
+            docker tag ${img}:${{ steps.meta.outputs.tag }} ${DOCKERHUB_USERNAME}/${img}:latest
+            docker push ${DOCKERHUB_USERNAME}/${img}:latest
+          done
+
+      - name: Trigger Render redeploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_WEB_SERVICE_ID: ${{ secrets.RENDER_WEB_SERVICE_ID }}
+          RENDER_PRIVATE_SERVICE_ID: ${{ secrets.RENDER_PRIVATE_SERVICE_ID }}
+        run: |
+          curl -fsS -X POST \
+            "https://api.render.com/v1/services/${RENDER_WEB_SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" -H "Accept: application/json"
+          curl -fsS -X POST \
+            "https://api.render.com/v1/services/${RENDER_PRIVATE_SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" -H "Accept: application/json"

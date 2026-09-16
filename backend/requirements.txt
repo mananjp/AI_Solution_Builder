@@ -11,6 +11,7 @@ sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
 alembic==1.14.1
 pgvector==0.3.6
+psycopg2-binary==2.9.10  # advisory-locked startup migration wrapper
 
 # Auth & Security
 PyJWT[crypto]==2.14.0
