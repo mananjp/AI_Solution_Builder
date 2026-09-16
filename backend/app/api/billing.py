@@ -91,16 +91,16 @@ async def get_usage(
 
     plan = org.plan
     plan_name = plan.name if plan else "free"
-    monthly_limit = plan.monthly_credits if plan else 0
+    monthly_limit: int | None = plan.monthly_credits if plan else 0
     balance = org.credits_remaining
 
-    unlimited = balance is None
-    if unlimited:
+    credits_used: int | None
+    if balance is None:
         plan_name = "Unlimited"
         monthly_limit = None
         credits_used = None
     else:
-        credits_used = max(0, monthly_limit - balance)
+        credits_used = max(0, (monthly_limit or 0) - balance)
 
     return {
         "org_id": str(org.id),
