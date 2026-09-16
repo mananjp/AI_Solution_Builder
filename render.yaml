@@ -19,9 +19,6 @@ services:
     dockerfilePath: ./app.Dockerfile
     dockerCommand: app
     healthCheckPath: /ready
-    buildArgs:
-      - key: NEXT_PUBLIC_API_URL
-        value: /api/v1
     envVars:
       - key: APP_NAME
         value: AI Solution Builder
