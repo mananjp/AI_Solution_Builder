@@ -33,15 +33,18 @@ def action_cost(action_type: str) -> int:
     return CREDIT_COSTS.get(action_type, settings.GENERATION_CREDIT_COST)
 
 
-async def check_credits(db: AsyncSession, org_id: str) -> int:
-    """Return the org's remaining credit count."""
+async def check_credits(db: AsyncSession, org_id: str) -> int | None:
+    """Return the org's remaining credit count.
+
+    Returns ``None`` when the org has unlimited credits (NULL balance).
+    """
     from app.models.organization import Organization
 
     result = await db.execute(select(Organization).where(Organization.id == org_id))
     org = result.scalar_one_or_none()
     if org is None:
         raise HTTPException(status_code=404, detail="Organization not found")
-    return org.credits_remaining or 0
+    return org.credits_remaining
 
 
 async def require_and_deduct_credit(
@@ -53,6 +56,7 @@ async def require_and_deduct_credit(
 ) -> dict[str, Any]:
     """Verify and deduct credits for a metered action.
 
+    Orgs with a NULL balance are treated as unlimited and bypass deduction.
     Raises HTTP 402 when the org has insufficient credits. Returns the new
     balance alongside the deduction record.
     """
@@ -69,8 +73,18 @@ async def require_and_deduct_credit(
         .where(Organization.id == user.org_id)
     )
     org = org_result.scalar_one_or_none()
-    if org is None or org.credits_remaining is None:
+    if org is None:
         raise HTTPException(status_code=404, detail="Organization not found")
+
+    # NULL balance = unlimited credits; skip metering entirely.
+    if org.credits_remaining is None:
+        logger.info(
+            "Credit gating skipped (unlimited) org=%s action=%s cost=%s",
+            org.id,
+            action,
+            cost,
+        )
+        return {"credits_remaining": None, "deducted": 0, "cost": cost}
 
     if org.credits_remaining < cost:
         raise HTTPException(

@@ -143,7 +143,7 @@ async def upgrade_anonymous_account(
         if org:
             if payload.org_name:
                 org.name = payload.org_name
-            if org.credits_remaining < 200:
+            if org.credits_remaining is not None and org.credits_remaining < 200:
                 org.credits_remaining = 200
 
     await db.commit()

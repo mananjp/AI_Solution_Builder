@@ -23,7 +23,8 @@ class Organization(Base):
     plan_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("plans.id"), nullable=True
     )
-    credits_remaining: Mapped[int] = mapped_column(Integer, default=200)
+    # NULL credits_remaining means unlimited credits (e.g. demo account).
+    credits_remaining: Mapped[int | None] = mapped_column(Integer, nullable=True, default=200)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

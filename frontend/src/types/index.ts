@@ -137,9 +137,10 @@ export interface PlanTier {
 export interface BillingUsage {
   org_id: string;
   plan_name: string;
-  monthly_limit: number;
-  current_balance: number;
-  credits_used: number;
+  // null values indicate an unlimited-credits account.
+  monthly_limit: number | null;
+  current_balance: number | null;
+  credits_used: number | null;
 }
 
 export interface CreditTransaction {

@@ -50,7 +50,9 @@ async def main() -> int:
                     )
                     db.add(plan)
                     await db.flush()
-                org = Organization(name="Demo Org", plan_id=plan.id, credits_remaining=200)
+                org = Organization(
+                    name="Demo Org", plan_id=plan.id, credits_remaining=None
+                )
                 db.add(org)
                 await db.flush()
             user = User(
@@ -64,6 +66,8 @@ async def main() -> int:
             await db.flush()
 
         if org is not None:
+            # Re-run seeds keep the demo org on unlimited credits.
+            org.credits_remaining = None
             ws = (
                 await db.execute(
                     select(Workspace).where(

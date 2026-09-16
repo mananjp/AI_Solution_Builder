@@ -80,11 +80,11 @@ export default function BillingPage() {
     try {
       await billingApi.topup(amount);
       setTopupSuccess(`Successfully credited +${amount.toLocaleString()} credits!`);
-      if (usage) {
+      if (usage && usage.current_balance != null) {
         setUsage({ ...usage, current_balance: usage.current_balance + amount });
       }
     } catch {
-      if (usage) {
+      if (usage && usage.current_balance != null) {
         setUsage({ ...usage, current_balance: usage.current_balance + amount });
       }
       setTopupSuccess(`Successfully credited +${amount.toLocaleString()} demo credits!`);
@@ -94,7 +94,10 @@ export default function BillingPage() {
     }
   };
 
-  const percentUsed = usage ? Math.min(100, Math.round((usage.credits_used / usage.monthly_limit) * 100)) : 15;
+  const percentUsed =
+    usage && usage.current_balance != null && usage.monthly_limit
+      ? Math.min(100, Math.round(((usage.credits_used ?? 0) / usage.monthly_limit) * 100))
+      : 0;
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
@@ -116,7 +119,9 @@ export default function BillingPage() {
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-400">Monthly Usage</span>
                 <span className="text-white font-bold">
-                  {(usage?.current_balance || 8500).toLocaleString()} / {(usage?.monthly_limit || 10000).toLocaleString()} Credits Remaining
+                  {usage?.current_balance == null
+                    ? 'Unlimited Credits'
+                    : `${usage.current_balance.toLocaleString()} / ${(usage.monthly_limit || 0).toLocaleString()} Credits Remaining`}
                 </span>
               </div>
               <div className="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-white/5">

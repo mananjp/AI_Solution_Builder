@@ -205,6 +205,38 @@ async def test_require_and_deduct_credit_free_when_zero_cost(
         assert out == {"credits_remaining": None, "deducted": 0, "cost": 0}
 
 
+async def test_unlimited_org_skips_metering(auth_client, session_factory):
+    async with session_factory() as db:
+        user = (
+            await db.execute(select(User).where(User.email == auth_client["email"]))
+        ).scalar_one()
+        org = (
+            await db.execute(select(Organization).where(Organization.id == user.org_id))
+        ).scalar_one()
+        org.credits_remaining = None
+        await db.flush()
+
+        assert await check_credits(db, user.org_id) is None
+        result = await require_and_deduct_credit(db, user, "generation", "Unlimited gen")
+        assert result == {"credits_remaining": None, "deducted": 0, "cost": action_cost("generation")}
+        assert org.credits_remaining is None
+
+
+async def test_usage_reports_unlimited(auth_client, session_factory):
+    async with session_factory() as db:
+        user = (
+            await db.execute(select(User).where(User.email == auth_client["email"]))
+        ).scalar_one()
+        org = (
+            await db.execute(select(Organization).where(Organization.id == user.org_id))
+        ).scalar_one()
+        org.credits_remaining = None
+        await db.flush()
+        usage = await credit_usage(db, user.org_id)
+        assert usage["balance"] is None
+        assert usage["total_spent"] == 0
+
+
 async def test_credit_usage_aggregates(auth_client, session_factory):
     from app.core.credits import require_and_deduct_credit
 

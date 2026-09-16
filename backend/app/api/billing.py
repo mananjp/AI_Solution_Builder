@@ -92,14 +92,22 @@ async def get_usage(
     plan = org.plan
     plan_name = plan.name if plan else "free"
     monthly_limit = plan.monthly_credits if plan else 0
-    balance = org.credits_remaining or 0
+    balance = org.credits_remaining
+
+    unlimited = balance is None
+    if unlimited:
+        plan_name = "Unlimited"
+        monthly_limit = None
+        credits_used = None
+    else:
+        credits_used = max(0, monthly_limit - balance)
 
     return {
         "org_id": str(org.id),
         "plan_name": plan_name,
         "monthly_limit": monthly_limit,
         "current_balance": balance,
-        "credits_used": max(0, monthly_limit - balance),
+        "credits_used": credits_used,
     }
 
 
@@ -145,7 +153,9 @@ async def topup_credits(
     org = org_result.scalar_one_or_none()
     if org is None:
         raise HTTPException(status_code=404, detail="Organization not found")
-    org.credits_remaining = (org.credits_remaining or 0) + payload.amount
+    # Unlimited accounts keep a NULL balance; top-ups are meaningless for them.
+    if org.credits_remaining is not None:
+        org.credits_remaining += payload.amount
 
     tx = CreditTransaction(
         org_id=current_user.org_id,
