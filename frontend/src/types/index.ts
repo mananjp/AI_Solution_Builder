@@ -258,3 +258,39 @@ export interface UpgradeAnonymousPayload {
   full_name: string;
   org_name?: string;
 }
+
+// ── Two-Path App Building (Premade Apps + Custom Build) ────────
+export interface MVPQuickBuildPayload {
+  template: string;
+  app_name?: string;
+  config?: Record<string, unknown>;
+}
+
+export interface OpenCodeChatPayload {
+  message: string;
+  session_id?: string | null;
+  solution_id?: string | null;
+  app_name?: string | null;
+  uploaded_context?: string | null;
+  build_requested?: boolean;
+}
+
+export interface OpenCodeChatComplete {
+  status: string;
+  message?: string;
+  session_id?: string;
+  solution_id?: string;
+  build_id?: string;
+  build_number?: number;
+}
+
+export interface OpenCodeAgentStart {
+  agent: string;
+  session_id: string;
+  solution_id: string;
+  message?: string;
+}
+
+export interface OpenCodeHealth {
+  healthy: boolean;
+}

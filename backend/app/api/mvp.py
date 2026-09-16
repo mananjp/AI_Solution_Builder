@@ -41,6 +41,7 @@ from app.schemas import (
     MVPConfigUpdate,
     MVPDeployRequest,
     MVPFileEntry,
+    MVPQuickBuildRequest,
     MVPTemplateResponse,
 )
 from app.services import mvp_builder as builder
@@ -74,6 +75,27 @@ async def _get_solution_for_user(db: AsyncSession, solution_id: UUID, user: User
     if not solution:
         raise HTTPException(status_code=404, detail="Solution not found")
     return solution
+
+
+async def _get_or_create_workspace(db: AsyncSession, user: User) -> Workspace:
+    """Return the user's first workspace, creating a default one if needed."""
+    result = await db.execute(
+        select(Workspace)
+        .where(Workspace.org_id == user.org_id)
+        .order_by(Workspace.created_at)
+        .limit(1)
+    )
+    workspace = result.scalar_one_or_none()
+    if workspace is not None:
+        return workspace
+    workspace = Workspace(
+        org_id=user.org_id,
+        name="Premade Apps",
+        description="One-click template app builds",
+    )
+    db.add(workspace)
+    await db.flush()
+    return workspace
 
 
 async def _next_build_number(db: AsyncSession, solution_id: UUID) -> int:
@@ -292,6 +314,74 @@ async def list_templates(
     return [MVPTemplateResponse(**t) for t in templates.list_templates()]
 
 
+@router.post("/quick-build", response_model=MVPBuildResponse)
+async def quick_build(
+    payload: MVPQuickBuildRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MVPBuildResponse:
+    """One-click MVP build from a premade template — no analysis pipeline needed.
+
+    Auto-creates a workspace + a ``status="complete"`` solution seeded from the
+    template's ``ai_state``, then triggers a build job exactly like the
+    ``{solution_id}/build`` endpoint. Because the solution is born "complete",
+    the 409 guard never fires for the premade path.
+    """
+    tpl = templates.get_template(payload.template)
+    if tpl is None:
+        raise HTTPException(status_code=404, detail=f"Unknown template: {payload.template}")
+
+    info = tpl.to_dict()
+    title = (payload.app_name or info.get("app_name") or tpl.title)[:500]
+
+    workspace = await _get_or_create_workspace(db, current_user)
+    solution = Solution(
+        workspace_id=workspace.id,
+        title=title,
+        description=info.get("description"),
+        status="complete",
+        ai_state=tpl.build_ai_state(),
+        conversation_history=[
+            {
+                "role": "system",
+                "content": f"Premade app built from the '{payload.template}' template.",
+            }
+        ],
+    )
+    db.add(solution)
+    await db.flush()
+
+    await require_and_deduct_credit(
+        db,
+        current_user,
+        "mvp_build",
+        f"MVP build: {title}",
+        solution_id=solution.id,
+    )
+
+    build_number = await _next_build_number(db, solution.id)
+    workspace_dir = builder.build_workspace_dir(solution.id, build_number)
+    build = MVPBuild(
+        solution_id=solution.id,
+        build_number=build_number,
+        status="queued",
+        workspace_path=str(workspace_dir),
+        app_config={**payload.config, "app_name": payload.app_name, "template": payload.template},
+    )
+    db.add(build)
+    await db.flush()
+
+    job = BuildJob(build_id=build.id, status="queued")
+    db.add(job)
+    await db.commit()
+    await db.refresh(build)
+
+    if settings.WORKER_MODE == "inline":
+        _spawn_build_job(build.id)
+
+    return _build_response(build)
+
+
 @router.post("/{solution_id}/build", response_model=MVPBuildResponse)
 async def trigger_build(
     solution_id: UUID,
@@ -301,7 +391,7 @@ async def trigger_build(
 ) -> MVPBuildResponse:
     """Kick off an OpenCode MVP build for a completed solution (async)."""
     solution = await _get_solution_for_user(db, solution_id, current_user)
-    if solution.status != "complete" and not payload.force:
+    if solution.status != "complete" and not payload.force and not payload.template:
         raise HTTPException(
             status_code=409,
             detail="Solution artifacts must be generated before building an MVP. Use force=true to override.",

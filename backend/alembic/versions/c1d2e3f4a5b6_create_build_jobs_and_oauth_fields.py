@@ -31,12 +31,16 @@ def upgrade() -> None:
             "build_jobs",
             sa.Column(
                 "id",
-                postgresql.UUID(as_uuid=True) if bind.dialect.name == "postgresql" else sa.String(36),
+                postgresql.UUID(as_uuid=True)
+                if bind.dialect.name == "postgresql"
+                else sa.String(36),
                 primary_key=True,
             ),
             sa.Column(
                 "build_id",
-                postgresql.UUID(as_uuid=True) if bind.dialect.name == "postgresql" else sa.String(36),
+                postgresql.UUID(as_uuid=True)
+                if bind.dialect.name == "postgresql"
+                else sa.String(36),
                 sa.ForeignKey("mvp_builds.id", ondelete="CASCADE"),
                 nullable=False,
                 unique=True,

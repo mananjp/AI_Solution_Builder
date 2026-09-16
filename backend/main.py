@@ -20,6 +20,7 @@ from app.api.billing import router as billing_router
 from app.api.chat import router as chat_router
 from app.api.export import router as export_router
 from app.api.mvp import router as mvp_router
+from app.api.opencode_chat import router as opencode_router
 from app.api.solutions import router as solutions_router
 from app.api.system import router as system_router
 from app.api.upload import router as upload_router
@@ -115,6 +116,7 @@ app.include_router(chat_router, prefix="/api/v1")
 app.include_router(upload_router, prefix="/api/v1")
 app.include_router(workable_router, prefix="/api/v1")
 app.include_router(mvp_router, prefix="/api/v1")
+app.include_router(opencode_router, prefix="/api/v1")
 
 
 @app.get("/", tags=["System"])

@@ -59,7 +59,9 @@ async def get_auth_providers() -> SocialProvidersResponse:
     )
 
 
-@router.post("/anonymous", response_model=AnonymousAuthResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/anonymous", response_model=AnonymousAuthResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_anonymous_user(db: AsyncSession = Depends(get_db)) -> AnonymousAuthResponse:
     """Issue a throwaway anonymous guest identity with a low credit ceiling for demo exploration."""
     if not settings.ALLOW_ANONYMOUS_AUTH:
@@ -208,7 +210,9 @@ async def oauth_callback(
             token_data = token_resp.json()
             access_token = token_data.get("access_token")
             if not access_token:
-                raise HTTPException(status_code=400, detail="Failed to retrieve GitHub access token")
+                raise HTTPException(
+                    status_code=400, detail="Failed to retrieve GitHub access token"
+                )
 
             user_resp = await http_client.get(
                 "https://api.github.com/user",
@@ -222,7 +226,10 @@ async def oauth_callback(
             if not email:
                 emails_resp = await http_client.get(
                     "https://api.github.com/user/emails",
-                    headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Accept": "application/json",
+                    },
                 )
                 if emails_resp.status_code == 200:
                     for em in emails_resp.json():
@@ -249,7 +256,9 @@ async def oauth_callback(
             token_data = token_resp.json()
             access_token = token_data.get("access_token")
             if not access_token:
-                raise HTTPException(status_code=400, detail="Failed to retrieve Google access token")
+                raise HTTPException(
+                    status_code=400, detail="Failed to retrieve Google access token"
+                )
 
             user_resp = await http_client.get(
                 "https://www.googleapis.com/oauth2/v2/userinfo",
@@ -268,9 +277,7 @@ async def oauth_callback(
 
     # Find existing user by provider_user_id or email
     user_query = await db.execute(
-        select(User).where(
-            (User.provider_user_id == provider_user_id) | (User.email == email)
-        )
+        select(User).where((User.provider_user_id == provider_user_id) | (User.email == email))
     )
     user = user_query.scalar_one_or_none()
 
@@ -282,7 +289,9 @@ async def oauth_callback(
             db.add(free_plan)
             await db.flush()
 
-        org = Organization(name=f"{full_name}'s Workspace", plan_id=free_plan.id, credits_remaining=200)
+        org = Organization(
+            name=f"{full_name}'s Workspace", plan_id=free_plan.id, credits_remaining=200
+        )
         db.add(org)
         await db.flush()
 
@@ -307,7 +316,6 @@ async def oauth_callback(
     token = create_access_token(data={"sub": str(user.id)})
     frontend_target = f"{settings.FRONTEND_URL}/auth/callback?token={token}"
     return RedirectResponse(url=frontend_target, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
-
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -367,7 +375,11 @@ async def login(payload: UserLogin, db: AsyncSession = Depends(get_db)) -> Token
     result = await db.execute(select(User).where(User.email == payload.email))
     user = result.scalar_one_or_none()
 
-    if not user or not verify_password(payload.password, user.hashed_password):
+    if (
+        not user
+        or not user.hashed_password
+        or not verify_password(payload.password, user.hashed_password)
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",

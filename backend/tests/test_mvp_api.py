@@ -11,6 +11,8 @@ import zipfile
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
+
 from app.services import mvp_builder as builder_mod
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -45,9 +47,6 @@ def _make_fake_run_build(write_files: list[str] | None = None):
         }
 
     return fake
-
-
-import pytest
 
 
 @pytest.fixture(autouse=True)
@@ -208,7 +207,9 @@ async def test_configure_rejects_building_status(workspace_solution, monkeypatch
     solution_id = workspace_solution["solution_id"]
 
     # Fake that sleeps forever so the build stays in 'building' state
-    async def _never_finish(solution_id, ai_state, build_number, title=None, check_npm=True, **kwargs):
+    async def _never_finish(
+        solution_id, ai_state, build_number, title=None, check_npm=True, **kwargs
+    ):
         await asyncio.sleep(3600)  # pragma: no cover
         return {"session_id": "s", "local_dir": "/tmp/x", "file_count": 0, "files": []}
 

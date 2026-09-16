@@ -62,6 +62,19 @@ def _container_target(solution_id: UUID, build_number: int) -> str:
     return f"{solution_id.hex[:12]}/build_{build_number}"
 
 
+def chat_container_target(solution_id: UUID) -> str:
+    """Relative target directory inside the sidecar's /workspace for chat builds."""
+    return f"{solution_id.hex[:12]}/chat"
+
+
+def chat_workspace_dir(solution_id: UUID) -> Path:
+    """Return the host path for a solution's OpenCode chat workspace."""
+    project_dir = workspace_root() / solution_id.hex[:12]
+    chat_dir = project_dir / "chat"
+    chat_dir.mkdir(parents=True, exist_ok=True)
+    return chat_dir
+
+
 def _auth_headers() -> dict[str, str]:
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if settings.OPENCODE_SERVER_PASSWORD:
@@ -113,20 +126,35 @@ async def create_session(title: str) -> str:
         return session_id
 
 
-async def send_build_prompt(session_id: str, prompt: str) -> dict[str, Any]:
-    """Send the MVP build prompt and wait for the full assistant response."""
+async def send_message(
+    session_id: str,
+    text: str,
+    *,
+    agent: str | None = None,
+    timeout: int | None = None,
+) -> dict[str, Any]:
+    """Send a message to an OpenCode session and wait for the full response."""
     payload: dict[str, Any] = {
-        "agent": settings.OPENCODE_AGENT,
-        "parts": [{"type": "text", "text": prompt}],
+        "agent": agent or settings.OPENCODE_AGENT,
+        "parts": [{"type": "text", "text": text}],
     }
     async with _client() as client:
-        resp = await client.post(f"/session/{session_id}/message", json=payload)
+        resp = await client.post(
+            f"/session/{session_id}/message",
+            json=payload,
+            timeout=timeout or settings.MVP_BUILD_TIMEOUT,
+        )
         if resp.status_code not in (200, 201):
             raise MVPBuilderError(
-                f"OpenCode build prompt failed ({resp.status_code}): {resp.text[:500]}"
+                f"OpenCode message failed ({resp.status_code}): {resp.text[:500]}"
             )
         result: dict[str, Any] = resp.json()
         return result
+
+
+async def send_build_prompt(session_id: str, prompt: str) -> dict[str, Any]:
+    """Send the MVP build prompt and wait for the full assistant response."""
+    return await send_message(session_id, prompt)
 
 
 async def abort_session(session_id: str) -> None:

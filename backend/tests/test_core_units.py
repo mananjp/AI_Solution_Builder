@@ -511,7 +511,9 @@ def test_normalize_database_url_neon():
 
     # Neon raw URL with postgresql:// and sslmode=require
     raw_neon = "postgresql://user:pass@ep-cool-123.us-east-2.aws.neon.tech/neondb?sslmode=require"
-    expected = "postgresql+asyncpg://user:pass@ep-cool-123.us-east-2.aws.neon.tech/neondb?ssl=require"
+    expected = (
+        "postgresql+asyncpg://user:pass@ep-cool-123.us-east-2.aws.neon.tech/neondb?ssl=require"
+    )
     assert normalize_database_url(raw_neon) == expected
 
     # postgres:// variant
@@ -523,4 +525,3 @@ def test_normalize_database_url_neon():
 
     # Empty
     assert normalize_database_url("") == ""
-

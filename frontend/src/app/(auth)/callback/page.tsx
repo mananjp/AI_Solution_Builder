@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Suspense, useEffect, useState } from 'react';
+import React, { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { setAuthToken } from '@/lib/api';
@@ -8,24 +8,17 @@ import { setAuthToken } from '@/lib/api';
 function CallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [error, setError] = useState<string | null>(null);
+  const token = searchParams.get('token');
+  const err = searchParams.get('error');
 
   useEffect(() => {
-    const token = searchParams.get('token');
-    const err = searchParams.get('error');
-
-    if (err) {
-      setError(err);
-      return;
-    }
-
     if (token) {
       setAuthToken(token);
       router.replace('/dashboard');
-    } else {
-      setError('No authentication token received from OAuth provider.');
     }
-  }, [searchParams, router]);
+  }, [token, router]);
+
+  const error = err ?? (!token ? 'No authentication token received from OAuth provider.' : null);
 
   if (error) {
     return (

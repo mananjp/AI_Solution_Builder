@@ -1,10 +1,9 @@
 """Integration tests for Enhanced Auth: Social Providers, Anonymous Guest, and OAuth."""
 
-import pytest
 import httpx
-from unittest.mock import AsyncMock, patch
+import pytest
+
 from app.core.config import settings
-from app.models.user import User
 
 
 @pytest.mark.asyncio
@@ -65,6 +64,7 @@ async def test_upgrade_anonymous_account(client: httpx.AsyncClient):
 
     # 2. Upgrade to permanent account
     from uuid import uuid4
+
     unique_email = f"permanent_{uuid4().hex[:8]}@company.com"
     upgrade_payload = {
         "email": unique_email,

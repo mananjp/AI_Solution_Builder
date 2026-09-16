@@ -3,14 +3,15 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { 
-  LayoutDashboard, 
-  Sparkles, 
-  Layers, 
-  CreditCard, 
-  Settings, 
+import {
+  LayoutDashboard,
+  Sparkles,
+  Layers,
+  CreditCard,
+  Settings,
   LogOut,
-  Rocket
+  Rocket,
+  Wrench,
 } from 'lucide-react';
 import { authApi } from '@/lib/api';
 
@@ -20,7 +21,7 @@ export default function Sidebar() {
 
   const navItems = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'AI Architect Chat', href: '/chat', icon: Sparkles, badge: 'Agentic' },
+    { name: 'Custom App Builder', href: '/chat', icon: Wrench, badge: 'Build' },
     { name: 'Architecture Library', href: '/dashboard#blueprints', icon: Layers },
     { name: 'Billing & Credits', href: '/billing', icon: CreditCard },
     { name: 'Deploy Credentials', href: '/settings', icon: Rocket, badge: 'Deploy' },

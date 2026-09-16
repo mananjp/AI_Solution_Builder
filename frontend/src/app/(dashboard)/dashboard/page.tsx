@@ -1,25 +1,64 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { 
-  Sparkles, 
-  Plus, 
-  Layers, 
-  FolderKanban, 
-  Clock, 
-  ArrowUpRight, 
-  Trash2, 
-  Cpu, 
-  Compass
+import {
+  Sparkles,
+  Plus,
+  Layers,
+  FolderKanban,
+  Clock,
+  ArrowUpRight,
+  Trash2,
+  Compass,
+  Rocket,
+  Zap,
+  Wrench,
+  Loader2,
+  CircleCheck,
+  Radio,
+  RefreshCw,
 } from 'lucide-react';
-import { workspaceApi, solutionApi } from '@/lib/api';
-import { Solution, Workspace } from '@/types';
+import { workspaceApi, solutionApi, mvpApi, opencodeApi } from '@/lib/api';
+import { Solution, Workspace, MVPBuild, MVPTemplate } from '@/types';
+import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
+
+const QUICK_TEMPLATES: MVPTemplate[] = [
+  {
+    slug: 'todo',
+    title: 'Todo List Workspace',
+    description: 'A minimal single-module CRUD app — items, tags, and completion states.',
+    app_name: 'todo-app',
+    industry: 'Productivity',
+  },
+  {
+    slug: 'calculator',
+    title: 'Calculator',
+    description: 'A simple interactive calculator with a persistent history ledger.',
+    app_name: 'calculator',
+    industry: 'Utilities',
+  },
+  {
+    slug: 'portfolio',
+    title: 'Portfolio Site',
+    description: 'A public-facing portfolio with project showcases and contact forms.',
+    app_name: 'portfolio',
+    industry: 'Web',
+  },
+];
 
 export default function DashboardPage() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [solutions, setSolutions] = useState<Solution[]>([]);
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>('');
+
+  const [sidecarHealthy, setSidecarHealthy] = useState<boolean | null>(null);
+  const [builds, setBuilds] = useState<MVPBuild[]>([]);
+  const [templates, setTemplates] = useState<MVPTemplate[]>(QUICK_TEMPLATES);
+  const [buildingTemplate, setBuildingTemplate] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [deployTarget, setDeployTarget] = useState<MVPBuild | null>(null);
+  const [configureTarget, setConfigureTarget] = useState<MVPBuild | null>(null);
 
   // New Workspace form state
   const [newWsName, setNewWsName] = useState('');
@@ -35,7 +74,6 @@ export default function DashboardPage() {
           const solList = await solutionApi.list(wsList[0].id);
           setSolutions(solList);
         } else {
-          // If no workspaces, create a default one
           try {
             const defaultWs = await workspaceApi.create({
               name: 'Primary Enterprise Systems',
@@ -44,7 +82,6 @@ export default function DashboardPage() {
             setWorkspaces([defaultWs]);
             setSelectedWorkspace(defaultWs.id);
           } catch {
-            // Demo fallback
             setWorkspaces([
               { id: 'ws-demo-1', org_id: 'org-1', name: 'Primary Enterprise Systems', description: 'Core product architecture', created_at: new Date().toISOString() }
             ]);
@@ -52,7 +89,6 @@ export default function DashboardPage() {
           }
         }
       } catch {
-        // Provide mock state so UI works gracefully even without live backend connection
         setWorkspaces([
           { id: 'ws-demo-1', org_id: 'org-1', name: 'Primary Enterprise Systems', description: 'Flagship product architecture and engineering specs', created_at: new Date().toISOString() }
         ]);
@@ -75,11 +111,47 @@ export default function DashboardPage() {
             created_at: new Date().toISOString(),
           }
         ]);
-      } finally {
       }
     }
     loadData();
   }, []);
+
+  // Probe the OpenCode sidecar for the dashboard banner.
+  useEffect(() => {
+    opencodeApi
+      .health()
+      .then((res) => setSidecarHealthy(Boolean(res.healthy)))
+      .catch(() => setSidecarHealthy(false));
+  }, []);
+
+  // Load premade templates + any builds created from them.
+  useEffect(() => {
+    mvpApi
+      .listTemplates()
+      .then((list) => {
+        if (list && list.length > 0) setTemplates(list);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  // Poll the latest quick-build status while any build is still active.
+  useEffect(() => {
+    const activeBuildIds = builds
+      .filter((b) => b.status === 'queued' || b.status === 'pending' || b.status === 'building')
+      .map((b) => b.build_id);
+    if (activeBuildIds.length === 0) return;
+    const timer = setInterval(async () => {
+      for (const buildId of activeBuildIds) {
+        try {
+          const fresh = await mvpApi.getStatus(buildId);
+          setBuilds((prev) => prev.map((b) => (b.build_id === buildId ? fresh : b)));
+        } catch {
+          // ignore transient failures; next poll will retry
+        }
+      }
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [builds]);
 
   const handleCreateWorkspace = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,6 +186,44 @@ export default function DashboardPage() {
     }
   };
 
+  const handleQuickBuild = async (template: MVPTemplate) => {
+    setBuildingTemplate(template.slug);
+    setActionError(null);
+    try {
+      const build = await mvpApi.quickBuild({
+        template: template.slug,
+        app_name: template.app_name,
+      });
+      setBuilds((prev) => [build, ...prev]);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to start quick build.');
+    } finally {
+      setBuildingTemplate(null);
+    }
+  };
+
+  const handleDownload = async (build: MVPBuild) => {
+    try {
+      await mvpApi.downloadBuild(build.build_id, `mvp_${build.solution_id.slice(0, 8)}_build${build.build_number}.zip`);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Download failed.');
+    }
+  };
+
+  const handleDestroy = async (build: MVPBuild) => {
+    if (!window.confirm(`Destroy build #${build.build_number}? The workspace will be deleted.`)) return;
+    try {
+      await mvpApi.destroy(build.build_id);
+      setBuilds((prev) => prev.filter((b) => b.build_id !== build.build_id));
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Destroy failed.');
+    }
+  };
+
+  const handleDeployed = (repoUrl: string) => {
+    setBuilds((prev) => prev.map((b) => (b.status === 'complete' && b.build_id === deployTarget?.build_id ? { ...b, repo_url: repoUrl } : b)));
+  };
+
   return (
     <div className="space-y-8">
       {/* Top Banner */}
@@ -121,33 +231,178 @@ export default function DashboardPage() {
         <div className="relative z-10 max-w-2xl space-y-3">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-semibold">
             <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Autonomous Multi-Agent Studio</span>
+            <span>AI Solution Builder</span>
           </div>
           <h2 className="text-3xl font-extrabold text-white tracking-tight">
-            Design, Architect & Synthesize Full Solutions
+            Build Working Apps in Two Ways
           </h2>
           <p className="text-sm text-slate-300 leading-relaxed">
-            Collaborate with an autonomous swarm of AI specialists. Upload PRDs or simply describe your business idea to generate production-grade HLD, LLD, Database schemas, and implementation roadmaps.
+            Spin up a production-grade app from a premade template in one click, or chat
+            directly with the AI developer to design something completely custom.
           </p>
           <div className="pt-2 flex flex-wrap items-center gap-3">
             <Link
               href="/chat"
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white font-semibold text-xs shadow-lg shadow-indigo-500/25 transition-all hover:scale-105"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 text-xs font-semibold transition-colors"
             >
-              <Sparkles className="w-4 h-4" />
-              <span>Launch AI Architect</span>
+              <Wrench className="w-4 h-4 text-indigo-400" />
+              <span>Custom App Builder</span>
             </Link>
-            <a
-              href="#templates"
-              className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 text-xs font-semibold transition-colors"
-            >
-              Browse Vertical Templates
-            </a>
           </div>
         </div>
 
         {/* Ambient background decoration */}
         <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-gradient-to-l from-indigo-500/10 to-transparent pointer-events-none" />
+      </div>
+
+      {/* Sidecar health banner */}
+      {sidecarHealthy !== null && (
+        <div
+          className={`flex items-center gap-3 px-5 py-3.5 rounded-2xl border transition-colors ${
+            sidecarHealthy
+              ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
+              : 'bg-amber-950/30 border-amber-500/30 text-amber-300'
+          }`}
+        >
+          {sidecarHealthy ? (
+            <CircleCheck className="w-4 h-4 flex-shrink-0" />
+          ) : (
+            <Radio className="w-4 h-4 flex-shrink-0 animate-pulse" />
+          )}
+          <p className="text-xs font-medium">
+            {sidecarHealthy
+              ? 'AI build engine is online. Custom builds and premade app builds are ready to go.'
+              : 'The AI build engine is unreachable. You can still design blueprints, but app builds may be delayed.'}
+          </p>
+        </div>
+      )}
+
+      {/* Two-Path Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Path 1: Premade Apps */}
+        <div className="p-6 rounded-2xl bg-slate-900/40 border border-white/5 space-y-5" id="premade">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Zap className="w-4 h-4 text-cyan-400" />
+                <span>Premade Apps</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                One-click builds from polished templates. Scaffolded, verified, and ready to download or deploy.
+              </p>
+            </div>
+            <button
+              onClick={async () => {
+                const refreshed: MVPBuild[] = [];
+                for (const build of builds) {
+                  try {
+                    refreshed.push(await mvpApi.getStatus(build.build_id));
+                  } catch {
+                    refreshed.push(build);
+                  }
+                }
+                if (refreshed.length > 0) setBuilds(refreshed);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] font-semibold text-slate-300 border border-white/10 transition-colors"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>Refresh</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {templates.map((tpl) => (
+              <div
+                key={tpl.slug}
+                className="p-4 rounded-2xl bg-slate-950/40 border border-white/5 hover:border-cyan-500/30 transition-all flex flex-col gap-3"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-white">{tpl.title}</span>
+                  <span className="px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[10px] font-semibold text-cyan-300">
+                    {tpl.industry}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed flex-1">{tpl.description}</p>
+                <button
+                  onClick={() => handleQuickBuild(tpl)}
+                  disabled={buildingTemplate !== null}
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-lg shadow-cyan-600/20 transition-all hover:scale-[1.02] disabled:opacity-40 disabled:hover:scale-100"
+                >
+                  {buildingTemplate === tpl.slug ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Starting build...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Rocket className="w-3.5 h-3.5" />
+                      <span>Build App</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {actionError && (
+            <p className="text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2">
+              {actionError}
+            </p>
+          )}
+
+          {builds.length > 0 && (
+            <div className="space-y-4 pt-2 border-t border-white/5">
+              <h4 className="text-sm font-bold text-white">Your Quick Builds</h4>
+              {builds.map((build) => (
+                <BuildCard
+                  key={build.build_id}
+                  build={build}
+                  isDeployed={Boolean(build.repo_url)}
+                  onDeploy={() => setDeployTarget(build)}
+                  onConfigure={() => setConfigureTarget(build)}
+                  onDownload={() => handleDownload(build)}
+                  onDestroy={() => handleDestroy(build)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Path 2: Custom App Builder */}
+        <div className="p-6 rounded-2xl bg-gradient-to-br from-indigo-950/40 to-slate-900/60 border border-indigo-500/20 space-y-5 flex flex-col justify-between">
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Wrench className="w-5 h-5 text-indigo-400" />
+              <h3 className="text-base font-bold text-white">Custom App Builder</h3>
+            </div>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Skip the templates. Chat directly with the AI developer — describe your idea, iterate
+              on the scaffolded FastAPI + Next.js workspace, and finalize a build when you are happy.
+            </p>
+            <ul className="space-y-2 pt-1">
+              {[
+                'Persistent conversational session per build',
+                'Live editing of your FastAPI + Next.js workspace',
+                'Upload a spec or PRD for context',
+                'Finalize, download, tune, or deploy to GitHub',
+              ].map((item) => (
+                <li key={item} className="flex items-start gap-2 text-[11px] text-slate-300">
+                  <CircleCheck className="w-3.5 h-3.5 text-emerald-400 mt-0.5 flex-shrink-0" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <Link
+            href="/chat"
+            className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-cyan-500 hover:opacity-95 text-white text-xs font-bold shadow-xl shadow-indigo-600/30 transition-all hover:scale-[1.02]"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>Open Custom App Builder</span>
+            <ArrowUpRight className="w-4 h-4" />
+          </Link>
+        </div>
       </div>
 
       {/* Metrics Row */}
@@ -174,21 +429,23 @@ export default function DashboardPage() {
 
         <div className="p-5 rounded-2xl bg-slate-900/40 border border-white/5 flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-400 font-medium">Autonomous Swarm</p>
-            <p className="text-2xl font-bold text-emerald-400 mt-1">6 Active</p>
+            <p className="text-xs text-slate-400 font-medium">Premade App Builds</p>
+            <p className="text-2xl font-bold text-emerald-400 mt-1">{builds.length}</p>
           </div>
           <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-            <Cpu className="w-5 h-5" />
+            <Rocket className="w-5 h-5" />
           </div>
         </div>
 
         <div className="p-5 rounded-2xl bg-slate-900/40 border border-white/5 flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-400 font-medium">AI Credits</p>
-            <p className="text-2xl font-bold text-indigo-400 mt-1">8,500</p>
+            <p className="text-xs text-slate-400 font-medium">AI Build Engine</p>
+            <p className="text-2xl font-bold text-indigo-400 mt-1">
+              {sidecarHealthy === null ? '…' : sidecarHealthy ? 'Online' : 'Offline'}
+            </p>
           </div>
           <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
-            <Sparkles className="w-5 h-5" />
+            <Radio className="w-5 h-5" />
           </div>
         </div>
       </div>
@@ -260,14 +517,14 @@ export default function DashboardPage() {
             <Layers className="w-10 h-10 text-slate-600 mx-auto" />
             <h4 className="text-sm font-semibold text-slate-300">No solutions generated yet</h4>
             <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              Start an interactive session with the AI Architect to build your first system blueprint.
+              Build a premade app above, or start a custom session with the AI developer.
             </p>
             <Link
               href="/chat"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold shadow-lg shadow-indigo-600/20 hover:bg-indigo-500 transition-all"
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Create First Solution</span>
+              <span>Start Building</span>
             </Link>
           </div>
         )}
@@ -322,9 +579,9 @@ export default function DashboardPage() {
         <div className="lg:col-span-2 p-6 rounded-2xl bg-slate-900/40 border border-white/5 space-y-4" id="templates">
           <h4 className="font-bold text-white text-sm flex items-center gap-2">
             <Compass className="w-4 h-4 text-purple-400" />
-            <span>Pre-Seeded Vertical Templates</span>
+            <span>Blueprints by Industry</span>
           </h4>
-          <p className="text-xs text-slate-400">Click any template to bootstrap an architecture session instantly.</p>
+          <p className="text-xs text-slate-400">Pre-seeded vertical prompts to kick off a custom architecture session.</p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
             {[
@@ -363,6 +620,11 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {deployTarget && <DeployModal build={deployTarget} onClose={() => setDeployTarget(null)} onDeployed={handleDeployed} />}
+      {configureTarget && (
+        <ConfigureModal build={configureTarget} onClose={() => setConfigureTarget(null)} onConfigured={() => undefined} />
+      )}
     </div>
   );
 }

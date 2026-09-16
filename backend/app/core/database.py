@@ -16,6 +16,7 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
 
+
 def normalize_database_url(url: str) -> str:
     """Normalize PostgreSQL URL for asyncpg compatibility (e.g. for Neon DB).
 

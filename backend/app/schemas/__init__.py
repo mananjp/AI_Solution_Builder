@@ -229,6 +229,25 @@ class MVPBuildRequest(BaseModel):
     force: bool = False
 
 
+class MVPQuickBuildRequest(BaseModel):
+    """Payload to trigger an instant MVP build from a premade template."""
+
+    template: str = Field(..., min_length=1, max_length=64)
+    app_name: str | None = Field(None, min_length=1, max_length=255)
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class OpenCodeChatRequest(BaseModel):
+    """Payload to chat directly with OpenCode."""
+
+    message: str = Field(..., min_length=1)
+    session_id: str | None = None
+    solution_id: UUID | None = None
+    app_name: str | None = None
+    uploaded_context: str | None = None
+    build_requested: bool = False  # Finalize + verify the workspace into an MVPBuild
+
+
 class MVPTemplateResponse(BaseModel):
     """A deployable starter template the user can pick as their project."""
 

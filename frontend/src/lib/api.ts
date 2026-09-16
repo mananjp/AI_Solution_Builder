@@ -15,8 +15,10 @@ import {
   MVPTemplate,
   MVPBuild,
   MVPBuildPayload,
+  MVPQuickBuildPayload,
   MVPDeployPayload,
   MVPDeployResult,
+  OpenCodeChatPayload,
   SocialProvidersResponse,
   AnonymousAuthResponse,
   UpgradeAnonymousPayload,
@@ -83,6 +85,13 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      removeAuthToken();
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- api layer has no router access
+        window.location.href = '/login';
+      }
+    }
     const errorData = await response.json().catch(() => ({ detail: 'Network request failed' }));
     throw new Error(errorData.detail || `Request failed with status ${response.status}`);
   }
@@ -284,6 +293,13 @@ export const mvpApi = {
     return request<MVPTemplate[]>('/mvp/templates');
   },
 
+  async quickBuild(payload: MVPQuickBuildPayload): Promise<MVPBuild> {
+    return request<MVPBuild>('/mvp/quick-build', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
   async triggerBuild(solutionId: string, payload: MVPBuildPayload = {}): Promise<MVPBuild> {
     return request<MVPBuild>(`/mvp/${solutionId}/build`, {
       method: 'POST',
@@ -454,12 +470,13 @@ export interface StreamHandlers {
   onComplete?: (data: ChatStreamEvent) => void;
 }
 
-export async function sendChatMessageStream(
-  payload: { solution_id: string; message: string; uploaded_context?: string },
+async function streamSSE(
+  endpoint: string,
+  payload: object,
   handlers: StreamHandlers
 ) {
   const token = getAuthToken();
-  const response = await fetch(`${API_BASE_URL}/chat/send`, {
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -512,60 +529,30 @@ export async function sendChatMessageStream(
   }
 }
 
+export async function sendChatMessageStream(
+  payload: { solution_id: string; message: string; uploaded_context?: string },
+  handlers: StreamHandlers
+) {
+  await streamSSE('/chat/send', payload, handlers);
+}
+
 export async function confirmRecommendationsStream(
   payload: { solution_id: string; accepted_modules: string[] },
   handlers: StreamHandlers
 ) {
-  const token = getAuthToken();
-  const response = await fetch(`${API_BASE_URL}/chat/confirm-recommendations`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(payload),
-  });
+  await streamSSE('/chat/confirm-recommendations', payload, handlers);
+}
 
-  if (!response.ok) {
-    throw new Error(`Recommendation confirmation failed with status ${response.status}`);
-  }
+// ── OpenCode API (Custom App Builder path) ───────
+export const opencodeApi = {
+  async health(): Promise<{ healthy: boolean }> {
+    return request<{ healthy: boolean }>('/opencode/health');
+  },
+};
 
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error('No reader available on response');
-
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-
-    let currentEvent = 'message';
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-
-      if (trimmed.startsWith('event:')) {
-        currentEvent = trimmed.replace('event:', '').trim();
-      } else if (trimmed.startsWith('data:')) {
-        const rawData = trimmed.replace('data:', '').trim();
-        try {
-          const parsed = JSON.parse(rawData);
-          if (currentEvent === 'complete') {
-            handlers.onComplete?.(parsed);
-          } else if (currentEvent === 'error') {
-            handlers.onError?.(parsed);
-          } else {
-            handlers.onEvent?.(currentEvent, parsed);
-          }
-        } catch {
-          handlers.onEvent?.(currentEvent, { raw: rawData });
-        }
-      }
-    }
-  }
+export async function sendOpenCodeChatStream(
+  payload: OpenCodeChatPayload,
+  handlers: StreamHandlers
+) {
+  await streamSSE('/opencode/chat', payload, handlers);
 }

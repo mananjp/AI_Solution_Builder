@@ -38,7 +38,10 @@ class Settings(BaseSettings):
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
 
     # ── AI / LLM Provider ─────────────────────────
-    LLM_PROVIDER: str = "groq"  # groq | openai | mock
+    # Premade apps build directly through the OpenCode sidecar; this provider
+    # only backs the legacy LangGraph analysis pipeline. "mock" keeps the app
+    # functional offline with deterministic output.
+    LLM_PROVIDER: str = "mock"  # groq | openai | mock
     GROQ_API_KEY: str = ""
     GROQ_MODEL_NAME: str = "openai/gpt-oss-120b"
     OPENAI_API_KEY: str = ""
@@ -98,7 +101,7 @@ class Settings(BaseSettings):
     MVP_VERIFY_BUILD_TIMEOUT: int = 120  # seconds for npm run build in checkpoint
 
     # ── Worker Process / Queue ────────────────────
-    WORKER_MODE: str = "worker"  # "worker" (separate process) | "inline" (in-process fallback)
+    WORKER_MODE: str = "inline"  # "worker" (separate process) | "inline" (in-process fallback)
     WORKER_POLL_INTERVAL: float = 2.0  # seconds
 
     # ── Social OAuth & Anonymous Login ────────────

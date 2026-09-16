@@ -6,8 +6,8 @@ Imports all ORM models so Alembic and the app can discover them.
 
 from app.models.artifact import ArtifactComment, SolutionArtifact
 from app.models.audit import AuditLog
-from app.models.context import ContextChunk
 from app.models.build_job import BuildJob
+from app.models.context import ContextChunk
 from app.models.credit import CreditTransaction, Plan
 from app.models.mvp_build import MVPBuild
 from app.models.organization import Organization

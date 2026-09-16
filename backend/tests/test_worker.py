@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import UTC, datetime, timedelta
+
 import pytest
 from sqlalchemy import delete, select
 
@@ -48,7 +49,9 @@ async def test_claim_next_job_atomic(session_factory, workspace_solution):
 
 
 @pytest.mark.asyncio
-async def test_reconcile_orphaned_jobs_requeues_under_max_attempts(session_factory, workspace_solution):
+async def test_reconcile_orphaned_jobs_requeues_under_max_attempts(
+    session_factory, workspace_solution
+):
     solution_id = uuid.UUID(workspace_solution["solution_id"])
 
     async with session_factory() as db:
@@ -89,7 +92,9 @@ async def test_reconcile_orphaned_jobs_requeues_under_max_attempts(session_facto
 
 
 @pytest.mark.asyncio
-async def test_reconcile_orphaned_jobs_marks_failed_after_max_attempts(session_factory, workspace_solution):
+async def test_reconcile_orphaned_jobs_marks_failed_after_max_attempts(
+    session_factory, workspace_solution
+):
     solution_id = uuid.UUID(workspace_solution["solution_id"])
 
     async with session_factory() as db:

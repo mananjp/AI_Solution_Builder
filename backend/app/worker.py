@@ -20,7 +20,6 @@ import signal
 import socket
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,9 +47,7 @@ def generate_worker_id() -> str:
     return f"worker-{host}-{pid}-{rand}"
 
 
-async def reconcile_orphaned_jobs(
-    db: AsyncSession, worker_id: str, stale_seconds: int = 60
-) -> int:
+async def reconcile_orphaned_jobs(db: AsyncSession, worker_id: str, stale_seconds: int = 60) -> int:
     """Reconcile orphaned builds stuck in 'running' status.
 
     On worker startup, any job that was claimed but never completed is reconciled:
@@ -93,9 +90,7 @@ async def reconcile_orphaned_jobs(
                 job.max_attempts,
             )
             job.status = "failed"
-            job.error_message = (
-                "Build abandoned mid-execution (worker terminated or redeployed)"
-            )
+            job.error_message = "Build abandoned mid-execution (worker terminated or redeployed)"
             if build and build.status in ("building", "queued"):
                 build.status = "failed"
                 build.error_message = job.error_message
@@ -163,9 +158,7 @@ async def _heartbeat_loop(
             if stop_event.is_set():
                 break
             async with async_session_factory() as db:
-                result = await db.execute(
-                    select(BuildJob).where(BuildJob.build_id == build_id)
-                )
+                result = await db.execute(select(BuildJob).where(BuildJob.build_id == build_id))
                 job = result.scalar_one_or_none()
                 if job and job.status == "running":
                     job.heartbeat_at = datetime.now(UTC)
@@ -228,10 +221,8 @@ async def run_worker(worker_id: str | None = None) -> None:
         try:
             did_work = await process_one_job(wid)
             if not did_work:
-                try:
+                with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(_shutdown_event.wait(), timeout=poll_interval)
-                except asyncio.TimeoutError:
-                    pass
         except asyncio.CancelledError:
             break
         except Exception as exc:  # noqa: BLE001
