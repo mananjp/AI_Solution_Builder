@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 import app.models  # noqa: F401  (register all ORM models)
 from alembic import context
 from app.core.config import settings
-from app.core.database import Base
+from app.core.database import Base, normalize_database_url
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -20,7 +20,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Override the URL with our app settings (falls back to env DATABASE_URL)
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+config.set_main_option("sqlalchemy.url", normalize_database_url(settings.DATABASE_URL))
 
 target_metadata = Base.metadata
 

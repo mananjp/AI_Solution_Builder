@@ -16,9 +16,26 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
 
+def normalize_database_url(url: str) -> str:
+    """Normalize PostgreSQL URL for asyncpg compatibility (e.g. for Neon DB).
+
+    - Translates scheme: postgres:// or postgresql:// -> postgresql+asyncpg://
+    - Translates query parameter: sslmode=... -> ssl=... (asyncpg rejects sslmode)
+    """
+    if not url:
+        return url
+    if url.startswith("postgres://"):
+        url = "postgresql+asyncpg://" + url[len("postgres://") :]
+    elif url.startswith("postgresql://") and not url.startswith("postgresql+asyncpg://"):
+        url = "postgresql+asyncpg://" + url[len("postgresql://") :]
+    if "sslmode=" in url:
+        url = url.replace("sslmode=", "ssl=")
+    return url
+
+
 # ── Engine & Session Factory ──────────────────────
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    normalize_database_url(settings.DATABASE_URL),
     echo=settings.APP_ENV == "development",
     pool_size=20,
     max_overflow=10,

@@ -31,7 +31,9 @@ async def init_redis() -> None:
             settings.REDIS_URL,
             encoding="utf-8",
             decode_responses=True,
-            socket_connect_timeout=3,
+            socket_connect_timeout=5,
+            socket_timeout=5,
+            retry_on_timeout=True,
         )
         try:
             await _redis.ping()

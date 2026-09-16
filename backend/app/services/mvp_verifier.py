@@ -14,6 +14,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 MAX_REPAIR_TURNS = 2
@@ -107,7 +109,7 @@ def verify_frontend_integrity(frontend_dir: Path, run_build: bool = False) -> li
                 cwd=str(frontend_dir),
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=settings.MVP_VERIFY_INSTALL_TIMEOUT,
                 check=False,
             )
             if install_res.returncode != 0:
@@ -121,7 +123,7 @@ def verify_frontend_integrity(frontend_dir: Path, run_build: bool = False) -> li
                 cwd=str(frontend_dir),
                 capture_output=True,
                 text=True,
-                timeout=90,
+                timeout=settings.MVP_VERIFY_BUILD_TIMEOUT,
                 check=False,
             )
             if build_res.returncode != 0:

@@ -504,3 +504,23 @@ async def test_metrics_middleware_exception():
     call_next = AsyncMock(side_effect=RuntimeError("crash"))
     with pytest.raises(RuntimeError):
         await middleware.dispatch(req, call_next)
+
+
+def test_normalize_database_url_neon():
+    from app.core.database import normalize_database_url
+
+    # Neon raw URL with postgresql:// and sslmode=require
+    raw_neon = "postgresql://user:pass@ep-cool-123.us-east-2.aws.neon.tech/neondb?sslmode=require"
+    expected = "postgresql+asyncpg://user:pass@ep-cool-123.us-east-2.aws.neon.tech/neondb?ssl=require"
+    assert normalize_database_url(raw_neon) == expected
+
+    # postgres:// variant
+    raw_postgres = "postgres://user:pass@ep-cool-123.us-east-2.aws.neon.tech/neondb?sslmode=require"
+    assert normalize_database_url(raw_postgres) == expected
+
+    # Already normalized
+    assert normalize_database_url(expected) == expected
+
+    # Empty
+    assert normalize_database_url("") == ""
+

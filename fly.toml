@@ -1,0 +1,58 @@
+# AI Solution Builder — Fly.io Configuration (Multi-Process: API + Worker)
+# Reference: https://fly.io/docs/reference/configuration/
+#
+# Serverless Data Stores (Zero instance management):
+# - PostgreSQL + pgvector: Neon Database (set via `fly secrets set DATABASE_URL=...`)
+# - Redis Cache & Queue: Upstash Redis (set via `fly secrets set REDIS_URL=...`)
+
+app = "ai-solution-builder"
+primary_region = "iad"
+
+[build]
+  dockerfile = "backend/Dockerfile"
+
+# Multi-process architecture: API server and durable background worker share the same image
+[processes]
+  app = "/app/docker-entrypoint.sh api"
+  worker = "/app/docker-entrypoint.sh worker"
+
+[env]
+  APP_NAME = "AI Solution Builder"
+  APP_ENV = "production"
+  WORKER_MODE = "worker"
+  WORKER_POLL_INTERVAL = "2.0"
+  MVP_BUILD_DIR = "/app/.data/mvp_builds"
+  MVP_BUILD_TIMEOUT = "600"
+  MVP_VERIFY_INSTALL_TIMEOUT = "180"
+  MVP_VERIFY_BUILD_TIMEOUT = "120"
+  OPENCODE_SERVER_URL = "http://ai-solution-builder-opencode.internal:4096"
+  OPENCODE_MODEL = "opencode/big-pickle"
+  ALLOW_ANONYMOUS_AUTH = "true"
+  ANONYMOUS_CREDITS = "50"
+
+[mounts]
+  source = "mvp_data"
+  destination = "/app/.data"
+  processes = ["app", "worker"]
+
+# Public HTTP traffic is routed exclusively to the "app" API process (worker has no HTTP listener)
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+[[http_service.checks]]
+  grace_period = "15s"
+  interval = "15s"
+  method = "GET"
+  timeout = "5s"
+  path = "/ready"
+  processes = ["app"]
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2gb"
+  processes = ["app", "worker"]

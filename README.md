@@ -358,19 +358,28 @@ hardening built in:
 - **Health checks** — `/health`, `/ready`, `/metrics` on the backend; the compose
   healthchecks gate frontend → backend → postgres/redis/opencode startup ordering.
 
-Recommended production topology (Phase 1+):
+Recommended production topology:
 
-1. Backend + `opencode` sidecar + Postgres (pgvector) + Redis on one host
-   (Render or Fly.io). Backend and `opencode` must be co-located — they share the
-   `mvp_workspace` volume, so a single replica is required for MVP file sharing.
-2. Frontend on Vercel (zero-config) or the `frontend/` Docker image.
-3. Set per environment: `DATABASE_URL`, `REDIS_URL`, `GROQ_API_KEY`,
-   `GROQ_MODEL_NAME` (pinned), `JWT_SECRET_KEY`, `CORS_ORIGINS`, `OPENCODE_SERVER_URL`.
-   GitHub PATs are per-user credentials stored in the app.
+1. **Serverless Data Stores (Zero instance management)**:
+   - **PostgreSQL + pgvector**: [Neon](https://neon.tech/) serverless PostgreSQL with native `pgvector` support and scale-to-zero compute. Raw connection URLs (`postgresql://...sslmode=require`) are normalized automatically to `postgresql+asyncpg://` with `ssl=require`.
+   - **Cache & Queue**: [Upstash Redis](https://upstash.com/) serverless Redis with TLS (`rediss://`).
+2. **Application Services**:
+   - Backend API (`uvicorn`), Background Build Worker (`app.worker`), and OpenCode sidecar (`opencode serve`) co-located on Render or Fly.io.
+   - Frontend on Vercel (zero-config) or the `frontend/` standalone Docker image.
 
-Open work: a root deploy manifest (`render.yaml`/`fly.toml`), a shared/networked
-volume if you ever run > 1 backend replica, and a CI/CD deploy step
-(`/health`-gated). These are deliberately left for the infra provider choice.
+### Production Deployment Blueprints
+
+The repository includes ready-to-deploy root manifests:
+
+1. **Render (`render.yaml`)**:
+   - Deploys application services without paying for separate managed database instances:
+     - `ai-solution-builder-backend`: FastAPI API server (`/ready` health check, connected to Neon & Upstash).
+     - `ai-solution-builder-worker`: Background build worker process (durable queue consumer, no HTTP listener).
+     - `ai-solution-builder-opencode`: Private internal sidecar service on port 4096.
+     - `ai-solution-builder-frontend`: Next.js 16 standalone web application.
+
+2. **Fly.io (`fly.toml`)**:
+   - Multi-process configuration deploying both `app` (FastAPI) and `worker` (queue consumer) from a single unified container image (`backend/Dockerfile`), with health checks routed exclusively to the HTTP `app` process.
 
 ---
 

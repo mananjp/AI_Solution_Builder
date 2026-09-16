@@ -94,6 +94,8 @@ class Settings(BaseSettings):
     MVP_BUILD_DIR: str = ".data/mvp_builds"
     MVP_BUILD_CREDIT_COST: int = 30
     MVP_TEMPLATE_DIR: str = "opencode/templates/mvp"
+    MVP_VERIFY_INSTALL_TIMEOUT: int = 180  # seconds for npm install in checkpoint
+    MVP_VERIFY_BUILD_TIMEOUT: int = 120  # seconds for npm run build in checkpoint
 
     # ── Worker Process / Queue ────────────────────
     WORKER_MODE: str = "worker"  # "worker" (separate process) | "inline" (in-process fallback)

@@ -1,0 +1,167 @@
+# AI Solution Builder — Render Blueprint Specification (Serverless DB: Neon + Upstash)
+# Reference: https://render.com/docs/blueprint-spec
+#
+# Deploys the application services on Render while leveraging serverless data stores:
+# - PostgreSQL + pgvector: Neon Database (serverless, scale-to-zero, free branching)
+# - Redis Cache & Queue: Upstash Redis (serverless, low-latency, pay-per-request)
+#
+# Render Application Services:
+# 1. Backend API (FastAPI web service)
+# 2. Background Worker (durable build queue daemon)
+# 3. OpenCode Sidecar (private AI code generation service)
+# 4. Frontend (Next.js 16 web application)
+
+services:
+  # ── Backend API (FastAPI) ───────────────────────────────────────────────────
+  - name: ai-solution-builder-backend
+    type: web
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./backend/Dockerfile
+    dockerCommand: /app/docker-entrypoint.sh api
+    healthCheckPath: /ready
+    envVars:
+      - key: APP_NAME
+        value: AI Solution Builder
+      - key: APP_ENV
+        value: production
+      # Neon PostgreSQL Connection String (e.g. postgresql://user:pass@ep-xyz.neon.tech/neondb?sslmode=require)
+      # Normalized automatically at runtime to postgresql+asyncpg:// with ssl=require
+      - key: DATABASE_URL
+        sync: false
+      # Upstash Redis Connection String (e.g. rediss://default:pass@us1-xyz.upstash.io:6379)
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "1440"
+      - key: WORKER_MODE
+        value: worker
+      - key: WORKER_POLL_INTERVAL
+        value: "2.0"
+      - key: OPENCODE_SERVER_URL
+        value: http://ai-solution-builder-opencode:4096
+      - key: OPENCODE_SERVER_PASSWORD
+        generateValue: true
+      - key: OPENCODE_MODEL
+        value: opencode/big-pickle
+      - key: MVP_BUILD_TIMEOUT
+        value: "600"
+      - key: MVP_VERIFY_INSTALL_TIMEOUT
+        value: "180"
+      - key: MVP_VERIFY_BUILD_TIMEOUT
+        value: "120"
+      - key: FRONTEND_URL
+        value: https://ai-solution-builder-frontend.onrender.com
+      - key: CORS_ORIGINS
+        value: https://ai-solution-builder-frontend.onrender.com
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL_NAME
+        value: openai/gpt-oss-120b
+      - key: STORAGE_BACKEND
+        value: local
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: ALLOW_ANONYMOUS_AUTH
+        value: "true"
+      - key: ANONYMOUS_CREDITS
+        value: "50"
+
+  # ── Background Build Worker ────────────────────────────────────────────────
+  # Consumes durable build_jobs queue, executes code generation and checkpoints.
+  # Reuses DATABASE_URL, REDIS_URL, and secrets from backend service.
+  - name: ai-solution-builder-worker
+    type: worker
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./backend/Dockerfile
+    dockerCommand: /app/docker-entrypoint.sh worker
+    envVars:
+      - key: APP_NAME
+        value: AI Solution Builder
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        fromService:
+          type: web
+          name: ai-solution-builder-backend
+          envVarKey: DATABASE_URL
+      - key: REDIS_URL
+        fromService:
+          type: web
+          name: ai-solution-builder-backend
+          envVarKey: REDIS_URL
+      - key: JWT_SECRET_KEY
+        fromService:
+          type: web
+          name: ai-solution-builder-backend
+          envVarKey: JWT_SECRET_KEY
+      - key: WORKER_MODE
+        value: worker
+      - key: WORKER_POLL_INTERVAL
+        value: "2.0"
+      - key: OPENCODE_SERVER_URL
+        value: http://ai-solution-builder-opencode:4096
+      - key: OPENCODE_SERVER_PASSWORD
+        fromService:
+          type: web
+          name: ai-solution-builder-backend
+          envVarKey: OPENCODE_SERVER_PASSWORD
+      - key: OPENCODE_MODEL
+        value: opencode/big-pickle
+      - key: MVP_BUILD_TIMEOUT
+        value: "600"
+      - key: MVP_VERIFY_INSTALL_TIMEOUT
+        value: "180"
+      - key: MVP_VERIFY_BUILD_TIMEOUT
+        value: "120"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL_NAME
+        value: openai/gpt-oss-120b
+      - key: STORAGE_BACKEND
+        value: local
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+
+  # ── OpenCode Sidecar (Internal Service) ────────────────────────────────────
+  - name: ai-solution-builder-opencode
+    type: private_service
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./backend/opencode/Dockerfile
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL_NAME
+        value: openai/gpt-oss-120b
+      - key: OPENCODE_SERVER_PASSWORD
+        fromService:
+          type: web
+          name: ai-solution-builder-backend
+          envVarKey: OPENCODE_SERVER_PASSWORD
+
+  # ── Frontend Web Application ───────────────────────────────────────────────
+  - name: ai-solution-builder-frontend
+    type: web
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./frontend/Dockerfile
+    healthCheckPath: /
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        value: https://ai-solution-builder-backend.onrender.com/api/v1
+      - key: NEXT_PUBLIC_APP_NAME
+        value: AI Solution Builder
