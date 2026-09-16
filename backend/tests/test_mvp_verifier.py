@@ -148,3 +148,89 @@ async def test_verify_and_repair_exhausted_budget(tmp_path: Path):
         )
 
     assert "Build verification failed after 2 repair attempt(s)" in str(exc_info.value)
+
+
+def test_verify_frontend_npm_ordering_success(tmp_path: Path, monkeypatch):
+    frontend_dir = tmp_path / "frontend"
+    frontend_dir.mkdir()
+    (frontend_dir / "package.json").write_text('{"dependencies": {"next": "15.0.0"}}', encoding="utf-8")
+    app_dir = frontend_dir / "src" / "app"
+    app_dir.mkdir(parents=True)
+    (app_dir / "page.tsx").write_text("export default function Page() { return <div>Home</div>; }", encoding="utf-8")
+
+    calls = []
+
+    def fake_subprocess_run(cmd, **kwargs):
+        calls.append(cmd[0:3])
+        class FakeCompleted:
+            returncode = 0
+            stdout = "ok"
+            stderr = ""
+        return FakeCompleted()
+
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/npm" if name == "npm" else None)
+    monkeypatch.setattr("subprocess.run", fake_subprocess_run)
+
+    errors = verify_frontend_integrity(frontend_dir, run_build=True)
+    assert errors == []
+    # Verify ordering: npm install must come before npm run build
+    assert len(calls) == 2
+    assert calls[0] == ["npm", "install", "--prefer-offline"]
+    assert calls[1] == ["npm", "run", "build"]
+
+
+def test_verify_frontend_npm_install_failure_stops_build(tmp_path: Path, monkeypatch):
+    frontend_dir = tmp_path / "frontend"
+    frontend_dir.mkdir()
+    (frontend_dir / "package.json").write_text('{"dependencies": {"next": "15.0.0"}}', encoding="utf-8")
+    app_dir = frontend_dir / "src" / "app"
+    app_dir.mkdir(parents=True)
+    (app_dir / "page.tsx").write_text("export default function Page() { return <div>Home</div>; }", encoding="utf-8")
+
+    calls = []
+
+    def fake_subprocess_run(cmd, **kwargs):
+        calls.append(cmd[0:3])
+        class FakeCompleted:
+            returncode = 1
+            stdout = ""
+            stderr = "npm ERR! code ERESOLVE"
+        return FakeCompleted()
+
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/npm" if name == "npm" else None)
+    monkeypatch.setattr("subprocess.run", fake_subprocess_run)
+
+    errors = verify_frontend_integrity(frontend_dir, run_build=True)
+    assert len(errors) == 1
+    assert "Frontend npm install failed" in errors[0]
+    # Verify npm run build was NEVER called because install failed
+    assert len(calls) == 1
+    assert calls[0] == ["npm", "install", "--prefer-offline"]
+
+
+def test_verify_frontend_npm_build_failure(tmp_path: Path, monkeypatch):
+    frontend_dir = tmp_path / "frontend"
+    frontend_dir.mkdir()
+    (frontend_dir / "package.json").write_text('{"dependencies": {"next": "15.0.0"}}', encoding="utf-8")
+    app_dir = frontend_dir / "src" / "app"
+    app_dir.mkdir(parents=True)
+    (app_dir / "page.tsx").write_text("export default function Page() { return <div>Home</div>; }", encoding="utf-8")
+
+    calls = []
+
+    def fake_subprocess_run(cmd, **kwargs):
+        calls.append(cmd[0:3])
+        class FakeCompleted:
+            returncode = 0 if "install" in cmd else 1
+            stdout = ""
+            stderr = "Error: Next.js build failed"
+        return FakeCompleted()
+
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/npm" if name == "npm" else None)
+    monkeypatch.setattr("subprocess.run", fake_subprocess_run)
+
+    errors = verify_frontend_integrity(frontend_dir, run_build=True)
+    assert len(errors) == 1
+    assert "Frontend npm build failed" in errors[0]
+    assert len(calls) == 2
+

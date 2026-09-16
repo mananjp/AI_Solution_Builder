@@ -205,7 +205,13 @@ async def execute_build_job(build_id: UUID) -> None:
                 if not title or title == solution.title:
                     title = seeded.get("solution_title", title)
 
-            result = await builder.run_build(solution.id, ai_state, build.build_number, title=title)
+            result = await builder.run_build(
+                solution.id,
+                ai_state,
+                build.build_number,
+                title=title,
+                check_npm=True,
+            )
 
             # Re-fetch under row lock to guard against concurrent cancellation
             # (destroy_build may have set status='cancelled' in a separate session).

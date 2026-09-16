@@ -115,7 +115,7 @@ The backend and the OpenCode sidecar share the `mvp_workspace` Docker volume: th
 ### 6. Cross-Platform Delivery
 - Web application (Next.js 16 App Router + Tailwind CSS).
 - Installable PWA with service worker offline caching.
-- Capacitor wrapper for Android (`@capacitor/android`) and iOS distribution.
+- Capacitor wrapper for Android (`@capacitor/android`) and web application / PWA distribution.
 
 ### 7. OpenCode MVP Builder
 - **Template presets**: `todo`, `calculator`, `portfolio` — small, deployable starters listed by `GET /api/v1/mvp/templates`.
@@ -216,7 +216,7 @@ Prometheus metrics (`/metrics`), health/ready probes, audit logs, and credit met
 |---|---|
 | **Backend** | Python 3.12, FastAPI, SQLAlchemy 2.0 (Async), Pydantic v2, LangGraph, LangChain, pgvector, Redis, PyMuPDF, python-docx, python-pptx, openpyxl/pandas, beautifulsoup4, PyYAML |
 | **Frontend** | Next.js 16 (App Router, Turbopack), React 19, TypeScript 5, Tailwind CSS v4, `@xyflow/react`, Lucide Icons |
-| **Mobile & PWA** | Capacitor 8 (Android/iOS shell), PWA Service Worker |
+| **Mobile & PWA** | Capacitor 8 (Android shell; web app / PWA), PWA Service Worker |
 | **MVP Builder** | OpenCode headless sidecar (`opencode serve`), agent `mvp-builder` on model `opencode/big-pickle` (OpenCode Zen, free), HTTP proxy client (`httpx`) |
 | **Data & Cache** | PostgreSQL 16 with `vector` extension, Redis 7 |
 | **DevOps & Tooling**| Docker & Docker Compose, GitHub Actions, Ruff, Mypy, Pytest (Asyncio + Coverage), ESLint |
@@ -276,7 +276,7 @@ AI_Solution_Builder/
 │   ├── android/                      # Capacitor Android native project
 │   ├── capacitor.config.ts
 │   └── package.json
-├── docker-compose.yml                # postgres · redis · backend · opencode
+├── docker-compose.yml                # postgres · redis · backend · worker · opencode
 ├── .env.example                      # Environment configuration template
 └── README.md
 ```
@@ -311,10 +311,14 @@ docker compose up --build
 - Interactive API Docs: `http://localhost:8000/docs`
 - OpenCode sidecar health: `http://localhost:4096/global/health` (`{"healthy":true}`)
 
-This starts five cooperating services: `frontend` (Next.js standalone), `postgres`
-(pgvector), `redis`, `backend`, and the `opencode` sidecar (which shares the
-`mvp_workspace` volume with the backend so generated code is visible to the API
-instantly).
+This starts six cooperating services: `frontend` (Next.js standalone), `postgres`
+(pgvector), `redis`, `backend`, `worker` (durable queue consumer), and the `opencode`
+sidecar (which shares the `mvp_workspace` volume with the backend and worker so
+generated code is visible instantly).
+
+> **Worker Mode:** `WORKER_MODE=worker` (default) requires the `worker` container to be
+> running to process queued builds. If running the backend locally outside Docker without
+> the worker daemon, set `WORKER_MODE=inline` in your `.env` so builds execute directly.
 
 > **Production guard:** the backend image boots as `APP_ENV=production` and refuses
 > to start unless `JWT_SECRET_KEY` is a strong, unique secret (≥ 32 chars). Set one

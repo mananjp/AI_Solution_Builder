@@ -98,10 +98,25 @@ def verify_frontend_integrity(frontend_dir: Path, run_build: bool = False) -> li
     if not (page_tsx.is_file() or page_jsx.is_file() or page_js.is_file()):
         errors.append("Missing frontend root page (src/app/page.tsx)")
 
-    # Optional: run npm run build if npm is present and requested
+    # Run npm install and npm run build if npm is present and requested
     if run_build and shutil.which("npm"):
         try:
-            res = subprocess.run(
+            # 1. npm install before npm run build
+            install_res = subprocess.run(
+                ["npm", "install", "--prefer-offline", "--no-audit", "--no-fund"],
+                cwd=str(frontend_dir),
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+            if install_res.returncode != 0:
+                out = (install_res.stderr or install_res.stdout or "").strip()
+                errors.append(f"Frontend npm install failed: {out[:600]}")
+                return errors
+
+            # 2. npm run build
+            build_res = subprocess.run(
                 ["npm", "run", "build"],
                 cwd=str(frontend_dir),
                 capture_output=True,
@@ -109,13 +124,13 @@ def verify_frontend_integrity(frontend_dir: Path, run_build: bool = False) -> li
                 timeout=90,
                 check=False,
             )
-            if res.returncode != 0:
-                out = (res.stderr or res.stdout or "").strip()
+            if build_res.returncode != 0:
+                out = (build_res.stderr or build_res.stdout or "").strip()
                 errors.append(f"Frontend npm build failed: {out[:600]}")
         except subprocess.TimeoutExpired:
-            errors.append("Frontend npm build timed out after 90 seconds")
+            errors.append("Frontend npm verification timed out")
         except Exception as exc:
-            logger.warning("Could not execute npm run build: %s", exc)
+            logger.warning("Could not execute frontend verification: %s", exc)
 
     return errors
 
@@ -137,6 +152,7 @@ async def verify_and_repair(
     target_dir: str,
     max_repair_turns: int = MAX_REPAIR_TURNS,
     send_prompt_fn: Any = None,
+    check_npm: bool = False,
 ) -> dict[str, Any]:
     """Run verification checkpoint with bounded repair loop.
 
@@ -146,7 +162,7 @@ async def verify_and_repair(
     3. If verification passes, returns result dict.
     4. If errors persist after the budget, raises VerificationError with real details.
     """
-    errors = verify_workspace(workspace_dir)
+    errors = verify_workspace(workspace_dir, check_npm=check_npm)
     if not errors:
         logger.info("Verification passed on initial check for %s", workspace_dir.name)
         return {"verified": True, "repair_turns": 0, "errors": []}
@@ -193,7 +209,7 @@ async def verify_and_repair(
             break
 
         # Re-verify after repair turn
-        errors = verify_workspace(workspace_dir)
+        errors = verify_workspace(workspace_dir, check_npm=check_npm)
         if not errors:
             logger.info(
                 "Build %s passed verification after repair turn %d/%d",

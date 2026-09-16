@@ -383,7 +383,9 @@ async def run_build(
     solution_id: UUID,
     ai_state: dict[str, Any],
     build_number: int,
+    *,
     title: str | None = None,
+    check_npm: bool = True,
 ) -> dict[str, Any]:
     """Run an OpenCode MVP build synchronously. Returns build result metadata."""
     if not await health():
@@ -426,6 +428,7 @@ async def run_build(
             session_id=session_id,
             target_dir=target_dir,
             send_prompt_fn=send_build_prompt,
+            check_npm=check_npm,
         )
     except MVPBuilderError:
         await abort_session(session_id)
