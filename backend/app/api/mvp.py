@@ -47,6 +47,11 @@ from app.schemas import (
 from app.services import mvp_builder as builder
 from app.services import templates
 from app.services.deployer import DeployError, deploy_to_github
+from app.services.render_deployer import (
+    RenderDeployError,
+    RenderDeployer,
+    get_1click_deploy_url,
+)
 from app.services.storage import LocalStorage, get_storage
 
 logger = logging.getLogger(__name__)
@@ -125,6 +130,11 @@ def _build_response(build: MVPBuild, include_files: bool = False) -> MVPBuildRes
         if build.workspace_path
         else ""
     )
+    app_config = build.app_config or {}
+    render_deploy_url = app_config.get("render_deploy_url")
+    if not render_deploy_url and build.repo_url:
+        render_deploy_url = get_1click_deploy_url(build.repo_url)
+
     return MVPBuildResponse(
         build_id=build.id,
         solution_id=build.solution_id,
@@ -134,6 +144,9 @@ def _build_response(build: MVPBuild, include_files: bool = False) -> MVPBuildRes
         file_count=build.file_count,
         error_message=build.error_message,
         repo_url=build.repo_url,
+        render_service_url=app_config.get("render_service_url"),
+        render_dashboard_url=app_config.get("render_dashboard_url"),
+        render_deploy_url=render_deploy_url,
         files=files,
     )
 
@@ -553,16 +566,84 @@ async def deploy_build(
     except DeployError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+    # Check if user has saved a Render API key
+    raw_render_token = str((current_user.settings or {}).get("render_api_key", ""))
+    render_token = decrypt_secret(raw_render_token) if raw_render_token else ""
+
+    render_deploy_url = get_1click_deploy_url(result["url"])
+    render_service_id = None
+    render_service_url = None
+    render_dashboard_url = None
+    render_msg = "Connected on Render via render.yaml in repo root"
+
+    if render_token:
+        try:
+            r_client = RenderDeployer(render_token)
+            r_res = await r_client.deploy_repo(
+                repo_url=result["url"],
+                repo_name=payload.repo_name,
+                branch=result.get("branch", "main"),
+            )
+            render_service_id = r_res.get("service_id")
+            render_service_url = r_res.get("service_url")
+            render_dashboard_url = r_res.get("dashboard_url")
+            if r_res.get("deploy_url"):
+                render_deploy_url = r_res["deploy_url"]
+            if r_res.get("message"):
+                render_msg = r_res["message"]
+        except Exception as r_err:
+            logger.warning("Render deployment trigger failed: %s", r_err)
+            render_msg = f"Render deploy trigger skipped: {r_err}"
+
     build.repo_url = result["url"]
-    build.app_config = {**(build.app_config or {}), "repo_url": result["url"]}
+    build.app_config = {
+        **(build.app_config or {}),
+        "repo_url": result["url"],
+        "render_service_id": render_service_id,
+        "render_service_url": render_service_url,
+        "render_dashboard_url": render_dashboard_url,
+        "render_deploy_url": render_deploy_url,
+    }
     await db.commit()
     return {
         "repo_url": result["url"],
         "clone_url": result["clone_url"],
         "branch": result["branch"],
         "file_count": result["file_count"],
-        "render_blueprint": "connected on Render via render.yaml in repo root",
+        "render_blueprint": render_msg,
+        "render_service_id": render_service_id,
+        "render_service_url": render_service_url,
+        "render_dashboard_url": render_dashboard_url,
+        "render_deploy_url": render_deploy_url,
     }
+
+
+@router.post("/builds/{build_id}/preview/destroy", response_model=dict[str, Any])
+async def destroy_preview(
+    build_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Tear down any active Render preview service associated with this build."""
+    build = await _get_build_for_user(db, build_id, current_user)
+    app_config = dict(build.app_config or {})
+    service_id = app_config.get("render_service_id")
+
+    destroyed = False
+    if service_id:
+        raw_render_token = str((current_user.settings or {}).get("render_api_key", ""))
+        render_token = decrypt_secret(raw_render_token) if raw_render_token else ""
+        if render_token:
+            r_client = RenderDeployer(render_token)
+            destroyed = await r_client.destroy_service(service_id)
+
+        app_config.pop("render_service_id", None)
+        app_config.pop("render_service_url", None)
+        app_config.pop("render_dashboard_url", None)
+        build.app_config = app_config
+        await db.commit()
+
+    return {"destroyed": destroyed, "build_id": str(build.id)}
 
 
 @router.post("/builds/{build_id}/configure", response_model=dict[str, Any])

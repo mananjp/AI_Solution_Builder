@@ -14,7 +14,7 @@ import {
 import ChatMessage from '@/components/ChatMessage';
 import FileUploader from '@/components/FileUploader';
 import { opencodeApi, sendOpenCodeChatStream, mvpApi } from '@/lib/api';
-import { MVPBuild, OpenCodeChatComplete } from '@/types';
+import { MVPBuild, MVPDeployResult, OpenCodeChatComplete } from '@/types';
 import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
 
 type ChatMessageItem = {
@@ -163,8 +163,22 @@ function ChatContent() {
     }
   };
 
-  const handleDeployed = (repoUrl: string) => {
-    setFinalizedBuild((prev) => (prev ? { ...prev, repo_url: repoUrl } : prev));
+  const handleDeployed = (result: MVPDeployResult | string) => {
+    const repoUrl = typeof result === 'string' ? result : result.repo_url;
+    const renderUrl = typeof result === 'string' ? null : result.render_service_url;
+    const renderDash = typeof result === 'string' ? null : result.render_dashboard_url;
+    const renderDeploy = typeof result === 'string' ? null : result.render_deploy_url;
+    setFinalizedBuild((prev) =>
+      prev
+        ? {
+            ...prev,
+            repo_url: repoUrl,
+            render_service_url: renderUrl,
+            render_dashboard_url: renderDash,
+            render_deploy_url: renderDeploy,
+          }
+        : prev
+    );
   };
 
   return (

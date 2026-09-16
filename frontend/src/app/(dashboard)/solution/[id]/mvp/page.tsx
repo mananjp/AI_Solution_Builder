@@ -145,8 +145,18 @@ export default function MvpPage() {
     }
   };
 
-  const handleDeployed = (repoUrl: string) => {
-    setBuilds((prev) => prev.map((b) => (b.status === 'complete' && b.build_id === deployTarget?.build_id ? { ...b, repo_url: repoUrl } : b)));
+  const handleDestroyPreview = async (build: MVPBuild) => {
+    if (!window.confirm(`Tear down Render live application for build #${build.build_number}?`)) return;
+    try {
+      await mvpApi.destroyPreview(build.build_id);
+      await loadBuilds();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Destroy preview failed.');
+    }
+  };
+
+  const handleDeployed = () => {
+    loadBuilds();
   };
 
   return (
@@ -298,6 +308,7 @@ export default function MvpPage() {
               onConfigure={() => setConfigureTarget(build)}
               onDownload={() => handleDownload(build)}
               onDestroy={() => handleDestroy(build)}
+              onDestroyPreview={() => handleDestroyPreview(build)}
             />
           ))
         )}

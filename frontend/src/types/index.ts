@@ -214,6 +214,9 @@ export interface MVPBuild {
   file_count: number;
   error_message?: string | null;
   repo_url?: string | null;
+  render_service_url?: string | null;
+  render_dashboard_url?: string | null;
+  render_deploy_url?: string | null;
   files?: MVPFileEntry[];
 }
 
@@ -237,6 +240,10 @@ export interface MVPDeployResult {
   branch: string;
   file_count: number;
   render_blueprint: string;
+  render_service_id?: string | null;
+  render_service_url?: string | null;
+  render_dashboard_url?: string | null;
+  render_deploy_url?: string | null;
 }
 
 export interface SocialProvidersResponse {

@@ -357,6 +357,15 @@ export const mvpApi = {
       method: 'DELETE',
     });
   },
+
+  async destroyPreview(buildId: string): Promise<{ destroyed: boolean; build_id: string }> {
+    return request<{ destroyed: boolean; build_id: string }>(
+      `/mvp/builds/${buildId}/preview/destroy`,
+      {
+        method: 'POST',
+      }
+    );
+  },
 };
 
 // ── Billing & Credits ────────────────────────────

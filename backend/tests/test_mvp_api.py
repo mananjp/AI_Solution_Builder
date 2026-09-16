@@ -62,7 +62,7 @@ async def _wait_for_finish(client, headers, build_id, retries=80):
         body = resp.json()
         if body["status"] not in ("building", "queued"):
             return body
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.1)
     raise AssertionError("Build did not finish within polling window")
 
 
@@ -409,6 +409,84 @@ async def test_deploy_pushes_workspace_to_github(workspace_solution, monkeypatch
         headers=headers,
     )
     assert resp.status_code == 409
+
+
+async def test_deploy_with_render_token_triggers_auto_deploy(workspace_solution, monkeypatch):
+    client = workspace_solution["client"]
+    headers = workspace_solution["headers"]
+    solution_id = workspace_solution["solution_id"]
+
+    monkeypatch.setattr("app.api.mvp.builder.run_build", _make_fake_run_build())
+
+    # Save both GitHub token and Render API key on the profile.
+    resp = await client.patch(
+        "/api/v1/auth/me/settings",
+        json={"github_token": "ghp_demotoken123", "render_api_key": "rnd_livekey456"},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+
+    resp = await client.post(
+        f"/api/v1/mvp/{solution_id}/build", json={"force": True}, headers=headers
+    )
+    build_id = resp.json()["build_id"]
+    build = await _wait_for_finish(client, headers, build_id)
+    assert build["status"] == "complete"
+
+    async def fake_deploy(**kwargs):
+        return {
+            "url": "https://github.com/testowner/render-app",
+            "clone_url": "https://github.com/testowner/render-app.git",
+            "owner": "testowner",
+            "branch": "main",
+            "file_count": 5,
+        }
+
+    monkeypatch.setattr("app.api.mvp._deploy_workspace_to_github", fake_deploy)
+
+    async def fake_render_deploy(self, repo_url, repo_name, branch="main", **kwargs):
+        return {
+            "service_id": "srv-test-999",
+            "service_url": "https://render-app-web.onrender.com",
+            "dashboard_url": "https://dashboard.render.com/web/srv-test-999",
+            "deploy_url": f"https://render.com/deploy?repo={repo_url}",
+            "status": "deployed",
+            "message": "Service successfully provisioned on Render.",
+        }
+
+    async def fake_destroy_service(self, service_id):
+        assert service_id == "srv-test-999"
+        return True
+
+    monkeypatch.setattr("app.api.mvp.RenderDeployer.deploy_repo", fake_render_deploy)
+    monkeypatch.setattr("app.api.mvp.RenderDeployer.destroy_service", fake_destroy_service)
+
+    resp = await client.post(
+        f"/api/v1/mvp/builds/{build_id}/deploy",
+        json={"repo_name": "render-app"},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["repo_url"] == "https://github.com/testowner/render-app"
+    assert data["render_service_url"] == "https://render-app-web.onrender.com"
+    assert data["render_dashboard_url"] == "https://dashboard.render.com/web/srv-test-999"
+    assert "https://render.com/deploy?repo=" in data["render_deploy_url"]
+
+    # Check status endpoint reflects Render URLs
+    resp = await client.get(f"/api/v1/mvp/builds/{build_id}/status", headers=headers)
+    assert resp.status_code == 200
+    status_data = resp.json()
+    assert status_data["render_service_url"] == "https://render-app-web.onrender.com"
+
+    # Test preview destroy endpoint
+    resp = await client.post(f"/api/v1/mvp/builds/{build_id}/preview/destroy", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["destroyed"] is True
+
+    # Status endpoint should now have cleared the service URL
+    resp = await client.get(f"/api/v1/mvp/builds/{build_id}/status", headers=headers)
+    assert resp.json()["render_service_url"] is None
 
 
 # ── Cloudinary storage redirect ─────────────────────────────────────────────

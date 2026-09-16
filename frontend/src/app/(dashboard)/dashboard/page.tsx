@@ -20,7 +20,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { workspaceApi, solutionApi, mvpApi, opencodeApi } from '@/lib/api';
-import { Solution, Workspace, MVPBuild, MVPTemplate } from '@/types';
+import { Solution, Workspace, MVPBuild, MVPTemplate, MVPDeployResult } from '@/types';
 import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
 
 const QUICK_TEMPLATES: MVPTemplate[] = [
@@ -220,8 +220,24 @@ export default function DashboardPage() {
     }
   };
 
-  const handleDeployed = (repoUrl: string) => {
-    setBuilds((prev) => prev.map((b) => (b.status === 'complete' && b.build_id === deployTarget?.build_id ? { ...b, repo_url: repoUrl } : b)));
+  const handleDeployed = (result: MVPDeployResult | string) => {
+    const repoUrl = typeof result === 'string' ? result : result.repo_url;
+    const renderUrl = typeof result === 'string' ? null : result.render_service_url;
+    const renderDash = typeof result === 'string' ? null : result.render_dashboard_url;
+    const renderDeploy = typeof result === 'string' ? null : result.render_deploy_url;
+    setBuilds((prev) =>
+      prev.map((b) =>
+        b.status === 'complete' && b.build_id === deployTarget?.build_id
+          ? {
+              ...b,
+              repo_url: repoUrl,
+              render_service_url: renderUrl,
+              render_dashboard_url: renderDash,
+              render_deploy_url: renderDeploy,
+            }
+          : b
+      )
+    );
   };
 
   return (
