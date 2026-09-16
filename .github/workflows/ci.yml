@@ -122,13 +122,18 @@ jobs:
           exit-code: "0"
           exit-level: fatal
 
+      # Deployment to Docker Hub + Render is gated behind the DEPLOY_SKIP repo
+      # variable until the services are first deployed manually via the Render
+      # blueprint and RENDER_*_SERVICE_ID secrets exist.
       - name: Log in to Docker Hub
+        if: vars.DEPLOY_SKIP != 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Push to Docker Hub
+        if: vars.DEPLOY_SKIP != 'true'
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
@@ -140,6 +145,7 @@ jobs:
           done
 
       - name: Trigger Render redeploy
+        if: vars.DEPLOY_SKIP != 'true'
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_WEB_SERVICE_ID: ${{ secrets.RENDER_WEB_SERVICE_ID }}
