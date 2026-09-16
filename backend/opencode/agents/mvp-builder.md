@@ -1,7 +1,7 @@
 ---
 description: Builds full-stack functional MVP prototypes (Next.js frontend + FastAPI backend) from AI Solution Builder artifacts
 mode: primary
-model: opencode/big-pickle
+model: groq/openai/gpt-oss-120b
 permission:
   read: allow
   glob: allow

@@ -47,7 +47,7 @@ services:
       - key: OPENCODE_SERVER_PASSWORD
         generateValue: true
       - key: OPENCODE_MODEL
-        value: opencode/big-pickle
+        value: groq/openai/gpt-oss-120b
       - key: MVP_BUILD_TIMEOUT
         value: "600"
       - key: MVP_VERIFY_INSTALL_TIMEOUT
@@ -116,7 +116,7 @@ services:
           name: ai-solution-builder-backend
           envVarKey: OPENCODE_SERVER_PASSWORD
       - key: OPENCODE_MODEL
-        value: opencode/big-pickle
+        value: groq/openai/gpt-oss-120b
       - key: MVP_BUILD_TIMEOUT
         value: "600"
       - key: MVP_VERIFY_INSTALL_TIMEOUT
