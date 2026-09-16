@@ -341,11 +341,18 @@ async def test_run_build_success(monkeypatch, tmp_path):
     def _scaffold(build_dir, *, app_title, inject_modules):
         Path(build_dir).mkdir(parents=True, exist_ok=True)
 
+    verified_calls = []
+
+    async def _mock_verify(workspace_dir, **kwargs):
+        verified_calls.append(workspace_dir)
+        return []
+
     monkeypatch.setattr(settings, "MVP_BUILD_DIR", str(tmp_path))
     monkeypatch.setattr(builder, "health", _true)
     monkeypatch.setattr(builder, "create_session", _sess)
     monkeypatch.setattr(builder, "send_build_prompt", _send)
     monkeypatch.setattr(builder, "scaffold_build", _scaffold)
+    monkeypatch.setattr("app.services.mvp_verifier.verify_and_repair", _mock_verify)
 
     sid = uuid4()
     # Pre-create a file in the agreed workspace to simulate sidecar output.
@@ -356,6 +363,8 @@ async def test_run_build_success(monkeypatch, tmp_path):
     assert result["session_id"] == "sess-1"
     assert result["file_count"] == 1
     assert result["files"] == ["README.md"]
+    assert len(verified_calls) == 1
+    assert verified_calls[0] == target
 
 
 @pytest.mark.asyncio

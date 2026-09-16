@@ -70,6 +70,37 @@ services:
       retries: 12
       start_period: 15s
 
+  # Background Build Worker — claims queued MVP builds and runs OpenCode generation + verification
+  worker:
+    build:
+      context: ./backend
+    container_name: ai_solution_builder_worker
+    restart: unless-stopped
+    command: ["worker"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_solution_builder}
+      REDIS_URL: redis://redis:6379/0
+      APP_ENV: ${APP_ENV:-production}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GROQ_MODEL_NAME: ${GROQ_MODEL_NAME:-openai/gpt-oss-120b}
+      LLM_PROVIDER: ${LLM_PROVIDER:-groq}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-to-a-long-random-string-in-production}
+      OPENCODE_SERVER_URL: http://opencode:4096
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
+      MVP_BUILD_DIR: .data/mvp_builds
+      WORKER_MODE: worker
+    volumes:
+      - mvp_workspace:/app/.data/mvp_builds
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+      opencode:
+        condition: service_started
+
   # OpenCode sidecar — headless AI coding agent that generates MVP source code
   # from solution artifacts. The /workspace volume is shared with the backend's
   # MVP_BUILD_DIR so the API can read generated files directly without a network hop.

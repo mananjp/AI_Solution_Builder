@@ -417,7 +417,20 @@ async def run_build(
             session_id,
             response.get("info") and response["info"].get("error", "ok"),
         )
+
+        # Verification Checkpoint & Bounded Repair Turn
+        from app.services.mvp_verifier import verify_and_repair
+
+        await verify_and_repair(
+            local_dir,
+            session_id=session_id,
+            target_dir=target_dir,
+            send_prompt_fn=send_build_prompt,
+        )
     except MVPBuilderError:
+        await abort_session(session_id)
+        raise
+    except Exception:
         await abort_session(session_id)
         raise
 

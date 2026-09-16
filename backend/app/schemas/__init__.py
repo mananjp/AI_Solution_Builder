@@ -45,10 +45,38 @@ class UserResponse(BaseModel):
     full_name: str
     role: str
     org_id: UUID | None = None
+    auth_provider: str = "local"
+    is_anonymous: bool = False
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class SocialProvidersResponse(BaseModel):
+    """List of fully configured social OAuth providers and anonymous auth status."""
+
+    providers: list[str] = Field(default_factory=list)
+    allow_anonymous: bool = True
+
+
+class AnonymousAuthResponse(BaseModel):
+    """Token response returned when creating a throwaway demo identity."""
+
+    access_token: str
+    token_type: str = "bearer"
+    is_anonymous: bool = True
+    credits_remaining: int = 50
+    user: UserResponse
+
+
+class UpgradeAnonymousRequest(BaseModel):
+    """Converts a temporary anonymous account to a permanent registered account."""
+
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
+    full_name: str = Field(..., min_length=2, max_length=255)
+    org_name: str | None = None
 
 
 class UserSettingsUpdate(BaseModel):

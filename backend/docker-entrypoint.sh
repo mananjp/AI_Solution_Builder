@@ -1,6 +1,11 @@
 #!/bin/sh
 set -e
 
+if [ "$1" = "worker" ] || [ "$APP_MODE" = "worker" ]; then
+    echo "Starting background build worker..."
+    exec python -m app.worker
+fi
+
 echo "Running database migrations (alembic upgrade head)..."
 alembic upgrade head
 

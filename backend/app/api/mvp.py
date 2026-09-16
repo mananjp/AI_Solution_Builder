@@ -25,10 +25,12 @@ from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.credits import require_and_deduct_credit
 from app.core.database import async_session_factory, get_db
 from app.core.secrets import decrypt_secret
 from app.core.security import get_current_user
+from app.models.build_job import BuildJob
 from app.models.mvp_build import MVPBuild
 from app.models.solution import Solution
 from app.models.user import User
@@ -56,9 +58,8 @@ _build_tasks: set[asyncio.Task[None]] = set()
 
 
 def _spawn_build_job(build_id: UUID) -> None:
-    """Run a build in a background task, holding a strong reference so the
-    event loop never garbage-collects a pending task mid-build."""
-    task = asyncio.create_task(_run_build_job(build_id), name=f"mvp-build-{build_id}")
+    """Run a build in a background task (used when WORKER_MODE='inline')."""
+    task = asyncio.create_task(execute_build_job(build_id), name=f"mvp-build-{build_id}")
     _build_tasks.add(task)
     task.add_done_callback(_build_tasks.discard)
 
@@ -165,8 +166,8 @@ async def _deploy_workspace_to_github(
     return {**result, "file_count": len(files)}
 
 
-async def _run_build_job(build_id: UUID) -> None:
-    """Background task: drive the OpenCode sidecar to complete a build."""
+async def execute_build_job(build_id: UUID) -> None:
+    """Drive the OpenCode sidecar to complete a build, verifying output before marking complete."""
     try:
         async with async_session_factory() as db:
             build = await db.get(MVPBuild, build_id)
@@ -176,6 +177,11 @@ async def _run_build_job(build_id: UUID) -> None:
             if solution is None:
                 build.status = "failed"
                 build.error_message = "Solution not found"
+                job_res = await db.execute(select(BuildJob).where(BuildJob.build_id == build_id))
+                job = job_res.scalar_one_or_none()
+                if job:
+                    job.status = "failed"
+                    job.error_message = "Solution not found"
                 await db.commit()
                 return
 
@@ -219,6 +225,12 @@ async def _run_build_job(build_id: UUID) -> None:
             build.file_count = result["file_count"]
             build.error_message = None
 
+            # Mark associated BuildJob completed
+            job_res = await db.execute(select(BuildJob).where(BuildJob.build_id == build_id))
+            job = job_res.scalar_one_or_none()
+            if job:
+                job.status = "completed"
+
             # Upload to Cloudinary if configured
             storage = get_storage()
             if not isinstance(storage, LocalStorage):
@@ -252,9 +264,18 @@ async def _run_build_job(build_id: UUID) -> None:
                 if build is not None:
                     build.status = "failed"
                     build.error_message = str(exc)[:1000]
-                    await db.commit()
+                job_res = await db.execute(select(BuildJob).where(BuildJob.build_id == build_id))
+                job = job_res.scalar_one_or_none()
+                if job:
+                    job.status = "failed"
+                    job.error_message = str(exc)[:1000]
+                await db.commit()
         except Exception as persist_exc:  # noqa: BLE001
             logger.error("Failed to persist MVP build failure: %s", persist_exc)
+
+
+# Backward-compatible alias
+_run_build_job = execute_build_job
 
 
 @router.get("/templates", response_model=list[MVPTemplateResponse])
@@ -293,15 +314,20 @@ async def trigger_build(
     build = MVPBuild(
         solution_id=solution.id,
         build_number=build_number,
-        status="building",
+        status="queued",
         workspace_path=str(workspace),
         app_config={**payload.config, "app_name": payload.app_name, "template": payload.template},
     )
     db.add(build)
+    await db.flush()
+
+    job = BuildJob(build_id=build.id, status="queued")
+    db.add(job)
     await db.commit()
     await db.refresh(build)
 
-    _spawn_build_job(build.id)
+    if settings.WORKER_MODE == "inline":
+        _spawn_build_job(build.id)
 
     return _build_response(build)
 
@@ -338,7 +364,7 @@ async def build_status(
 ) -> MVPBuildResponse:
     """Get build status, error details, and the generated file tree."""
     build = await _get_build_for_user(db, build_id, current_user)
-    if build.status == "building":
+    if build.status in ("building", "queued"):
         # Best-effort: reflect a locally-visible file count while running.
         workspace = Path(build.workspace_path)
         if workspace.exists():

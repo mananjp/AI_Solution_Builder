@@ -9,6 +9,9 @@ ENV NODE_ENV=production \
 
 WORKDIR /opt/opencode
 
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN npm install -g opencode-ai@latest
 
 # Copy OpenCode configuration and custom agents

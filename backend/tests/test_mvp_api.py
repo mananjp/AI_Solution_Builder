@@ -47,13 +47,21 @@ def _make_fake_run_build(write_files: list[str] | None = None):
     return fake
 
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _set_inline_worker(monkeypatch):
+    monkeypatch.setattr("app.api.mvp.settings.WORKER_MODE", "inline")
+
+
 async def _wait_for_finish(client, headers, build_id, retries=80):
-    """Poll build status until it leaves 'building' (or timeout)."""
+    """Poll build status until it leaves 'building' or 'queued' (or timeout)."""
     for _ in range(retries):
         resp = await client.get(f"/api/v1/mvp/builds/{build_id}/status", headers=headers)
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        if body["status"] != "building":
+        if body["status"] not in ("building", "queued"):
             return body
         await asyncio.sleep(0.05)
     raise AssertionError("Build did not finish within polling window")
@@ -85,7 +93,7 @@ async def test_trigger_build_and_complete_lifecycle(workspace_solution, monkeypa
     assert resp.status_code == 200, resp.text
     build = resp.json()
     build_id = build["build_id"]
-    assert build["status"] == "building"
+    assert build["status"] in ("queued", "building")
     assert build["file_count"] == 0
 
     # Wait for completion

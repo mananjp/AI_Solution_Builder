@@ -17,6 +17,9 @@ import {
   MVPBuildPayload,
   MVPDeployPayload,
   MVPDeployResult,
+  SocialProvidersResponse,
+  AnonymousAuthResponse,
+  UpgradeAnonymousPayload,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
@@ -113,6 +116,29 @@ export const authApi = {
 
   async me() {
     return request<User>('/auth/me');
+  },
+
+  async getProviders() {
+    return request<SocialProvidersResponse>('/auth/providers');
+  },
+
+  async anonymousLogin() {
+    const res = await request<AnonymousAuthResponse>('/auth/anonymous', {
+      method: 'POST',
+    });
+    setAuthToken(res.access_token);
+    return res;
+  },
+
+  async upgradeAnonymous(data: UpgradeAnonymousPayload) {
+    return request<User>('/auth/upgrade-anonymous', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getOAuthAuthorizeUrl(provider: 'github' | 'google') {
+    return request<{ authorization_url: string }>(`/auth/oauth/${provider}/authorize`);
   },
 
   async updateSettings(data: { github_token?: string; render_api_key?: string }) {

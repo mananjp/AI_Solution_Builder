@@ -95,6 +95,19 @@ class Settings(BaseSettings):
     MVP_BUILD_CREDIT_COST: int = 30
     MVP_TEMPLATE_DIR: str = "opencode/templates/mvp"
 
+    # ── Worker Process / Queue ────────────────────
+    WORKER_MODE: str = "worker"  # "worker" (separate process) | "inline" (in-process fallback)
+    WORKER_POLL_INTERVAL: float = 2.0  # seconds
+
+    # ── Social OAuth & Anonymous Login ────────────
+    FRONTEND_URL: str = "http://localhost:3000"
+    AUTH_GITHUB_CLIENT_ID: str = ""
+    AUTH_GITHUB_CLIENT_SECRET: str = ""
+    AUTH_GOOGLE_CLIENT_ID: str = ""
+    AUTH_GOOGLE_CLIENT_SECRET: str = ""
+    ALLOW_ANONYMOUS_AUTH: bool = True
+    ANONYMOUS_CREDITS: int = 50
+
     @model_validator(mode="after")
     def enforce_production_secrets(self) -> "Settings":
         if self.APP_ENV == "production" and (

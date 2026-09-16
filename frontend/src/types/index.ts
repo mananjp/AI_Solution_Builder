@@ -4,6 +4,8 @@ export interface User {
   full_name?: string;
   role: string;
   org_id: string;
+  auth_provider?: string;
+  is_anonymous?: boolean;
   settings?: Record<string, unknown>;
   created_at: string;
 }
@@ -196,6 +198,7 @@ export interface MVPFileEntry {
 }
 
 export type MVPBuildStatus =
+  | 'queued'
   | 'pending'
   | 'building'
   | 'complete'
@@ -234,4 +237,24 @@ export interface MVPDeployResult {
   branch: string;
   file_count: number;
   render_blueprint: string;
+}
+
+export interface SocialProvidersResponse {
+  providers: string[];
+  allow_anonymous: boolean;
+}
+
+export interface AnonymousAuthResponse {
+  access_token: string;
+  token_type: string;
+  is_anonymous: boolean;
+  credits_remaining: number;
+  user: User;
+}
+
+export interface UpgradeAnonymousPayload {
+  email: string;
+  password: string;
+  full_name: string;
+  org_name?: string;
 }

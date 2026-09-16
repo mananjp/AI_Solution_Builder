@@ -23,6 +23,7 @@ import { mvpApi, solutionApi } from '@/lib/api';
 import { MVPBuild, MVPBuildStatus, MVPTemplate, Solution } from '@/types';
 
 const STATUS_STYLES: Record<MVPBuildStatus, string> = {
+  queued: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 animate-pulse',
   pending: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
   building: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30 animate-pulse',
   complete: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
@@ -472,9 +473,11 @@ export default function MvpPage() {
 
   // Poll builds while any is active
   useEffect(() => {
-    const hasActive = builds.some((b) => b.status === 'pending' || b.status === 'building');
+    const hasActive = builds.some(
+      (b) => b.status === 'pending' || b.status === 'queued' || b.status === 'building'
+    );
     if (!hasActive) return;
-    const timer = setInterval(loadBuilds, 5000);
+    const timer = setInterval(loadBuilds, 3000);
     return () => clearInterval(timer);
   }, [builds, loadBuilds]);
 
