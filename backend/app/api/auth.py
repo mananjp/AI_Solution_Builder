@@ -401,13 +401,15 @@ async def get_me(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
-@router.patch("/me/settings", response_model=dict[str, bool])
+@router.api_route("/me/settings", methods=["PATCH", "POST"], response_model=dict[str, bool])
 async def update_settings(
     payload: UserSettingsUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, bool]:
     """Persist deploy credentials (e.g. GitHub PAT) on the user's profile."""
+    from sqlalchemy.orm.attributes import flag_modified
+
     settings = dict(current_user.settings or {})
     if payload.github_token is not None:
         token = payload.github_token.strip()
@@ -422,5 +424,6 @@ async def update_settings(
         else:
             settings.pop("render_api_key", None)
     current_user.settings = settings
+    flag_modified(current_user, "settings")
     await db.commit()
     return {"updated": True}

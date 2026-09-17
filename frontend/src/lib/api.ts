@@ -24,7 +24,12 @@ import {
   UpgradeAnonymousPayload,
 } from '@/types';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL =
+  typeof window !== 'undefined'
+    ? (process.env.NEXT_PUBLIC_API_URL && !process.env.NEXT_PUBLIC_API_URL.startsWith('http://localhost')
+        ? process.env.NEXT_PUBLIC_API_URL
+        : '/api/v1')
+    : process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api/v1';
 
 export interface RawWorkableEntity {
   name?: string;
@@ -92,8 +97,13 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
         window.location.href = '/login';
       }
     }
-    const errorData = await response.json().catch(() => ({ detail: 'Network request failed' }));
-    throw new Error(errorData.detail || `Request failed with status ${response.status}`);
+    const errorData = await response.json().catch(() => null);
+    const message =
+      errorData?.error?.message ||
+      errorData?.detail ||
+      (typeof errorData?.error === 'string' ? errorData.error : null) ||
+      `Request failed with status ${response.status}`;
+    throw new Error(message);
   }
 
   if (response.status === 204) {

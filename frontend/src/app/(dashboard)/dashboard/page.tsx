@@ -118,10 +118,23 @@ export default function DashboardPage() {
 
   // Probe the OpenCode sidecar for the dashboard banner.
   useEffect(() => {
-    opencodeApi
-      .health()
-      .then((res) => setSidecarHealthy(Boolean(res.healthy)))
-      .catch(() => setSidecarHealthy(false));
+    let mounted = true;
+    const check = () => {
+      opencodeApi
+        .health()
+        .then((res) => {
+          if (mounted) setSidecarHealthy(Boolean(res.healthy));
+        })
+        .catch(() => {
+          if (mounted) setSidecarHealthy(false);
+        });
+    };
+    check();
+    const interval = setInterval(check, 10000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   // Load premade templates + any builds created from them.
