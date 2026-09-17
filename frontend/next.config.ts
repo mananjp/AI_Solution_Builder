@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // Only use standalone output when self-hosting in Docker; Vercel handles packaging natively.
+  ...(process.env.VERCEL ? {} : { output: "standalone" }),
   compress: false, // Prevents memory spikes from internal zlib compression buffers in 512MB RAM
   poweredByHeader: false,
   productionBrowserSourceMaps: false,
