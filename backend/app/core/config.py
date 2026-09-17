@@ -88,8 +88,9 @@ class Settings(BaseSettings):
     DEFAULT_LANGUAGE: str = "en"
     TRANSLATION_ENABLED: bool = True
 
-    # ── One-Click Deploy (GitHub) ─────────────────
+    # ── One-Click Deploy (GitHub & Render) ─────────
     GITHUB_TOKEN: str = ""
+    RENDER_API_KEY: str = ""
 
     # ── Row-Level Security ────────────────────────
     RLS_ENABLED: bool = False

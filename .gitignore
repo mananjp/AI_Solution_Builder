@@ -19,10 +19,12 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 !frontend/src/lib/
 !frontend/src/lib/**
+!backend/opencode/templates/mvp/frontend/src/lib/
+!backend/opencode/templates/mvp/frontend/src/lib/**
 parts/
 sdist/
 var/
@@ -82,5 +84,6 @@ Thumbs.db
 /*.mp4
 /*.mov
 /AI_Solution_Builder_Implementation_Plan_v2.md
+builds/
 /AI_Solution_Builder_Alignment_Check.md
 /deploy_plan.md

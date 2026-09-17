@@ -549,15 +549,27 @@ export function BuildCard({
 
             {/* 1-Click Vercel Deploy button */}
             {build.repo_url && isDeployed && (
-              <a
-                href={`https://vercel.com/new/clone?repository-url=${encodeURIComponent(build.repo_url)}&root-directory=frontend&env=NEXT_PUBLIC_API_URL`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-semibold border border-white/20 shadow-md transition-all hover:scale-105"
-              >
-                <Triangle className="w-3 h-3 fill-white text-white" />
-                <span>Deploy on Vercel</span>
-              </a>
+              <div className="flex items-center gap-1">
+                <a
+                  href={`https://vercel.com/new/clone?repository-url=${encodeURIComponent(build.repo_url)}&root-directory=frontend&env=NEXT_PUBLIC_API_URL`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-semibold border border-white/20 shadow-md transition-all hover:scale-105"
+                  title="1-Click deploy frontend on Vercel"
+                >
+                  <Triangle className="w-3 h-3 fill-white text-white" />
+                  <span>Deploy on Vercel</span>
+                </a>
+                <a
+                  href={`https://vercel.com/new/import?s=${encodeURIComponent(build.repo_url)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-2.5 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-white text-[11px] font-medium border border-white/10 transition-colors"
+                  title="Import project on Vercel (use if repo is private)"
+                >
+                  Import
+                </a>
+              </div>
             )}
 
             {/* 1-Click Render Deploy button if deployed on GitHub but no direct live service URL */}

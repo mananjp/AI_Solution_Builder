@@ -314,12 +314,13 @@ async def create_{clean_name}(payload: schemas.{class_name}Create, session: Sess
     return obj
 
 
-@router.delete("/{clean_name}/{{item_id}}", status_code=204)
-async def delete_{clean_name}(item_id: uuid.UUID, session: SessionDep) -> None:
+@router.delete("/{clean_name}/{{item_id}}")
+async def delete_{clean_name}(item_id: uuid.UUID, session: SessionDep) -> dict[str, bool]:
     obj = await session.get(models.{class_name}, item_id)
     if obj:
         await session.delete(obj)
         await session.commit()
+    return {{"ok": True}}
 """
         router_chunks.append(router_code.strip())
 
@@ -400,6 +401,19 @@ def scaffold_build(
         root_gh = root / ".github"
         if infra_gh.exists() and not root_gh.exists():
             shutil.copytree(infra_gh, root_gh, dirs_exist_ok=True)
+
+    # Ensure frontend/src/lib/api.ts and public/.gitkeep always exist for frontend builds
+    frontend_dir = root / "frontend"
+    if frontend_dir.exists():
+        lib_dir = frontend_dir / "src" / "lib"
+        lib_dir.mkdir(parents=True, exist_ok=True)
+        api_ts = lib_dir / "api.ts"
+        if not api_ts.exists():
+            from app.services.templates import _API_CLIENT_TS
+            api_ts.write_text(_API_CLIENT_TS, encoding="utf-8")
+        pub_dir = frontend_dir / "public"
+        pub_dir.mkdir(parents=True, exist_ok=True)
+        (pub_dir / ".gitkeep").touch()
 
     app_name = _slugify(app_title)
     db_name = re.sub(r"[^a-z0-9_]+", "_", app_name).strip("_") or "app_db"

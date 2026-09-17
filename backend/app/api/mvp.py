@@ -49,6 +49,9 @@ from app.schemas import (
 )
 from app.services import mvp_builder as builder
 from app.services import templates
+
+_ORIG_RUN_BUILD = builder.run_build
+
 from app.services.deployer import DeployError, deploy_build_workspace
 from app.services.render_deployer import (
     RenderDeployer,
@@ -188,12 +191,10 @@ async def execute_build_job(build_id: UUID) -> None:
                 if not title or title == solution.title:
                     title = seeded.get("solution_title", title)
 
-            from app.services.mvp_builder import run_build as _orig_run_build
-
             if (
                 template_slug
                 and template_slug in ("todo", "calculator", "portfolio")
-                and builder.run_build is _orig_run_build
+                and builder.run_build is _ORIG_RUN_BUILD
             ):
                 logger.info(
                     "Executing fast-path premade build for solution=%s template=%s",

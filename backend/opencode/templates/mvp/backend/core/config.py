@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     APP_ENV: str = Field(default="development", alias="APP_ENV")
     DEBUG: bool = Field(default=True, alias="DEBUG")
     API_PREFIX: str = Field(default="/api/v1", alias="API_PREFIX")
-    CORS_ORIGINS: list[str] = Field(default=["http://localhost:3000"], alias="CORS_ORIGINS")
+    CORS_ORIGINS: list[str] | str = Field(default=["http://localhost:3000"], alias="CORS_ORIGINS")
 
     # ── Database ───────────────────────────────────────────────────────
     DATABASE_URL: str = Field(
@@ -74,10 +74,21 @@ class Settings(BaseSettings):
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
-    def split_origins(cls, v: Any) -> Any:
+    def split_origins(cls, v: Any) -> list[str]:
         if isinstance(v, str):
+            v = _clean_env(v)
+            if v.startswith("[") and v.endswith("]"):
+                try:
+                    import json
+                    parsed = json.loads(v)
+                    if isinstance(parsed, list):
+                        return [str(x).strip() for x in parsed if str(x).strip()]
+                except Exception:
+                    pass
             return [o.strip() for o in v.split(",") if o.strip()]
-        return v
+        if isinstance(v, (list, tuple, set)):
+            return [str(o).strip() for o in v if str(o).strip()]
+        return ["http://localhost:3000"]
 
 
 @lru_cache

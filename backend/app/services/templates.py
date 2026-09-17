@@ -486,6 +486,54 @@ def list_templates() -> list[dict[str, str]]:
     return [t.to_dict() for t in TEMPLATES]
 
 
+_API_CLIENT_TS = """// Typed API client. Base URL comes from NEXT_PUBLIC_API_URL.
+
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== "undefined" ? "/api/v1" : "http://localhost:8000/api/v1");
+
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      ...init,
+    });
+  } catch (err) {
+    throw new ApiError(
+      0,
+      `Network connection failed (${API_BASE}). Ensure the backend service is running and accessible.`
+    );
+  }
+  if (!res.ok) {
+    const body = await res.text();
+    throw new ApiError(res.status, body.slice(0, 500));
+  }
+  if (res.status === 204) {
+    return {} as T;
+  }
+  return (await res.json()) as T;
+}
+
+export const api = {
+  get: <T>(path: string) => request<T>(path),
+  post: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: "POST", body: JSON.stringify(body ?? {}) }),
+  patch: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: "PATCH", body: JSON.stringify(body ?? {}) }),
+  del: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+};
+"""
+
+
 def apply_template_files(build_dir: Any, slug: str, app_title: str | None = None) -> None:
     """Instantiate the complete working files for a starter template directly into build_dir."""
     from pathlib import Path
@@ -493,6 +541,16 @@ def apply_template_files(build_dir: Any, slug: str, app_title: str | None = None
     backend_dir = root / "backend"
     frontend_dir = root / "frontend"
     title = app_title or slug.title()
+
+    # Ensure frontend/src/lib/api.ts is always present for the template UI
+    lib_dir = frontend_dir / "src" / "lib"
+    lib_dir.mkdir(parents=True, exist_ok=True)
+    (lib_dir / "api.ts").write_text(_API_CLIENT_TS, encoding="utf-8")
+
+    # Ensure frontend/public exists for Next.js Docker build
+    pub_dir = frontend_dir / "public"
+    pub_dir.mkdir(parents=True, exist_ok=True)
+    (pub_dir / ".gitkeep").touch()
 
     if slug == "todo":
         _apply_todo_template(backend_dir, frontend_dir, title)
@@ -642,12 +700,13 @@ async def update_task(task_id: uuid.UUID, payload: TaskUpdate, session: SessionD
     await session.refresh(task)
     return task
 
-@router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_task(task_id: uuid.UUID, session: SessionDep) -> None:
+@router.delete("/tasks/{task_id}")
+async def delete_task(task_id: uuid.UUID, session: SessionDep) -> dict[str, bool]:
     task = await session.get(Task, task_id)
     if task:
         await session.delete(task)
         await session.commit()
+    return {"ok": True}
 '''
     (b_dir / "routers.py").write_text(routers_content, encoding="utf-8")
 
@@ -948,12 +1007,13 @@ async def list_calculations(session: SessionDep) -> List[Calculation]:
     result = await session.execute(select(Calculation).order_by(Calculation.created_at.desc()).limit(50))
     return list(result.scalars().all())
 
-@router.delete("/calculations/{calc_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_calculation(calc_id: uuid.UUID, session: SessionDep) -> None:
+@router.delete("/calculations/{calc_id}")
+async def delete_calculation(calc_id: uuid.UUID, session: SessionDep) -> dict[str, bool]:
     calc = await session.get(Calculation, calc_id)
     if calc:
         await session.delete(calc)
         await session.commit()
+    return {"ok": True}
 '''
     (b_dir / "routers.py").write_text(routers_content, encoding="utf-8")
 

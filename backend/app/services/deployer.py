@@ -108,8 +108,17 @@ def _extract_mvp_files(root: Path) -> dict[str, str]:
 
     if "render.yaml" in files:
         files["render.yaml"] = _sanitize_render_yaml(files["render.yaml"])
-    if "infra/render.yaml" in files:
-        files["infra/render.yaml"] = _sanitize_render_yaml(files["infra/render.yaml"])
+        files["infra/render.yaml"] = files["render.yaml"]
+    elif "infra/render.yaml" in files:
+        files["render.yaml"] = _sanitize_render_yaml(files["infra/render.yaml"])
+        files["infra/render.yaml"] = files["render.yaml"]
+
+    # Guarantee frontend/src/lib/api.ts and public/.gitkeep are in deployed repo
+    if any(k.startswith("frontend/src/") for k in files) and "frontend/src/lib/api.ts" not in files:
+        from app.services.templates import _API_CLIENT_TS
+        files["frontend/src/lib/api.ts"] = _API_CLIENT_TS
+    if any(k.startswith("frontend/") for k in files) and "frontend/public/.gitkeep" not in files:
+        files["frontend/public/.gitkeep"] = ""
 
     return files
 
