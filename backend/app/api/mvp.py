@@ -193,7 +193,7 @@ async def execute_build_job(build_id: UUID) -> None:
                 ai_state,
                 build.build_number,
                 title=title,
-                check_npm=True,
+                check_npm=settings.MVP_VERIFY_NPM,
             )
 
             # Re-fetch under row lock to guard against concurrent cancellation
@@ -227,6 +227,10 @@ async def execute_build_job(build_id: UUID) -> None:
             storage = get_storage()
             zip_data = builder.build_bytes(result["local_dir"])
             await storage.upload_bytes(zip_data, key)
+            del zip_data
+            import gc
+            gc.collect()
+
             build.storage_key = key
             logger.info(
                 "MVP build %s complete — %d files, artifact uploaded to %s",

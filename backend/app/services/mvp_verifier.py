@@ -94,11 +94,14 @@ def verify_frontend_integrity(frontend_dir: Path, run_build: bool = False) -> li
             errors.append(f"Invalid JSON in frontend/package.json: {exc}")
 
     # Check for root page
-    page_tsx = frontend_dir / "src" / "app" / "page.tsx"
-    page_jsx = frontend_dir / "src" / "app" / "page.jsx"
-    page_js = frontend_dir / "src" / "app" / "page.js"
-    if not (page_tsx.is_file() or page_jsx.is_file() or page_js.is_file()):
-        errors.append("Missing frontend root page (src/app/page.tsx)")
+    page_files = [
+        frontend_dir / "src" / "app" / "page.tsx",
+        frontend_dir / "src" / "app" / "page.jsx",
+        frontend_dir / "src" / "app" / "page.js",
+    ]
+    found_page = [p for p in page_files if p.is_file() and p.stat().st_size > 0]
+    if not found_page:
+        errors.append("Missing or empty frontend root page (src/app/page.tsx)")
 
     # Run npm install and npm run build if npm is present and requested
     if run_build and shutil.which("npm"):
@@ -144,7 +147,8 @@ def verify_workspace(workspace_dir: Path, check_npm: bool = False) -> list[str]:
         return [f"Workspace directory does not exist: {workspace_dir}"]
 
     errors.extend(verify_backend_integrity(workspace_dir / "backend"))
-    errors.extend(verify_frontend_integrity(workspace_dir / "frontend", run_build=check_npm))
+    should_run_build = bool(check_npm and getattr(settings, "MVP_VERIFY_NPM", False))
+    errors.extend(verify_frontend_integrity(workspace_dir / "frontend", run_build=should_run_build))
     return errors
 
 

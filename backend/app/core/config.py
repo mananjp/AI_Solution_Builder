@@ -99,8 +99,9 @@ class Settings(BaseSettings):
     OPENCODE_AGENT: str = "mvp-builder"
     MVP_BUILD_TIMEOUT: int = 600  # seconds
     MVP_BUILD_DIR: str = ".data/mvp_builds"
-    MVP_BUILD_CREDIT_COST: int = 30
     MVP_TEMPLATE_DIR: str = "opencode/templates/mvp"
+    MVP_BUILD_CREDIT_COST: int = 30
+    MVP_VERIFY_NPM: bool = False  # Skip npm install/build in memory-constrained environments
     MVP_VERIFY_INSTALL_TIMEOUT: int = 180  # seconds for npm install in checkpoint
     MVP_VERIFY_BUILD_TIMEOUT: int = 120  # seconds for npm run build in checkpoint
 

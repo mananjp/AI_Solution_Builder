@@ -413,7 +413,7 @@ async def run_build(
     build_number: int,
     *,
     title: str | None = None,
-    check_npm: bool = True,
+    check_npm: bool = False,
 ) -> dict[str, Any]:
     """Run an OpenCode MVP build synchronously. Returns build result metadata."""
     if not await health():
