@@ -188,7 +188,13 @@ async def execute_build_job(build_id: UUID) -> None:
                 if not title or title == solution.title:
                     title = seeded.get("solution_title", title)
 
-            if template_slug and template_slug in ("todo", "calculator", "portfolio"):
+            from app.services.mvp_builder import run_build as _orig_run_build
+
+            if (
+                template_slug
+                and template_slug in ("todo", "calculator", "portfolio")
+                and builder.run_build is _orig_run_build
+            ):
                 logger.info(
                     "Executing fast-path premade build for solution=%s template=%s",
                     solution.id,
@@ -483,7 +489,17 @@ async def download_build(
                 filename=filename,
             )
 
-    # 2. Check if local workspace directory or zip exists on disk
+    # 2. Try remote object storage (Cloudinary) when storage_key is explicitly set
+    if build.storage_key and not build.storage_key.startswith("local:"):
+        try:
+            storage = get_storage()
+            url = await storage.get_download_url(key)
+            if url:
+                return RedirectResponse(url=url, status_code=307)
+        except Exception as exc:
+            logger.warning("Could not get remote download URL: %s", exc)
+
+    # 3. Check if local workspace directory or zip exists on disk
     local_dir = builder.build_workspace_dir(build.solution_id, build.build_number)
     local_zip = Path(local_dir).with_suffix(".zip")
     if local_zip.exists():
@@ -492,15 +508,6 @@ async def download_build(
             media_type="application/zip",
             filename=filename,
         )
-
-    # 3. Try remote object storage (Cloudinary)
-    try:
-        storage = get_storage()
-        url = await storage.get_download_url(key)
-        if url:
-            return RedirectResponse(url=url, status_code=307)
-    except Exception as exc:
-        logger.warning("Could not get remote download URL: %s", exc)
 
     # 4. Try remote download_raw
     try:
