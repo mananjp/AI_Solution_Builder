@@ -56,14 +56,16 @@ async def lifespan(app: FastAPI):
     await init_redis()
 
     # Create all tables if they don't exist (dev convenience — use Alembic in production)
-    async with engine.begin() as conn:
-        # Import all models so they register with Base.metadata
-        import app.models  # noqa: F401
+    try:
+        async with engine.begin() as conn:
+            # Import all models so they register with Base.metadata
+            import app.models  # noqa: F401
 
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        await conn.run_sync(Base.metadata.create_all)
-
-    logger.info("Database tables created/verified")
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database tables created/verified")
+    except Exception as exc:
+        logger.warning("Database create_all skipped or non-fatal error: %s", exc)
     yield
 
     # Shutdown

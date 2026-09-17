@@ -18,7 +18,7 @@ cd /app 2>/dev/null || true
 
 ROLE="${1:-${APP_ROLE:-app}}"
 : "${PORT:=3000}"
-: "${UVICORN_WORKERS:=2}"
+: "${UVICORN_WORKERS:=1}"
 # Debian slim images ship python3; python:3.12-slim also aliases `python`.
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
@@ -32,16 +32,29 @@ run_migrations() {
 }
 
 start_app() {
-  log "Starting FastAPI API on 127.0.0.1:8000 ..."
-  (uvicorn main:app --host 127.0.0.1 --port 8000 --workers "$UVICORN_WORKERS") &
+  log "Starting FastAPI API on 127.0.0.1:8000 with $UVICORN_WORKERS worker(s) ..."
+  ($PYTHON_BIN -m uvicorn main:app --host 127.0.0.1 --port 8000 --workers "$UVICORN_WORKERS") &
   API_PID=$!
+
+  log "Waiting for FastAPI to accept connections on 127.0.0.1:8000 ..."
+  for i in $(seq 1 45); do
+    if curl -fsS http://127.0.0.1:8000/ready >/dev/null 2>&1; then
+      log "FastAPI is ready."
+      break
+    fi
+    if ! kill -0 "$API_PID" 2>/dev/null; then
+      log "ERROR: FastAPI process (PID $API_PID) exited unexpectedly during startup!"
+      exit 1
+    fi
+    sleep 1
+  done
 
   log "Starting Next.js frontend on 0.0.0.0:${PORT} ..."
   (cd frontend && HOSTNAME=0.0.0.0 PORT="$PORT" node server.js) &
   NEXT_PID=$!
 
   trap 'log "Shutting down (API=$API_PID, Next=$NEXT_PID)..."; kill $API_PID $NEXT_PID 2>/dev/null || true; wait' INT TERM
-  wait
+  wait -n "$API_PID" "$NEXT_PID" 2>/dev/null || wait
 }
 
 start_builder() {
