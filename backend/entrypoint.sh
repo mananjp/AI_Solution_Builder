@@ -61,9 +61,23 @@ start_app() {
   if [ "$ENABLE_OPENCODE_SIDECAR" = "true" ]; then
     # Brief pause to let Next.js finish its initial compilation/cache warmup
     sleep 2
-    log "Starting OpenCode sidecar on 127.0.0.1:4096 (Node heap cap: 96MB) ..."
-    (cd /workspace 2>/dev/null || cd /app; NODE_OPTIONS="--max-old-space-size=96" opencode serve --port 4096 --hostname 127.0.0.1) &
+    log "Starting OpenCode sidecar on 0.0.0.0:4096 (with auto-restart supervisor) ..."
+    (
+      while true; do
+        cd /workspace 2>/dev/null || cd /app
+        NODE_OPTIONS="--max-old-space-size=256" opencode serve --port 4096 --hostname 0.0.0.0 2>&1 | sed 's/^/[opencode] /' || true
+        log "OpenCode sidecar exited; auto-restarting in 2s..."
+        sleep 2
+      done
+    ) &
     OPENCODE_PID=$!
+    for i in $(seq 1 15); do
+      if curl -fsS http://127.0.0.1:4096/global/health >/dev/null 2>&1; then
+        log "OpenCode sidecar is ready on :4096."
+        break
+      fi
+      sleep 1
+    done
   else
     log "OpenCode sidecar disabled (ENABLE_OPENCODE_SIDECAR=false) to conserve RAM."
   fi
@@ -92,9 +106,23 @@ start_api() {
 
   OPENCODE_PID=""
   if [ "$ENABLE_OPENCODE_SIDECAR" = "true" ]; then
-    log "Starting OpenCode sidecar on 127.0.0.1:4096 (Node heap cap: 96MB) ..."
-    (cd /workspace 2>/dev/null || cd /app; NODE_OPTIONS="--max-old-space-size=96" opencode serve --port 4096 --hostname 127.0.0.1) &
+    log "Starting OpenCode sidecar on 0.0.0.0:4096 (with auto-restart supervisor) ..."
+    (
+      while true; do
+        cd /workspace 2>/dev/null || cd /app
+        NODE_OPTIONS="--max-old-space-size=256" opencode serve --port 4096 --hostname 0.0.0.0 2>&1 | sed 's/^/[opencode] /' || true
+        log "OpenCode sidecar exited; auto-restarting in 2s..."
+        sleep 2
+      done
+    ) &
     OPENCODE_PID=$!
+    for i in $(seq 1 15); do
+      if curl -fsS http://127.0.0.1:4096/global/health >/dev/null 2>&1; then
+        log "OpenCode sidecar is ready on :4096."
+        break
+      fi
+      sleep 1
+    done
   else
     log "OpenCode sidecar disabled (ENABLE_OPENCODE_SIDECAR=false) to conserve RAM."
   fi

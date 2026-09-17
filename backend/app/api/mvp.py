@@ -188,13 +188,26 @@ async def execute_build_job(build_id: UUID) -> None:
                 if not title or title == solution.title:
                     title = seeded.get("solution_title", title)
 
-            result = await builder.run_build(
-                solution.id,
-                ai_state,
-                build.build_number,
-                title=title,
-                check_npm=settings.MVP_VERIFY_NPM,
-            )
+            if template_slug and template_slug in ("todo", "calculator", "portfolio"):
+                logger.info(
+                    "Executing fast-path premade build for solution=%s template=%s",
+                    solution.id,
+                    template_slug,
+                )
+                result = await builder.run_premade_build(
+                    solution.id,
+                    template_slug,
+                    build.build_number,
+                    title=title,
+                )
+            else:
+                result = await builder.run_build(
+                    solution.id,
+                    ai_state,
+                    build.build_number,
+                    title=title,
+                    check_npm=settings.MVP_VERIFY_NPM,
+                )
 
             # Re-fetch under row lock to guard against concurrent cancellation
             # (destroy_build may have set status='cancelled' in a separate session).

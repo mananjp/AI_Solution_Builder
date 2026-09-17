@@ -6,7 +6,9 @@ Covers database, Redis, JWT auth, pluggable LLM providers, rate limiting,
 and storage paths.
 """
 
-from pydantic import model_validator
+from typing import Any
+
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 # Placeholder values that must never be used as the JWT signing key in production.
@@ -116,7 +118,17 @@ class Settings(BaseSettings):
     AUTH_GOOGLE_CLIENT_ID: str = ""
     AUTH_GOOGLE_CLIENT_SECRET: str = ""
     ALLOW_ANONYMOUS_AUTH: bool = True
-    ANONYMOUS_CREDITS: int = 50
+    ANONYMOUS_CREDITS: int | None = None  # None = unlimited credits for demo accounts
+
+    @field_validator("ANONYMOUS_CREDITS", mode="before")
+    @classmethod
+    def parse_anonymous_credits(cls, v: Any) -> int | None:
+        if v is None or v == "" or str(v).lower() in ("none", "null", "unlimited"):
+            return None
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            return None
 
     @model_validator(mode="after")
     def enforce_production_secrets(self) -> "Settings":

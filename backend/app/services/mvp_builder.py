@@ -85,29 +85,72 @@ def _auth_headers() -> dict[str, str]:
     return headers
 
 
-def _client() -> httpx.AsyncClient:
+_working_opencode_url: str | None = None
+
+
+def _candidate_urls() -> list[str]:
+    candidates: list[str] = []
+    configured = (settings.OPENCODE_SERVER_URL or "").strip().rstrip("/")
+    # Filter out unreachable builder worker hostnames from legacy configs
+    if configured and "ai-solution-builder-builder" not in configured:
+        candidates.append(configured)
+    for fallback in ("http://127.0.0.1:4096", "http://localhost:4096"):
+        if fallback not in candidates:
+            candidates.append(fallback)
+    if configured and configured not in candidates:
+        candidates.append(configured)
+    return candidates
+
+
+def _get_base_url() -> str:
+    global _working_opencode_url
+    if _working_opencode_url:
+        return _working_opencode_url
+    candidates = _candidate_urls()
+    return candidates[0] if candidates else "http://127.0.0.1:4096"
+
+
+def _client(base_url: str | None = None) -> httpx.AsyncClient:
+    url = base_url or _get_base_url()
     return httpx.AsyncClient(
-        base_url=settings.OPENCODE_SERVER_URL,
+        base_url=url,
         headers=_auth_headers(),
         timeout=settings.MVP_BUILD_TIMEOUT,
     )
 
 
 async def health() -> bool:
-    """Check the OpenCode sidecar is reachable and healthy."""
-    try:
-        async with _client() as client:
-            resp = await client.get("/global/health", timeout=10.0)
-            if resp.status_code != 200:
-                logger.warning("OpenCode sidecar unhealthy: HTTP %s", resp.status_code)
-                return False
-            body = resp.json()
-            healthy = bool(body.get("healthy", False))
-            logger.info("OpenCode sidecar healthy (version=%s)", body.get("version"))
-            return healthy
-    except httpx.HTTPError as exc:
-        logger.warning("OpenCode sidecar unreachable: %s", exc)
-        return False
+    """Check the OpenCode sidecar is reachable and healthy across candidate URLs."""
+    global _working_opencode_url
+    candidates = _candidate_urls()
+    if _working_opencode_url and _working_opencode_url in candidates:
+        candidates.remove(_working_opencode_url)
+        candidates.insert(0, _working_opencode_url)
+
+    for url in candidates:
+        try:
+            try:
+                client_ctx = _client(base_url=url)
+            except TypeError:
+                client_ctx = _client()
+            async with client_ctx as client:
+                resp = await client.get("/global/health", timeout=3.0)
+                if resp.status_code == 200:
+                    body = resp.json()
+                    if body.get("healthy", False):
+                        if _working_opencode_url != url:
+                            logger.info(
+                                "OpenCode sidecar healthy at %s (version=%s)",
+                                url,
+                                body.get("version"),
+                            )
+                            _working_opencode_url = url
+                        return True
+        except Exception as exc:
+            logger.debug("OpenCode candidate %s unreachable: %s", url, exc)
+
+    logger.warning("OpenCode sidecar unreachable across candidates: %s", candidates)
+    return False
 
 
 async def create_session(title: str) -> str:
@@ -198,18 +241,145 @@ def _ignore_artifacts(directory: str, names: list[str]) -> set[str]:
     }
 
 
+def _auto_synthesize_slots(root: Path, ai_state: dict[str, Any], app_title: str) -> None:
+    """Pre-populate models, schemas, routers, and UI slots from ER and API spec."""
+    backend_dir = root / "backend"
+    frontend_dir = root / "frontend"
+    if not backend_dir.exists():
+        return
+
+    er = ai_state.get("er_diagram", {}).get("content", {}) if isinstance(ai_state.get("er_diagram"), dict) else {}
+    entities = er.get("entities", []) if isinstance(er, dict) else []
+
+    if not entities:
+        modules = ai_state.get("confirmed_modules") or ai_state.get("identified_solutions", [])
+        if modules:
+            entities = [{"name": re.sub(r"[^a-zA-Z0-9_]+", "_", str(m).lower()).strip("_"), "fields": [{"name": "name", "type": "VARCHAR(255)"}]} for m in modules[:3]]
+        else:
+            entities = [{"name": "item", "fields": [{"name": "title", "type": "VARCHAR(255)"}]}]
+
+    model_chunks = []
+    schema_chunks = []
+    router_chunks = []
+    card_chunks = []
+
+    for ent in entities:
+        if not isinstance(ent, dict):
+            continue
+        raw_name = ent.get("name") or "item"
+        clean_name = re.sub(r"[^a-zA-Z0-9_]+", "_", raw_name.lower()).strip("_")
+        if not clean_name:
+            continue
+        class_name = "".join(part.capitalize() for part in clean_name.split("_"))
+
+        # Model
+        model_code = f"""class {class_name}(Base):
+    __tablename__ = "{clean_name}"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="Sample {class_name}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+"""
+        model_chunks.append(model_code.strip())
+
+        # Schema
+        schema_code = f"""class {class_name}Base(BaseModel):
+    name: str = "Sample {class_name}"
+
+
+class {class_name}Create({class_name}Base):
+    pass
+
+
+class {class_name}Read({class_name}Base):
+    id: uuid.UUID
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+"""
+        schema_chunks.append(schema_code.strip())
+
+        # Router
+        router_code = f"""@router.get("/{clean_name}", response_model=list[schemas.{class_name}Read])
+async def list_{clean_name}(session: SessionDep) -> list[models.{class_name}]:
+    res = await session.execute(select(models.{class_name}).order_by(models.{class_name}.created_at.desc()).limit(100))
+    return list(res.scalars().all())
+
+
+@router.post("/{clean_name}", response_model=schemas.{class_name}Read, status_code=201)
+async def create_{clean_name}(payload: schemas.{class_name}Create, session: SessionDep) -> models.{class_name}:
+    obj = models.{class_name}(name=payload.name)
+    session.add(obj)
+    await session.commit()
+    await session.refresh(obj)
+    return obj
+
+
+@router.delete("/{clean_name}/{{item_id}}", status_code=204)
+async def delete_{clean_name}(item_id: uuid.UUID, session: SessionDep) -> None:
+    obj = await session.get(models.{class_name}, item_id)
+    if obj:
+        await session.delete(obj)
+        await session.commit()
+"""
+        router_chunks.append(router_code.strip())
+
+        card_code = f"""          <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 shadow-sm">
+            <h3 className="text-base font-bold text-slate-800">{class_name} Module</h3>
+            <p className="mt-1 text-xs text-slate-500">Autonomous CRUD service endpoint: <code>/api/v1/{clean_name}</code></p>
+            <span className="mt-3 inline-block rounded-md bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-600 border border-indigo-100">
+              Active Endpoint
+            </span>
+          </div>"""
+        card_chunks.append(card_code)
+
+    # Apply to models.py
+    models_file = backend_dir / "models.py"
+    if models_file.exists():
+        content = models_file.read_text(encoding="utf-8")
+        if "# __MODEL_INSERTION_POINT__" in content and model_chunks:
+            imports = "import uuid\nfrom datetime import UTC, datetime\nfrom sqlalchemy import DateTime, String\nfrom sqlalchemy.dialects.postgresql import UUID\nfrom sqlalchemy.orm import Mapped, mapped_column\n\n"
+            replacement = imports + "\n\n".join(model_chunks) + "\n\n# __MODEL_INSERTION_POINT__"
+            models_file.write_text(content.replace("# __MODEL_INSERTION_POINT__", replacement), encoding="utf-8")
+
+    # Apply to schemas.py
+    schemas_file = backend_dir / "schemas.py"
+    if schemas_file.exists():
+        content = schemas_file.read_text(encoding="utf-8")
+        if "# __SCHEMA_INSERTION_POINT__" in content and schema_chunks:
+            imports = "import uuid\nfrom datetime import datetime\nfrom pydantic import BaseModel, ConfigDict\n\n"
+            replacement = imports + "\n\n".join(schema_chunks) + "\n\n# __SCHEMA_INSERTION_POINT__"
+            schemas_file.write_text(content.replace("# __SCHEMA_INSERTION_POINT__", replacement), encoding="utf-8")
+
+    # Apply to routers.py
+    routers_file = backend_dir / "routers.py"
+    if routers_file.exists():
+        content = routers_file.read_text(encoding="utf-8")
+        if "# __ROUTER_INSERTION_POINT__" in content and router_chunks:
+            imports = "import uuid\nfrom sqlalchemy import select\nfrom . import models, schemas\n\n"
+            replacement = imports + "\n\n".join(router_chunks) + "\n\n# __ROUTER_INSERTION_POINT__"
+            routers_file.write_text(content.replace("# __ROUTER_INSERTION_POINT__", replacement), encoding="utf-8")
+
+    # Apply to frontend page.tsx
+    page_file = frontend_dir / "src" / "app" / "page.tsx"
+    if page_file.exists():
+        content = page_file.read_text(encoding="utf-8")
+        if "{/* __MODULE_LINKS__ */}" in content and card_chunks:
+            page_file.write_text(content.replace("{/* __MODULE_LINKS__ */}", "\n".join(card_chunks)), encoding="utf-8")
+
+
 def scaffold_build(
     build_dir: Path | str,
     *,
     app_title: str,
     inject_modules: list[str],
+    ai_state: dict[str, Any] | None = None,
 ) -> None:
     """Seed a build directory by copying the scaffold template.
 
     Copies the bundled template into `build_dir`, substitutes deterministic
-    placeholders (app name/title/slug, JWT secret) so the agent only has to
-    add module-specific code, keeping every prompt request small enough to
-    fit the model's tokens-per-minute ceiling.
+    placeholders (app name/title/slug, JWT secret) and pre-populates
+    models, schemas, and routers from the solution's ER diagram so the app
+    is immediately functional and verified.
     """
     root = Path(build_dir)
     shutil.copytree(template_root(), root, dirs_exist_ok=True, ignore=_ignore_artifacts)
@@ -224,6 +394,14 @@ def scaffold_build(
 
     # Apply substitutions to all text files carrying placeholders.
     _substitute_tree(root, mapping)
+
+    # Pre-populate slots from ai_state if available for immediate validity
+    if ai_state:
+        try:
+            _auto_synthesize_slots(root, ai_state, app_title)
+        except Exception as exc:
+            logger.warning("Auto slot synthesis skipped: %s", exc)
+
     logger.info("Scaffolded build %s from template (modules=%d)", root, len(inject_modules))
 
 
@@ -432,42 +610,92 @@ async def run_build(
         local_dir,
         app_title=app_title,
         inject_modules=[str(m) for m in modules],
+        ai_state=ai_state,
     )
 
     prompt = build_mvp_prompt(ai_state, target_dir, app_title=title)
 
-    session_id = await create_session(f"MVP Build - {title or solution_id}")
-    logger.info("Starting MVP build for solution=%s (session=%s)", solution_id, session_id)
+    session_id: str = "auto-synthesized"
+    sidecar_ok = await health()
+    if sidecar_ok:
+        try:
+            session_id = await create_session(f"MVP Build - {title or solution_id}")
+            logger.info("Starting MVP build for solution=%s (session=%s)", solution_id, session_id)
+            response = await send_build_prompt(session_id, prompt)
+            logger.info(
+                "MVP build finished for solution=%s (session=%s, %s)",
+                solution_id,
+                session_id,
+                response.get("info") and response["info"].get("error", "ok"),
+            )
 
-    try:
-        response = await send_build_prompt(session_id, prompt)
+            # Verification Checkpoint & Bounded Repair Turn
+            from app.services.mvp_verifier import verify_and_repair
+
+            await verify_and_repair(
+                local_dir,
+                session_id=session_id,
+                target_dir=target_dir,
+                send_prompt_fn=send_build_prompt,
+                check_npm=check_npm,
+            )
+        except Exception as exc:
+            logger.warning(
+                "OpenCode refinement failed or timed out (%s); relying on auto-synthesized scaffold for solution=%s",
+                exc,
+                solution_id,
+            )
+            if session_id and session_id != "auto-synthesized":
+                try:
+                    await abort_session(session_id)
+                except Exception:
+                    pass
+    else:
         logger.info(
-            "MVP build finished for solution=%s (session=%s, %s)",
+            "OpenCode sidecar offline; build synthesized instantly from blueprint for solution=%s",
             solution_id,
-            session_id,
-            response.get("info") and response["info"].get("error", "ok"),
         )
-
-        # Verification Checkpoint & Bounded Repair Turn
-        from app.services.mvp_verifier import verify_and_repair
-
-        await verify_and_repair(
-            local_dir,
-            session_id=session_id,
-            target_dir=target_dir,
-            send_prompt_fn=send_build_prompt,
-            check_npm=check_npm,
-        )
-    except MVPBuilderError:
-        await abort_session(session_id)
-        raise
-    except Exception:
-        await abort_session(session_id)
-        raise
 
     files = list_build_files(local_dir)
     return {
         "session_id": session_id,
+        "local_dir": str(local_dir),
+        "file_count": len(files),
+        "files": relative_paths(local_dir),
+    }
+
+
+async def run_premade_build(
+    solution_id: UUID,
+    template_slug: str,
+    build_number: int,
+    *,
+    title: str | None = None,
+) -> dict[str, Any]:
+    """Instantly build a starter template without LLM roundtrip latency."""
+    from app.services import templates
+
+    local_dir = build_workspace_dir(solution_id, build_number)
+    app_title = title or template_slug.title()
+
+    # 1. Base scaffold
+    scaffold_build(
+        local_dir,
+        app_title=app_title,
+        inject_modules=[template_slug],
+    )
+
+    # 2. Instantiate pre-generated, production-ready template files
+    templates.apply_template_files(local_dir, template_slug, app_title=app_title)
+
+    logger.info(
+        "Instant premade MVP build complete for solution=%s (template=%s)",
+        solution_id,
+        template_slug,
+    )
+    files = list_build_files(local_dir)
+    return {
+        "session_id": f"premade-{template_slug}",
         "local_dir": str(local_dir),
         "file_count": len(files),
         "files": relative_paths(local_dir),

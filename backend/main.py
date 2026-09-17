@@ -63,9 +63,18 @@ async def lifespan(app: FastAPI):
 
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables created/verified")
+
+            # Ensure all existing guest/demo accounts gain unlimited credits immediately
+            await conn.execute(
+                text(
+                    "UPDATE organizations SET credits_remaining = NULL "
+                    "WHERE id IN (SELECT org_id FROM users WHERE is_anonymous = TRUE OR email ILIKE '%demo%' OR email ILIKE '%guest%') "
+                    "OR name ILIKE '%guest%' OR name ILIKE '%demo%'"
+                )
+            )
+        logger.info("Database tables created/verified and demo accounts set to unlimited")
     except Exception as exc:
-        logger.warning("Database create_all skipped or non-fatal error: %s", exc)
+        logger.warning("Database setup non-fatal warning: %s", exc)
 
     # Force garbage collection to reclaim startup import and schema reflection memory
     import gc

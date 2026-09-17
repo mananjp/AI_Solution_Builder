@@ -66,7 +66,7 @@ class AnonymousAuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     is_anonymous: bool = True
-    credits_remaining: int = 50
+    credits_remaining: int | None = None
     user: UserResponse
 
 
@@ -92,7 +92,7 @@ class UserSettingsUpdate(BaseModel):
 class OrgResponse(BaseModel):
     id: UUID
     name: str
-    credits_remaining: int
+    credits_remaining: int | None = None
     created_at: datetime
 
     class Config:

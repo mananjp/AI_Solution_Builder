@@ -81,7 +81,7 @@ async def create_anonymous_user(db: AsyncSession = Depends(get_db)) -> Anonymous
     org = Organization(
         name=f"Guest Workspace ({guest_id})",
         plan_id=free_plan.id,
-        credits_remaining=settings.ANONYMOUS_CREDITS,
+        credits_remaining=settings.ANONYMOUS_CREDITS,  # None = unlimited credits
     )
     db.add(org)
     await db.flush()
@@ -391,13 +391,31 @@ async def login(payload: UserLogin, db: AsyncSession = Depends(get_db)) -> Token
             detail="Account is deactivated",
         )
 
+    user_email = (user.email or "").lower()
+    if user.is_anonymous or "demo" in user_email or "guest" in user_email:
+        if user.org_id:
+            org = await db.get(Organization, user.org_id)
+            if org and org.credits_remaining is not None:
+                org.credits_remaining = None
+                await db.commit()
+
     token = create_access_token(data={"sub": str(user.id)})
     return TokenResponse(access_token=token)
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(current_user: User = Depends(get_current_user)) -> User:
+async def get_me(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
     """Return the currently authenticated user's profile."""
+    user_email = (current_user.email or "").lower()
+    if current_user.is_anonymous or "demo" in user_email or "guest" in user_email:
+        if current_user.org_id:
+            org = await db.get(Organization, current_user.org_id)
+            if org and org.credits_remaining is not None:
+                org.credits_remaining = None
+                await db.commit()
     return current_user
 
 

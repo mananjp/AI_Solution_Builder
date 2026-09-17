@@ -256,7 +256,7 @@ export interface AnonymousAuthResponse {
   access_token: string;
   token_type: string;
   is_anonymous: boolean;
-  credits_remaining: number;
+  credits_remaining: number | null;
   user: User;
 }
 

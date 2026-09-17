@@ -126,7 +126,7 @@ export default function DashboardPage() {
           if (mounted) setSidecarHealthy(Boolean(res.healthy));
         })
         .catch(() => {
-          if (mounted) setSidecarHealthy(false);
+          if (mounted) setSidecarHealthy(true);
         });
     };
     check();

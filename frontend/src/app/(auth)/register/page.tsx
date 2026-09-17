@@ -258,7 +258,7 @@ export default function RegisterPage() {
                 className="w-full py-2.5 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 text-indigo-300 text-xs font-semibold flex items-center justify-center gap-2 transition-all disabled:opacity-50"
               >
                 <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Try Demo As Guest (50 Credits)</span>
+                <span>Try Demo As Guest (Unlimited Credits)</span>
               </button>
             </>
           )}

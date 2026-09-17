@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -13,11 +13,19 @@ import {
   Rocket,
   Wrench,
 } from 'lucide-react';
-import { authApi } from '@/lib/api';
+import { authApi, billingApi } from '@/lib/api';
+import { BillingUsage, User } from '@/types';
 
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const [usage, setUsage] = useState<BillingUsage | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    billingApi.getUsage().then(setUsage).catch(() => undefined);
+    authApi.me().then(setCurrentUser).catch(() => undefined);
+  }, [pathname]);
 
   const navItems = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -32,6 +40,18 @@ export default function Sidebar() {
     authApi.logout();
     router.push('/login');
   };
+
+  const isDemo =
+    currentUser?.is_anonymous ||
+    (currentUser?.email && (currentUser.email.includes('demo') || currentUser.email.includes('guest'))) ||
+    usage?.plan_name === 'Demo Unlimited';
+  const isUnlimited = isDemo || usage?.current_balance == null;
+  const creditDisplay = isUnlimited
+    ? 'Unlimited'
+    : `${(usage?.current_balance || 0).toLocaleString()} / ${(usage?.monthly_limit || 10000).toLocaleString()}`;
+  const fillPercent = isUnlimited
+    ? 100
+    : Math.max(5, Math.min(100, Math.round(((usage?.current_balance || 0) / (usage?.monthly_limit || 10000)) * 100)));
 
   return (
     <aside className="w-64 h-screen bg-[#0b0f19] border-r border-white/5 flex flex-col justify-between p-4 fixed left-0 top-0 z-40">
@@ -82,10 +102,19 @@ export default function Sidebar() {
         <div className="p-3 rounded-xl bg-gradient-to-br from-indigo-950/40 to-slate-900/60 border border-indigo-500/20">
           <div className="flex items-center justify-between text-xs mb-1.5">
             <span className="text-slate-400">Monthly AI Credits</span>
-            <span className="text-indigo-300 font-semibold">8,500 / 10,000</span>
+            <span className={isUnlimited ? "text-emerald-400 font-semibold" : "text-indigo-300 font-semibold"}>
+              {creditDisplay}
+            </span>
           </div>
           <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-indigo-500 to-cyan-400 rounded-full" style={{ width: '85%' }} />
+            <div
+              className={`h-full rounded-full transition-all duration-300 ${
+                isUnlimited
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                  : 'bg-gradient-to-r from-indigo-500 to-cyan-400'
+              }`}
+              style={{ width: `${fillPercent}%` }}
+            />
           </div>
           <p className="text-[11px] text-slate-500 mt-2 flex items-center justify-between">
             <span>Enterprise Engine</span>

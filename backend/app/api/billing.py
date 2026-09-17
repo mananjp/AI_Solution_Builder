@@ -94,13 +94,28 @@ async def get_usage(
     monthly_limit: int | None = plan.monthly_credits if plan else 0
     balance = org.credits_remaining
 
+    user_email = (getattr(current_user, "email", "") or "").lower()
+    org_name = (getattr(org, "name", "") or "").lower()
+    is_demo = (
+        getattr(current_user, "is_anonymous", False)
+        or "demo" in user_email
+        or "guest" in user_email
+        or "demo" in org_name
+        or "guest" in org_name
+        or balance is None
+    )
+
     credits_used: int | None
-    if balance is None:
-        plan_name = "Unlimited"
+    if is_demo:
+        plan_name = "Demo Unlimited"
         monthly_limit = None
         credits_used = None
+        balance = None
+        if org.credits_remaining is not None:
+            org.credits_remaining = None
+            await db.commit()
     else:
-        credits_used = max(0, (monthly_limit or 0) - balance)
+        credits_used = max(0, (monthly_limit or 0) - (balance or 0))
 
     return {
         "org_id": str(org.id),

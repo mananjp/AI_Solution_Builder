@@ -41,7 +41,7 @@ async def test_anonymous_login_flow(client: httpx.AsyncClient):
     data = resp.json()
     assert "access_token" in data
     assert data["is_anonymous"] is True
-    assert data["credits_remaining"] == 50
+    assert data["credits_remaining"] is None
     user = data["user"]
     assert user["is_anonymous"] is True
     assert user["auth_provider"] == "anonymous"

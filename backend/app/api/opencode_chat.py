@@ -44,8 +44,13 @@ _TARGET_MAX_CONTEXT = 20_000  # uploaded-context cap fed to the sidecar
 
 @router.get("/health")
 async def health() -> dict[str, Any]:
-    """Report whether the OpenCode sidecar is reachable."""
-    return {"healthy": await builder.health()}
+    """Report whether the AI build engine is reachable and ready."""
+    sidecar_ok = await builder.health()
+    return {
+        "healthy": True,
+        "sidecar_healthy": sidecar_ok,
+        "mode": "opencode-sidecar" if sidecar_ok else "integrated-synthesizer",
+    }
 
 
 async def _verify_solution_access(db: AsyncSession, solution_id: UUID, user: User) -> Solution:

@@ -48,12 +48,16 @@ services:
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
+      - key: ENABLE_OPENCODE_SIDECAR
+        value: "true"
       - key: OPENCODE_SERVER_URL
-        value: http://ai-solution-builder-builder:4096
+        value: http://127.0.0.1:4096
       - key: OPENCODE_SERVER_PASSWORD
         sync: false
       - key: OPENCODE_MODEL
         value: groq/openai/gpt-oss-120b
+      - key: MVP_BUILD_DIR
+        value: /workspace
       - key: MVP_BUILD_TIMEOUT
         value: "600"
       - key: MVP_VERIFY_INSTALL_TIMEOUT
@@ -65,7 +69,7 @@ services:
       - key: ALLOW_ANONYMOUS_AUTH
         value: "true"
       - key: ANONYMOUS_CREDITS
-        value: "50"
+        value: ""
       - key: CORS_ORIGINS
         value: https://ai-solution-builder-app.onrender.com
 

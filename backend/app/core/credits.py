@@ -76,10 +76,21 @@ async def require_and_deduct_credit(
     if org is None:
         raise HTTPException(status_code=404, detail="Organization not found")
 
-    # NULL balance = unlimited credits; skip metering entirely.
-    if org.credits_remaining is None:
+    # Demo/guest account or NULL balance = unlimited credits; skip metering entirely.
+    user_email = (getattr(user, "email", "") or "").lower()
+    org_name = (getattr(org, "name", "") or "").lower()
+    is_demo = (
+        getattr(user, "is_anonymous", False)
+        or "demo" in user_email
+        or "guest" in user_email
+        or "demo" in org_name
+        or "guest" in org_name
+        or org.credits_remaining is None
+    )
+    if is_demo:
         logger.info(
-            "Credit gating skipped (unlimited) org=%s action=%s cost=%s",
+            "Credit gating skipped (unlimited) user=%s org=%s action=%s cost=%s",
+            user_email,
             org.id,
             action,
             cost,
