@@ -7,6 +7,7 @@ URL. Fail-open: raises DeployError with a human-readable message on any
 GitHub/network failure.
 """
 
+import asyncio
 import json
 import logging
 import zipfile
@@ -217,8 +218,8 @@ async def deploy_to_github(
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        # 1. Create the repository.
+    async with httpx.AsyncClient(timeout=45.0) as client:
+        # 1. Create the repository or discover existing one.
         create_resp = await client.post(
             f"{GH_API_BASE}/user/repos",
             headers=headers,
@@ -229,47 +230,97 @@ async def deploy_to_github(
                 "auto_init": False,
             },
         )
-        if create_resp.status_code not in (200, 201):
+
+        owner = None
+        default_branch = "main"
+
+        if create_resp.status_code in (200, 201):
+            owner = create_resp.json()["owner"]["login"]
+            default_branch = create_resp.json().get("default_branch", "main")
+        elif create_resp.status_code == 422 and "already exists" in create_resp.text:
+            # Repository already exists on this account — reuse and update it cleanly!
+            user_resp = await client.get(f"{GH_API_BASE}/user", headers=headers)
+            if user_resp.status_code == 200:
+                owner = user_resp.json().get("login")
+            if not owner:
+                owner = repo_name.split("/")[0] if "/" in repo_name else "user"
+            repo_get = await client.get(f"{GH_API_BASE}/repos/{owner}/{repo_name}", headers=headers)
+            if repo_get.status_code in (200, 201):
+                default_branch = repo_get.json().get("default_branch", "main")
+            logger.info("Target repo %s/%s already exists; updating in-place", owner, repo_name)
+        else:
             raise DeployError(
                 f"Repo create failed ({create_resp.status_code}): {create_resp.text[:300]}"
             )
 
-        owner = create_resp.json()["owner"]["login"]
-        default_branch = create_resp.json().get("default_branch", "main")
-
-        # 2. Push one file (README) to initialize the default branch ref.
+        # 2. Push one file (README) to ensure the default branch ref exists.
         readme = files.get("README.md", "# Auto-generated solution\n")
         ref_url = f"{GH_API_BASE}/repos/{owner}/{repo_name}/contents/README.md"
-        readme_resp = await client.put(
-            ref_url,
-            headers=headers,
-            json={
-                "message": "Initial deploy by AI Solution Builder",
-                "content": _b64(readme.encode("utf-8")),
-            },
-        )
+        readme_payload: dict[str, Any] = {
+            "message": "Initial deploy by AI Solution Builder",
+            "content": _b64(readme.encode("utf-8")),
+        }
+        readme_resp = await client.put(ref_url, headers=headers, json=readme_payload)
+        if readme_resp.status_code in (409, 422):
+            # File exists; query sha and overwrite
+            existing_file = await client.get(
+                ref_url, headers=headers, params={"ref": default_branch}
+            )
+            if existing_file.status_code == 200:
+                readme_payload["sha"] = existing_file.json().get("sha")
+                readme_payload["branch"] = default_branch
+                readme_resp = await client.put(ref_url, headers=headers, json=readme_payload)
+
         if readme_resp.status_code not in (200, 201):
             raise DeployError(
                 f"Initial commit failed ({readme_resp.status_code}): {readme_resp.text[:300]}"
             )
 
-        # 3. Push the remaining files onto the default branch.
+        # 3. Query existing tree so we have all file SHAs in 1 single call
+        existing_shas: dict[str, str] = {}
+        if hasattr(client, "get"):
+            try:
+                tree_resp = await client.get(
+                    f"{GH_API_BASE}/repos/{owner}/{repo_name}/git/trees/{default_branch}?recursive=1",
+                    headers=headers,
+                )
+                if tree_resp.status_code == 200:
+                    existing_shas = {
+                        item["path"]: item["sha"]
+                        for item in tree_resp.json().get("tree", [])
+                        if item.get("type") == "blob"
+                    }
+            except Exception:
+                pass
+
+        # 4. Push the remaining files concurrently with bounded semaphore for fast deployment
+        semaphore = asyncio.Semaphore(6)
         remaining = {name: content for name, content in files.items() if name != "README.md"}
-        for name, content in remaining.items():
-            path = f"{GH_API_BASE}/repos/{owner}/{repo_name}/contents/{name}"
-            response = await client.put(
-                path,
-                headers=headers,
-                json={
-                    "message": f"Add {name}",
+
+        async def _push_single_file(name: str, content: str) -> None:
+            async with semaphore:
+                path = f"{GH_API_BASE}/repos/{owner}/{repo_name}/contents/{name}"
+                payload: dict[str, Any] = {
+                    "message": f"Update {name}" if name in existing_shas else f"Add {name}",
                     "content": _b64(content.encode("utf-8")),
                     "branch": default_branch,
-                },
-            )
-            if response.status_code not in (200, 201):
-                raise DeployError(
-                    f"Push of {name} failed ({response.status_code}): {response.text[:300]}"
-                )
+                }
+                if name in existing_shas:
+                    payload["sha"] = existing_shas[name]
+
+                resp = await client.put(path, headers=headers, json=payload)
+                if resp.status_code in (409, 422) and name not in existing_shas:
+                    cur = await client.get(path, headers=headers, params={"ref": default_branch})
+                    if cur.status_code == 200:
+                        payload["sha"] = cur.json().get("sha")
+                        resp = await client.put(path, headers=headers, json=payload)
+
+                if resp.status_code not in (200, 201):
+                    raise DeployError(
+                        f"Push of {name} failed ({resp.status_code}): {resp.text[:300]}"
+                    )
+
+        await asyncio.gather(*[_push_single_file(n, c) for n, c in remaining.items()])
 
         repo_url = f"https://github.com/{owner}/{repo_name}"
         clone_url = f"https://github.com/{owner}/{repo_name}.git"

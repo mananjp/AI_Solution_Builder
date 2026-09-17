@@ -244,6 +244,10 @@ class _FakeGithubClient:
         self.calls.append(("put", {"url": url, "json": json}))
         return _FakeResponse(201, {})
 
+    async def get(self, url, headers=None, **kwargs):
+        self.calls.append(("get", {"url": url}))
+        return _FakeResponse(404, {})
+
 
 class _FakeResponse:
     def __init__(self, status_code: int, payload: dict) -> None:
