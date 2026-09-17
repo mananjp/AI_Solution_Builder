@@ -216,6 +216,8 @@ export interface MVPBuild {
   error_message?: string | null;
   repo_url?: string | null;
   render_service_url?: string | null;
+  frontend_url?: string | null;
+  backend_url?: string | null;
   render_dashboard_url?: string | null;
   render_deploy_url?: string | null;
   files?: MVPFileEntry[];
@@ -243,6 +245,8 @@ export interface MVPDeployResult {
   render_blueprint: string;
   render_service_id?: string | null;
   render_service_url?: string | null;
+  frontend_url?: string | null;
+  backend_url?: string | null;
   render_dashboard_url?: string | null;
   render_deploy_url?: string | null;
 }

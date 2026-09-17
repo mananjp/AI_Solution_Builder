@@ -285,6 +285,8 @@ class MVPBuildResponse(BaseModel):
     error_message: str | None = None
     repo_url: str | None = None
     render_service_url: str | None = None
+    frontend_url: str | None = None
+    backend_url: str | None = None
     render_dashboard_url: str | None = None
     render_deploy_url: str | None = None
     files: list[MVPFileEntry] = []

@@ -8,6 +8,9 @@ os.environ.setdefault("LLM_PROVIDER", "mock")
 os.environ["STORAGE_BACKEND"] = "local"
 # Isolate sidecar auth header tests from any developer .env OPENCODE_SERVER_PASSWORD.
 os.environ["OPENCODE_SERVER_PASSWORD"] = ""
+# Isolate deployment tests from developer credentials in .env.
+os.environ["GITHUB_TOKEN"] = ""
+os.environ["RENDER_API_KEY"] = ""
 
 import httpx
 import pytest_asyncio
@@ -19,6 +22,9 @@ import app.models  # noqa: F401  (registers all tables on Base.metadata)
 from app.core.config import settings
 from app.core.database import Base, get_db, normalize_database_url
 from app.core.database import engine as app_engine
+
+settings.GITHUB_TOKEN = ""
+settings.RENDER_API_KEY = ""
 from main import app
 
 

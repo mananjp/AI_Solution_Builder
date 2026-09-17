@@ -136,6 +136,7 @@ def _build_response(build: MVPBuild, include_files: bool = False) -> MVPBuildRes
     if not render_deploy_url and build.repo_url:
         render_deploy_url = get_1click_deploy_url(build.repo_url)
 
+    fe_url = app_config.get("frontend_url") or app_config.get("render_service_url")
     return MVPBuildResponse(
         build_id=build.id,
         solution_id=build.solution_id,
@@ -145,7 +146,9 @@ def _build_response(build: MVPBuild, include_files: bool = False) -> MVPBuildRes
         file_count=build.file_count,
         error_message=build.error_message,
         repo_url=build.repo_url,
-        render_service_url=app_config.get("render_service_url"),
+        render_service_url=fe_url,
+        frontend_url=fe_url,
+        backend_url=app_config.get("backend_url"),
         render_dashboard_url=app_config.get("render_dashboard_url"),
         render_deploy_url=render_deploy_url,
         files=files,
@@ -556,12 +559,14 @@ async def deploy_build(
 
     raw_token = str((current_user.settings or {}).get("github_token", ""))
     gh_token = decrypt_secret(raw_token) if raw_token else ""
+    if not gh_token and settings.GITHUB_TOKEN:
+        gh_token = settings.GITHUB_TOKEN
     if not gh_token:
         raise HTTPException(
             status_code=400,
             detail=(
-                "No GitHub token configured on your profile. Save one via "
-                "PATCH /api/v1/auth/me/settings, then retry."
+                "No GitHub token configured on your profile or server environment. "
+                "Save one via PATCH /api/v1/auth/me/settings, then retry."
             ),
         )
 
@@ -615,13 +620,17 @@ async def deploy_build(
     except DeployError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    # Check if user has saved a Render API key
+    # Check if user has saved a Render API key, or fallback to server environment
     raw_render_token = str((current_user.settings or {}).get("render_api_key", ""))
     render_token = decrypt_secret(raw_render_token) if raw_render_token else ""
+    if not render_token and settings.RENDER_API_KEY:
+        render_token = settings.RENDER_API_KEY
 
     render_deploy_url = get_1click_deploy_url(result["url"])
     render_service_id = None
     render_service_url = None
+    frontend_url = None
+    backend_url = None
     render_dashboard_url = None
     render_msg = "Connected on Render via render.yaml in repo root"
 
@@ -634,7 +643,9 @@ async def deploy_build(
                 branch=result.get("branch", "main"),
             )
             render_service_id = r_res.get("service_id")
-            render_service_url = r_res.get("service_url")
+            frontend_url = r_res.get("frontend_url") or r_res.get("service_url")
+            backend_url = r_res.get("backend_url")
+            render_service_url = frontend_url
             render_dashboard_url = r_res.get("dashboard_url")
             if r_res.get("deploy_url"):
                 render_deploy_url = r_res["deploy_url"]
@@ -650,6 +661,8 @@ async def deploy_build(
         "repo_url": result["url"],
         "render_service_id": render_service_id,
         "render_service_url": render_service_url,
+        "frontend_url": frontend_url or render_service_url,
+        "backend_url": backend_url,
         "render_dashboard_url": render_dashboard_url,
         "render_deploy_url": render_deploy_url,
     }
@@ -662,6 +675,8 @@ async def deploy_build(
         "render_blueprint": render_msg,
         "render_service_id": render_service_id,
         "render_service_url": render_service_url,
+        "frontend_url": frontend_url or render_service_url,
+        "backend_url": backend_url,
         "render_dashboard_url": render_dashboard_url,
         "render_deploy_url": render_deploy_url,
     }
@@ -682,12 +697,16 @@ async def destroy_preview(
     if service_id:
         raw_render_token = str((current_user.settings or {}).get("render_api_key", ""))
         render_token = decrypt_secret(raw_render_token) if raw_render_token else ""
+        if not render_token and settings.RENDER_API_KEY:
+            render_token = settings.RENDER_API_KEY
         if render_token:
             r_client = RenderDeployer(render_token)
             destroyed = await r_client.destroy_service(service_id)
 
         app_config.pop("render_service_id", None)
         app_config.pop("render_service_url", None)
+        app_config.pop("frontend_url", None)
+        app_config.pop("backend_url", None)
         app_config.pop("render_dashboard_url", None)
         build.app_config = app_config
         await db.commit()

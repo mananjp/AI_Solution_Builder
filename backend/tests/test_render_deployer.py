@@ -141,8 +141,64 @@ async def test_deploy_repo_success(monkeypatch):
     assert res["status"] == "deployed"
     assert res["service_id"] == "srv-prod-456"
     assert res["service_url"] == "https://demo-app-web.onrender.com"
+    assert res["frontend_url"] == "https://demo-app-web.onrender.com"
     assert res["dashboard_url"] == "https://dashboard.render.com/web/srv-prod-456"
     assert res["deploy_url"] == "https://render.com/deploy?repo=https://github.com/user/demo-app"
+
+
+@pytest.mark.asyncio
+async def test_deploy_repo_existing_service(monkeypatch):
+    deploys_triggered = []
+
+    class _FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def get(self, url, params=None, **kwargs):
+            if "owners" in url:
+                return _FakeRenderResponse(200, [{"owner": {"id": "usr-123"}}])
+            if "services" in url:
+                name = (params or {}).get("name", "")
+                return _FakeRenderResponse(
+                    200,
+                    [
+                        {
+                            "service": {
+                                "id": f"srv-{name}",
+                                "name": name,
+                                "dashboardUrl": f"https://dashboard.render.com/web/srv-{name}",
+                                "serviceDetails": {
+                                    "url": f"https://{name}.onrender.com",
+                                },
+                            }
+                        }
+                    ],
+                )
+            return _FakeRenderResponse(404)
+
+        async def post(self, url, json=None, **kwargs):
+            if "deploys" in url:
+                deploys_triggered.append(url)
+                return _FakeRenderResponse(201, {"id": "dep-new-123"})
+            return _FakeRenderResponse(500)
+
+    monkeypatch.setattr(
+        "app.services.render_deployer.httpx.AsyncClient", lambda *a, **k: _FakeClient()
+    )
+
+    deployer = RenderDeployer("rnd_secret_token")
+    res = await deployer.deploy_repo(
+        repo_url="https://github.com/user/existing-app",
+        repo_name="existing-app",
+    )
+
+    assert res["status"] == "deployed"
+    assert res["frontend_url"] == "https://existing-app.onrender.com"
+    assert res["service_url"] == "https://existing-app.onrender.com"
+    assert len(deploys_triggered) >= 1
 
 
 @pytest.mark.asyncio

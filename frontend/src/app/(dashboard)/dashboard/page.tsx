@@ -235,7 +235,8 @@ export default function DashboardPage() {
 
   const handleDeployed = (result: MVPDeployResult | string) => {
     const repoUrl = typeof result === 'string' ? result : result.repo_url;
-    const renderUrl = typeof result === 'string' ? null : result.render_service_url;
+    const renderUrl = typeof result === 'string' ? null : (result.frontend_url || result.render_service_url);
+    const backendUrl = typeof result === 'string' ? null : result.backend_url;
     const renderDash = typeof result === 'string' ? null : result.render_dashboard_url;
     const renderDeploy = typeof result === 'string' ? null : result.render_deploy_url;
     setBuilds((prev) =>
@@ -245,6 +246,8 @@ export default function DashboardPage() {
               ...b,
               repo_url: repoUrl,
               render_service_url: renderUrl,
+              frontend_url: renderUrl,
+              backend_url: backendUrl,
               render_dashboard_url: renderDash,
               render_deploy_url: renderDeploy,
             }

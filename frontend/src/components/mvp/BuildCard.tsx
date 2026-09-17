@@ -12,6 +12,7 @@ import {
   Loader2,
   PowerOff,
   Rocket,
+  Server,
   Settings2,
   Sparkles,
   Trash2,
@@ -225,10 +226,10 @@ export function DeployModal({
             </div>
 
             <div className="space-y-2.5">
-              {/* Live Render App Link */}
-              {deployResult.render_service_url && (
+              {/* Live Render Frontend App Link */}
+              {(deployResult.frontend_url || deployResult.render_service_url) && (
                 <a
-                  href={deployResult.render_service_url}
+                  href={(deployResult.frontend_url || deployResult.render_service_url)!}
                   target="_blank"
                   rel="noreferrer"
                   className="flex items-center justify-between p-3.5 rounded-2xl bg-gradient-to-r from-emerald-950/60 to-slate-900 border border-emerald-500/30 hover:border-emerald-500/60 text-emerald-200 transition-all hover:scale-[1.01] shadow-lg group"
@@ -239,17 +240,36 @@ export function DeployModal({
                     </div>
                     <div>
                       <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                        <span>Live Application</span>
+                        <span>Live Frontend Application</span>
                         <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-emerald-500/20 text-emerald-300 uppercase tracking-wider">
                           Ready
                         </span>
                       </div>
                       <p className="text-[11px] text-emerald-400/80 font-mono mt-0.5 truncate max-w-xs">
-                        {deployResult.render_service_url}
+                        {deployResult.frontend_url || deployResult.render_service_url}
                       </p>
                     </div>
                   </div>
                   <ExternalLink className="w-4 h-4 text-emerald-400 opacity-80 group-hover:opacity-100" />
+                </a>
+              )}
+
+              {/* Backend API Swagger Docs */}
+              {deployResult.backend_url && (
+                <a
+                  href={`${deployResult.backend_url}/docs`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-teal-500/20 hover:border-teal-500/50 text-slate-200 transition-all hover:scale-[1.01]"
+                >
+                  <div className="flex items-center gap-2.5 text-xs font-medium">
+                    <Server className="w-3.5 h-3.5 text-teal-400" />
+                    <span>Backend API (FastAPI Swagger Docs):</span>
+                    <span className="font-mono text-teal-300 truncate max-w-[200px]">
+                      {deployResult.backend_url}/docs
+                    </span>
+                  </div>
+                  <ExternalLink className="w-3.5 h-3.5 text-teal-400" />
                 </a>
               )}
 
@@ -487,9 +507,9 @@ export function BuildCard({
         </div>
 
         <div className="flex items-center gap-2">
-          {build.render_service_url && (
+          {(build.frontend_url || build.render_service_url) && (
             <a
-              href={build.render_service_url}
+              href={(build.frontend_url || build.render_service_url)!}
               target="_blank"
               rel="noreferrer"
               className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/25 transition-all shadow-sm shadow-emerald-500/10"
@@ -521,16 +541,29 @@ export function BuildCard({
       <div className="flex items-center gap-2 flex-wrap pt-1">
         {build.status === 'complete' && (
           <>
-            {/* Direct link to live app if provisioned on Render */}
-            {build.render_service_url && (
+            {/* Direct link to live frontend app */}
+            {(build.frontend_url || build.render_service_url) && (
               <a
-                href={build.render_service_url}
+                href={(build.frontend_url || build.render_service_url)!}
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white text-xs font-semibold shadow-md shadow-emerald-600/20 transition-all hover:scale-105"
               >
                 <Globe className="w-3.5 h-3.5" />
-                <span>Open Live App</span>
+                <span>Open Live Frontend</span>
+              </a>
+            )}
+
+            {/* Direct link to backend API Swagger docs if available */}
+            {build.backend_url && (
+              <a
+                href={`${build.backend_url}/docs`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-500/10 hover:bg-teal-500/20 text-xs font-semibold text-teal-300 border border-teal-500/20 transition-colors"
+              >
+                <Server className="w-3.5 h-3.5" />
+                <span>API Docs</span>
               </a>
             )}
 
