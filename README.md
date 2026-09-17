@@ -22,49 +22,108 @@ Unlike tools that merely produce mockups or static documentation, AI Solution Bu
 ## 🏗 System Architecture
 
 ```mermaid
-flowchart TB
-    subgraph Clients["Clients"]
-        Web["Web · PWA · Mobile<br/>(Next.js 16 + Capacitor)"]
-    end
+flowchart TD
 
-    subgraph Backend["Backend — FastAPI :8000"]
-        MW["Middleware: RequestID · Audit Log · Rate Limit · Metrics · Language"]
-        Ingest["Ingestion<br/>text · PDF · DOCX · CSV · URL · OpenAPI"]
-        Agents["LangGraph Multi-Agent Core<br/>BA → Recommendation → Architect → UX → Process → DB/API → Code Synth"]
-        Workable["Workable Runtime<br/>schema provisioning + RLS<br/>dynamic headless REST + interactive sandbox"]
-        MVPAPI["OpenCode MVP Builder API<br/>templates · build · configure · deploy"]
-        Export["Exporters<br/>PDF · DOCX · XLSX · PPTX · Figma"]
-    end
+subgraph group_client["Client surfaces"]
+  node_web["Next.js dashboard<br/>web client<br/>[page.tsx]"]
+  node_api_client["API client<br/>frontend integration<br/>[api.ts]"]
+  node_android["Android shell<br/>Capacitor app<br/>[MainActivity.java]"]
+end
 
-    subgraph Sidecar["OpenCode Sidecar — Docker :4096"]
-        OC["headless opencode serve<br/>agent: mvp-builder<br/>model: opencode/big-pickle"]
-    end
+subgraph group_api["API and governance"]
+  node_fastapi["FastAPI API<br/>HTTP service<br/>[main.py]"]
+  node_identity["Identity and controls<br/>security layer<br/>[security.py]"]
+  node_mvp_api["MVP lifecycle API<br/>route module<br/>[mvp.py]"]
+end
 
-    subgraph Vol["Shared Docker Volume · mvp_workspace"]
-        WS[".data/mvp_builds/&lt;solution&gt;/build_&lt;n&gt;/"]
-    end
+subgraph group_design["Design pipeline"]
+  node_ingestion["Document and URL ingestion<br/>context normalization<br/>[parser.py]"]
+  node_agent_graph{{"Solution design graph<br/>LangGraph workflow<br/>[graph.py]"}}
+  node_architecture["Architecture and API design<br/>agent stages"]
+  node_llm["LLM provider boundary<br/>AI integration<br/>[llm.py]"]
+end
 
-    subgraph Data["Data Stores"]
-        PG[("PostgreSQL 16 + pgvector<br/>tenant RLS")]
-        Redis[("Redis 7<br/>rate limit · cache · queues")]
-    end
+subgraph group_runtime["Workable and MVP build"]
+  node_workable_api["Dynamic Workable API<br/>runtime endpoints<br/>[workable.py]"]
+  node_provisioner["Schema provisioner<br/>tenant runtime setup"]
+  node_synthetic_data["Synthetic data service<br/>preview data<br/>[synthetic.py]"]
+  node_worker["Durable build worker<br/>background consumer<br/>[worker.py]"]
+  node_mvp_builder["MVP builder<br/>project generator<br/>[mvp_builder.py]"]
+  node_opencode{{"OpenCode sidecar<br/>internal code generator<br/>[mvp-builder.md]"}}
+  node_workspace["Generated source workspace<br/>shared volume"]
+  node_deployment["GitHub and Render deployment<br/>deployment service<br/>[deployer.py]"]
+end
 
-    GH["GitHub — fresh repo<br/>render.yaml · CI · ..."]
-    Render["Render.com<br/>blueprint auto-deploy"]
+subgraph group_infra["Infrastructure"]
+  node_postgres[("PostgreSQL + pgvector<br/>system of record<br/>[database.py]")]
+  node_redis["Redis<br/>cache and queue<br/>[redis.py]"]
+  node_compose["Container topology<br/>local orchestration<br/>[docker-compose.yml]"]
+end
 
-    Web -->|"HTTPS /api/v1 · JWT · RBAC"| Backend
-    Ingest --> Agents
-    Agents -->|"ai_state (HLD · LLD · ER · API · DDL)"| Workable
-    Agents --> PG
-    Workable --> PG
-    Export --> PG
-    Backend --> Redis
-    MVPAPI -->|httpx /session| OC
-    OC -->|writes generated source| WS
-    WS -->|"read · download · deploy"| MVPAPI
-    MVPAPI -->|"POST /mvp/builds/{id}/deploy (user GitHub PAT)"| GH
-    GH --> Render
+node_web -->|"uses"| node_api_client
+node_android -->|"hosts"| node_web
+node_api_client -->|"/api/v1"| node_fastapi
+node_fastapi -->|"enforces"| node_identity
+node_fastapi -->|"persists state"| node_postgres
+node_fastapi -->|"cache and rate limits"| node_redis
+node_fastapi -->|"accepts sources"| node_ingestion
+node_ingestion -->|"normalized context"| node_agent_graph
+node_agent_graph -->|"design stages"| node_architecture
+node_agent_graph -->|"model calls"| node_llm
+node_architecture -->|"solution artifacts"| node_postgres
+node_fastapi -->|"routes runtime requests"| node_workable_api
+node_workable_api -->|"provisions modules"| node_provisioner
+node_provisioner -->|"tenant schemas"| node_postgres
+node_workable_api -->|"preview seeding"| node_synthetic_data
+node_synthetic_data -->|"writes sample data"| node_postgres
+node_fastapi -->|"mounts"| node_mvp_api
+node_mvp_api -->|"build metadata"| node_postgres
+node_mvp_api -->|"queues build"| node_redis
+node_redis -->|"consumes jobs"| node_worker
+node_worker -->|"runs build"| node_mvp_builder
+node_mvp_builder -->|"generation prompt"| node_opencode
+node_opencode -->|"writes source"| node_workspace
+node_mvp_builder -->|"scaffolds and inspects"| node_workspace
+node_workspace -->|"repository source"| node_deployment
+node_compose -.->|"starts"| node_fastapi
+node_compose -.->|"starts"| node_worker
+node_compose -.->|"starts"| node_opencode
+
+click node_web "https://github.com/mananjp/ai_solution_builder/blob/main/frontend/src/app/(dashboard)/solution/%5Bid%5D/page.tsx"
+click node_api_client "https://github.com/mananjp/ai_solution_builder/blob/main/frontend/src/lib/api.ts"
+click node_android "https://github.com/mananjp/ai_solution_builder/blob/main/frontend/android/app/src/main/java/com/futurrizon/aisolutionbuilder/MainActivity.java"
+click node_fastapi "https://github.com/mananjp/ai_solution_builder/blob/main/backend/main.py"
+click node_identity "https://github.com/mananjp/ai_solution_builder/blob/main/backend/app/core/security.py"
+click node_mvp_api "https://github.com/mananjp/ai_solution_builder/blob/main/backend/app/api/mvp.py"
+click node_postgres "https://github.com/mananjp/ai_solution_builder/blob/main/backend/app/core/database.py"
+click node_redis "https://github.com/mananjp/ai_solution_builder/blob/main/backend/app/core/redis.py"
+click node_ingestion "https://github.com/mananjp/ai_solution_builder/blob/main/backend/app/ingestion/parser.py"
+click node_agent_graph "https://github.com/mananjp/ai_solution_builder/blob/main/backend/app/agents/graph.py"
+click node_architecture "https://github.com/mananjp/ai_solution_builder/blob/main/backend/app/agents/nodes/database_api_agent.py"
+click node_llm "https://github.com/mananjp/ai_solution_builder/blob/main/backend/app/core/llm.py"
+click node_workable_api "https://github.com/mananjp/ai_solution_builder/blob/main/backend/app/api/workable.py"
+click node_provisioner "https://github.com/mananjp/ai_solution_builder/blob/main/backend/app/workable/schema_provisioner.py"
+click node_synthetic_data "https://github.com/mananjp/ai_solution_builder/blob/main/backend/app/services/synthetic.py"
+click node_worker "https://github.com/mananjp/ai_solution_builder/blob/main/backend/app/worker.py"
+click node_mvp_builder "https://github.com/mananjp/ai_solution_builder/blob/main/backend/app/services/mvp_builder.py"
+click node_opencode "https://github.com/mananjp/ai_solution_builder/blob/main/backend/opencode/agents/mvp-builder.md"
+click node_deployment "https://github.com/mananjp/ai_solution_builder/blob/main/backend/app/services/deployer.py"
+click node_compose "https://github.com/mananjp/ai_solution_builder/blob/main/docker-compose.yml"
+
+classDef toneNeutral fill:#f8fafc,stroke:#334155,stroke-width:1.5px,color:#0f172a
+classDef toneBlue fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
+classDef toneAmber fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,color:#78350f
+classDef toneMint fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
+classDef toneRose fill:#ffe4e6,stroke:#e11d48,stroke-width:1.5px,color:#881337
+classDef toneIndigo fill:#e0e7ff,stroke:#4f46e5,stroke-width:1.5px,color:#312e81
+classDef toneTeal fill:#ccfbf1,stroke:#0f766e,stroke-width:1.5px,color:#134e4a
+class node_web,node_api_client,node_android toneBlue
+class node_fastapi,node_identity,node_mvp_api toneAmber
+class node_ingestion,node_agent_graph,node_architecture,node_llm toneMint
+class node_workable_api,node_provisioner,node_synthetic_data,node_worker,node_mvp_builder,node_opencode,node_workspace,node_deployment toneRose
+class node_postgres,node_redis,node_compose toneIndigo
 ```
+
 
 ### Container layout (`docker-compose.yml`)
 
