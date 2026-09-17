@@ -63,11 +63,24 @@ function ChatContent() {
   }, [messages, isStreaming]);
 
   useEffect(() => {
-    opencodeApi
-      .health()
-      .then((res) => setSidecarHealthy(Boolean(res.healthy)))
-      .catch(() => setSidecarHealthy(false));
-  }, []);
+    let mounted = true;
+    const probe = () => {
+      opencodeApi
+        .health()
+        .then((res) => {
+          if (mounted) setSidecarHealthy(Boolean(res.healthy));
+        })
+        .catch(() => {
+          if (mounted) setSidecarHealthy(false);
+        });
+    };
+    probe();
+    const interval = setInterval(probe, sidecarHealthy ? 20000 : 4000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [sidecarHealthy]);
 
   const pushAssistant = (content: string, agent?: string) => {
     setMessages((prev) => [...prev, { role: 'assistant', content, agent }]);

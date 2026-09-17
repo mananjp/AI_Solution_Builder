@@ -7,7 +7,7 @@
 # - Artifact storage      : Cloudinary (STORAGE_BACKEND=cloudinary)
 #
 # Services:
-#   1. ai-solution-builder-app      public web    Next.js (:3000, proxies /api -> 127.0.0.1:8000) + FastAPI
+#   1. ai-solution-builder          public web    Next.js (:3000, proxies /api -> 127.0.0.1:8000) + FastAPI
 #   2. ai-solution-builder-builder  worker (internal)  opencode (:4096) + background build worker (shared /workspace)
 
 services:
@@ -71,7 +71,7 @@ services:
       - key: ANONYMOUS_CREDITS
         value: ""
       - key: CORS_ORIGINS
-        value: https://ai-solution-builder-app.onrender.com
+        value: https://ai-solution-builder.onrender.com,https://*.vercel.app
 
   # ── Builder (opencode + background worker) ─────────────────────────────────
   - name: ai-solution-builder-builder

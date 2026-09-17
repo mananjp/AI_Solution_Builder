@@ -24,14 +24,21 @@ import {
   UpgradeAnonymousPayload,
 } from '@/types';
 
+function normalizeApiUrl(url?: string | null): string {
+  if (!url) return '';
+  return url
+    .replace('ai-solution-builder-app.onrender.com', 'ai-solution-builder.onrender.com')
+    .replace(/\/+$/, '');
+}
+
 const rawApiUrl =
   typeof window !== 'undefined'
     ? (process.env.NEXT_PUBLIC_API_URL && !process.env.NEXT_PUBLIC_API_URL.startsWith('http://localhost')
-        ? process.env.NEXT_PUBLIC_API_URL
+        ? normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL)
         : '/api/v1')
-    : process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api/v1';
+    : normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api/v1');
 
-const API_BASE_URL = rawApiUrl.replace(/\/+$/, '');
+const API_BASE_URL = rawApiUrl;
 
 export interface RawWorkableEntity {
   name?: string;
@@ -86,22 +93,39 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  let response: Response;
+  let response: Response | undefined;
   try {
     response = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
       headers,
     });
   } catch (err) {
-    const isNetworkError =
-      err instanceof TypeError &&
-      (err.message.toLowerCase().includes('fetch') || err.message.toLowerCase().includes('network'));
-    if (isNetworkError) {
-      throw new Error(
-        `Unable to reach backend (${API_BASE_URL}). The backend service may be waking up from idle sleep or BACKEND_URL / NEXT_PUBLIC_API_URL is unconfigured.`
-      );
+    if (
+      typeof window !== 'undefined' &&
+      API_BASE_URL !== '/api/v1' &&
+      !API_BASE_URL.startsWith('/')
+    ) {
+      try {
+        response = await fetch(`/api/v1${endpoint}`, {
+          ...options,
+          headers,
+        });
+      } catch {
+        // Fallback proxy failed as well
+      }
     }
-    throw err;
+
+    if (!response) {
+      const isNetworkError =
+        err instanceof TypeError &&
+        (err.message.toLowerCase().includes('fetch') || err.message.toLowerCase().includes('network'));
+      if (isNetworkError) {
+        throw new Error(
+          `Unable to reach backend (${API_BASE_URL}). The backend service may be waking up from idle sleep or BACKEND_URL / NEXT_PUBLIC_API_URL is unconfigured.`
+        );
+      }
+      throw err;
+    }
   }
 
   if (!response.ok) {
@@ -510,14 +534,38 @@ async function streamSSE(
   handlers: StreamHandlers
 ) {
   const token = getAuthToken();
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(payload),
-  });
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+
+  let response: Response | undefined;
+  try {
+    response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    if (
+      typeof window !== 'undefined' &&
+      API_BASE_URL !== '/api/v1' &&
+      !API_BASE_URL.startsWith('/')
+    ) {
+      try {
+        response = await fetch(`/api/v1${endpoint}`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+        });
+      } catch {
+        // Fallback failed
+      }
+    }
+    if (!response) {
+      throw err;
+    }
+  }
 
   if (!response.ok) {
     throw new Error(`Chat stream failed with status ${response.status}`);
