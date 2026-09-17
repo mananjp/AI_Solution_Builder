@@ -86,10 +86,23 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      headers,
+    });
+  } catch (err) {
+    const isNetworkError =
+      err instanceof TypeError &&
+      (err.message.toLowerCase().includes('fetch') || err.message.toLowerCase().includes('network'));
+    if (isNetworkError) {
+      throw new Error(
+        `Unable to reach backend (${API_BASE_URL}). The backend service may be waking up from idle sleep or BACKEND_URL / NEXT_PUBLIC_API_URL is unconfigured.`
+      );
+    }
+    throw err;
+  }
 
   if (!response.ok) {
     if (response.status === 401) {

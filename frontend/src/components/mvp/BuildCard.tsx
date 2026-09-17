@@ -15,6 +15,7 @@ import {
   Settings2,
   Sparkles,
   Trash2,
+  Triangle,
   X,
 } from 'lucide-react';
 import { mvpApi } from '@/lib/api';
@@ -260,6 +261,25 @@ export function DeployModal({
                 <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
               </a>
 
+              {/* 1-Click Vercel Deploy option */}
+              {deployResult.repo_url && (
+                <a
+                  href={`https://vercel.com/new/clone?repository-url=${encodeURIComponent(deployResult.repo_url)}&root-directory=frontend`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-between p-3 rounded-xl bg-slate-900/90 border border-white/20 hover:border-white/40 text-white transition-all hover:scale-[1.01] shadow-md group"
+                >
+                  <div className="flex items-center gap-2.5 text-xs font-semibold">
+                    <Triangle className="w-3.5 h-3.5 fill-white text-white" />
+                    <span>Deploy Frontend on Vercel</span>
+                    <span className="px-1.5 py-0.2 rounded text-[9px] bg-white/10 text-slate-300 font-normal">
+                      Recommended for UI
+                    </span>
+                  </div>
+                  <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-white" />
+                </a>
+              )}
+
               {/* 1-Click Render Deploy Blueprint fallback */}
               {deployResult.render_deploy_url && (
                 <div className="space-y-2">
@@ -271,7 +291,7 @@ export function DeployModal({
                   >
                     <div className="flex items-center gap-2.5 text-xs font-medium">
                       <LayoutDashboard className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>Deploy Blueprint on Render</span>
+                      <span>Deploy Full Blueprint on Render (DB + Backend)</span>
                     </div>
                     <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
                   </a>
@@ -279,10 +299,11 @@ export function DeployModal({
                     <div className="p-3 rounded-xl bg-slate-900/60 border border-white/5 text-[11px] text-slate-300 space-y-1">
                       <div className="font-semibold text-cyan-300 flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                        Next Step on Render:
+                        Next Steps:
                       </div>
                       <p className="text-slate-400 leading-relaxed">
-                        Click <strong>Deploy Blueprint on Render</strong> to connect your GitHub repo. Render automatically parses the root <code className="text-indigo-300 font-mono">render.yaml</code> to launch your PostgreSQL database, FastAPI backend, and Next.js frontend.
+                        • <strong>Vercel (Frontend)</strong>: 1-click deploys Next.js with fast builds & zero memory limits.<br />
+                        • <strong>Render (Full Blueprint)</strong>: Provisions PostgreSQL and FastAPI backend via <code className="text-indigo-300 font-mono">render.yaml</code>.
                       </p>
                     </div>
                   )}
@@ -501,6 +522,19 @@ export function BuildCard({
               >
                 <LayoutDashboard className="w-3.5 h-3.5" />
                 <span>Render Dashboard</span>
+              </a>
+            )}
+
+            {/* 1-Click Vercel Deploy button */}
+            {build.repo_url && isDeployed && (
+              <a
+                href={`https://vercel.com/new/clone?repository-url=${encodeURIComponent(build.repo_url)}&root-directory=frontend`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-semibold border border-white/20 shadow-md transition-all hover:scale-105"
+              >
+                <Triangle className="w-3 h-3 fill-white text-white" />
+                <span>Deploy on Vercel</span>
               </a>
             )}
 
