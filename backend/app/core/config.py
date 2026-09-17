@@ -130,6 +130,13 @@ class Settings(BaseSettings):
         except (ValueError, TypeError):
             return None
 
+    @field_validator("CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET", mode="before")
+    @classmethod
+    def clean_cloudinary_creds(cls, v: Any) -> str:
+        if not v:
+            return ""
+        return str(v).strip().strip("'\"").strip()
+
     @model_validator(mode="after")
     def enforce_production_secrets(self) -> "Settings":
         if self.APP_ENV == "production" and (

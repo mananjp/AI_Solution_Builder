@@ -92,9 +92,20 @@ class CloudinaryStorage(StorageBackend):
         api_key: str,
         api_secret: str,
     ) -> None:
-        self._cloud_name = cloud_name
-        self._api_key = api_key
-        self._api_secret = api_secret
+        self._cloud_name = (cloud_name or "").strip().strip("'\"").strip()
+        self._api_key = (api_key or "").strip().strip("'\"").strip()
+        self._api_secret = (api_secret or "").strip().strip("'\"").strip()
+        try:
+            import cloudinary
+
+            cloudinary.config(
+                cloud_name=self._cloud_name,
+                api_key=self._api_key,
+                api_secret=self._api_secret,
+                secure=True,
+            )
+        except Exception as exc:
+            logger.warning("Could not initialize cloudinary.config: %s", exc)
 
     async def upload_bytes(self, data: bytes, key: str) -> str:
         import io

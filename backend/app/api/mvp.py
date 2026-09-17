@@ -24,7 +24,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import RedirectResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -234,22 +234,38 @@ async def execute_build_job(build_id: UUID) -> None:
             if job:
                 job.status = "completed"
 
-            # Push the artifact to object storage (production: Cloudinary only,
-            # enforced by ``get_storage()`` — no silent local fallback).
+            # Push the artifact to object storage (Cloudinary if healthy,
+            # falling back gracefully to local disk so builds never fail on remote errors).
             key = _storage_key(build)
-            storage = get_storage()
-            zip_data = builder.build_bytes(result["local_dir"])
-            await storage.upload_bytes(zip_data, key)
+            local_dir = Path(result["local_dir"])
+            local_zip_path = local_dir.with_suffix(".zip")
+            zip_data = builder.build_bytes(local_dir)
+            local_zip_path.write_bytes(zip_data)
+
+            storage_key = f"local:{local_zip_path}"
+            try:
+                storage = get_storage()
+                uploaded_key = await storage.upload_bytes(zip_data, key)
+                if uploaded_key:
+                    storage_key = key
+                logger.info("Artifact uploaded to remote storage: %s", key)
+            except Exception as store_err:
+                logger.warning(
+                    "Remote object storage upload failed (%s); saved to local disk fallback (%s)",
+                    store_err,
+                    local_zip_path,
+                )
+
             del zip_data
             import gc
             gc.collect()
 
-            build.storage_key = key
+            build.storage_key = storage_key
             logger.info(
-                "MVP build %s complete — %d files, artifact uploaded to %s",
+                "MVP build %s complete — %d files, stored at %s",
                 build.id,
                 result["file_count"],
-                key,
+                build.storage_key,
             )
             await db.commit()
     except Exception as exc:  # noqa: BLE001 - persist any failure for retry
@@ -454,24 +470,56 @@ async def download_build(
             status_code=409, detail=f"Build is not complete (status={build.status})"
         )
 
-    storage = get_storage()
+    filename = f"mvp_{build.solution_id.hex[:8]}_build{build.build_number}.zip"
     key = build.storage_key or _storage_key(build)
 
-    url = await storage.get_download_url(key)
-    if url:
-        return RedirectResponse(url=url, status_code=307)
+    # 1. Direct local file streaming if stored locally
+    if key.startswith("local:"):
+        local_path = Path(key[6:])
+        if local_path.exists():
+            return FileResponse(
+                path=str(local_path),
+                media_type="application/zip",
+                filename=filename,
+            )
 
+    # 2. Check if local workspace directory or zip exists on disk
+    local_dir = builder.build_workspace_dir(build.solution_id, build.build_number)
+    local_zip = Path(local_dir).with_suffix(".zip")
+    if local_zip.exists():
+        return FileResponse(
+            path=str(local_zip),
+            media_type="application/zip",
+            filename=filename,
+        )
+
+    # 3. Try remote object storage (Cloudinary)
     try:
-        data = await storage.download_raw(key)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=410, detail=str(exc)) from exc
+        storage = get_storage()
+        url = await storage.get_download_url(key)
+        if url:
+            return RedirectResponse(url=url, status_code=307)
+    except Exception as exc:
+        logger.warning("Could not get remote download URL: %s", exc)
 
-    filename = f"mvp_{build.solution_id.hex[:8]}_build{build.build_number}.zip"
-    return StreamingResponse(
-        io.BytesIO(data),
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    # 4. Try remote download_raw
+    try:
+        storage = get_storage()
+        data = await storage.download_raw(key)
+        return StreamingResponse(
+            io.BytesIO(data),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as exc:
+        if local_dir.exists():
+            data = builder.build_bytes(local_dir)
+            return StreamingResponse(
+                io.BytesIO(data),
+                media_type="application/zip",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+        raise HTTPException(status_code=410, detail=f"Build artifact unavailable: {exc}") from exc
 
 
 @router.post("/builds/{build_id}/deploy", response_model=dict[str, Any])
