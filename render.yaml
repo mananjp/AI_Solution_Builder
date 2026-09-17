@@ -28,8 +28,6 @@ services:
         value: app
       - key: MALLOC_ARENA_MAX
         value: "2"
-      - key: NODE_OPTIONS
-        value: "--max-old-space-size=110"
       - key: DATABASE_URL
         sync: false
       - key: REDIS_URL
