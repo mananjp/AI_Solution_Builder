@@ -24,12 +24,14 @@ import {
   UpgradeAnonymousPayload,
 } from '@/types';
 
-const API_BASE_URL =
+const rawApiUrl =
   typeof window !== 'undefined'
     ? (process.env.NEXT_PUBLIC_API_URL && !process.env.NEXT_PUBLIC_API_URL.startsWith('http://localhost')
         ? process.env.NEXT_PUBLIC_API_URL
         : '/api/v1')
     : process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api/v1';
+
+const API_BASE_URL = rawApiUrl.replace(/\/+$/, '');
 
 export interface RawWorkableEntity {
   name?: string;

@@ -72,6 +72,37 @@ start_app() {
   wait -n "$API_PID" "$NEXT_PID" 2>/dev/null || wait
 }
 
+start_api() {
+  log "Starting FastAPI API on 0.0.0.0:${PORT} with $UVICORN_WORKERS worker(s) (dedicated backend mode) ..."
+  ($PYTHON_BIN -m uvicorn main:app --host 0.0.0.0 --port "$PORT" --workers "$UVICORN_WORKERS") &
+  API_PID=$!
+
+  log "Waiting for FastAPI to accept connections on 0.0.0.0:${PORT} ..."
+  for i in $(seq 1 45); do
+    if curl -fsS "http://127.0.0.1:${PORT}/ready" >/dev/null 2>&1; then
+      log "FastAPI is ready."
+      break
+    fi
+    if ! kill -0 "$API_PID" 2>/dev/null; then
+      log "ERROR: FastAPI process (PID $API_PID) exited unexpectedly during startup!"
+      exit 1
+    fi
+    sleep 1
+  done
+
+  OPENCODE_PID=""
+  if [ "$ENABLE_OPENCODE_SIDECAR" = "true" ]; then
+    log "Starting OpenCode sidecar on 127.0.0.1:4096 (Node heap cap: 96MB) ..."
+    (cd /workspace 2>/dev/null || cd /app; NODE_OPTIONS="--max-old-space-size=96" opencode serve --port 4096 --hostname 127.0.0.1) &
+    OPENCODE_PID=$!
+  else
+    log "OpenCode sidecar disabled (ENABLE_OPENCODE_SIDECAR=false) to conserve RAM."
+  fi
+
+  trap 'log "Shutting down (API=$API_PID, OpenCode=${OPENCODE_PID:-none})..."; kill $API_PID ${OPENCODE_PID:-} 2>/dev/null || true; wait' INT TERM
+  wait -n "$API_PID" 2>/dev/null || wait
+}
+
 start_builder() {
   log "Starting opencode serve on 0.0.0.0:4096 ..."
   (cd /workspace && opencode serve --port 4096 --hostname 0.0.0.0) &
@@ -98,7 +129,15 @@ run_migrations "$APP_DIR"
 
 case "$ROLE" in
   app)
-    start_app
+    if [ "${DISABLE_FRONTEND:-false}" = "true" ]; then
+      log "DISABLE_FRONTEND=true: running in dedicated API mode."
+      start_api
+    else
+      start_app
+    fi
+    ;;
+  api|backend)
+    start_api
     ;;
   builder)
     start_builder
@@ -107,7 +146,7 @@ case "$ROLE" in
     start_worker_only
     ;;
   *)
-    echo "[entrypoint] Unknown role '$ROLE' (expected app|builder|worker)" >&2
+    echo "[entrypoint] Unknown role '$ROLE' (expected app|api|backend|builder|worker)" >&2
     exit 2
     ;;
 esac
