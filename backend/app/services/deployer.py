@@ -25,6 +25,57 @@ class DeployError(RuntimeError):
     """Raised when a deployment cannot be completed."""
 
 
+def _sanitize_render_yaml(content: str) -> str:
+    """Ensure render.yaml conforms to Render Blueprint specification."""
+    if not content:
+        return content
+
+    import re
+
+    # 1. If legacy format has 'type: pgsql' under services, migrate to root databases block
+    if "type: pgsql" in content and "databases:" not in content:
+        db_match = re.search(r"name:\s*([^\s]+-db)", content)
+        db_name = db_match.group(1) if db_match else "app-db"
+        clean_db = re.sub(r"[^a-zA-Z0-9_]", "_", db_name.replace("-db", "")).lower() or "app"
+
+        # Remove only the pgsql service block
+        content = re.sub(
+            r"\n\s*-\s*name:\s*[^\n]+-db\s*\n(?:\s*(?:type|plan|database|ipAllowList):[^\n]*\n?)*",
+            "",
+            content,
+        )
+        db_block = (
+            f"databases:\n"
+            f"  - name: {db_name}\n"
+            f"    databaseName: {clean_db}\n"
+            f"    user: {clean_db}\n"
+            f"    plan: free\n"
+            f"    ipAllowList: []\n\n"
+        )
+        content = db_block + content.lstrip()
+
+    # 2. Ensure dockerContext is present for backend and frontend
+    if "dockerfilePath: ./backend/Dockerfile" in content and "dockerContext: ./backend" not in content:
+        content = content.replace(
+            "dockerfilePath: ./backend/Dockerfile",
+            "dockerContext: ./backend\n    dockerfilePath: ./backend/Dockerfile",
+        )
+    if "dockerfilePath: ./frontend/Dockerfile" in content and "dockerContext: ./frontend" not in content:
+        content = content.replace(
+            "dockerfilePath: ./frontend/Dockerfile",
+            "dockerContext: ./frontend\n    dockerfilePath: ./frontend/Dockerfile",
+        )
+
+    # 3. Strip conflicting build/start commands for docker runtime
+    content = re.sub(r"\s+buildCommand:\s*npm[^\n]+", "", content)
+    content = re.sub(r"\s+startCommand:\s*npm[^\n]+", "", content)
+
+    # 4. Use plan: free for services so users aren't blocked on free tier
+    content = content.replace("plan: starter", "plan: free")
+
+    return content
+
+
 def _extract_mvp_files(root: Path) -> dict[str, str]:
     """Flatten a generated MVP workspace into the GitHub file map.
 
@@ -53,6 +104,12 @@ def _extract_mvp_files(root: Path) -> dict[str, str]:
                 files[rel] = content
         else:
             files[rel] = content
+
+    if "render.yaml" in files:
+        files["render.yaml"] = _sanitize_render_yaml(files["render.yaml"])
+    if "infra/render.yaml" in files:
+        files["infra/render.yaml"] = _sanitize_render_yaml(files["infra/render.yaml"])
+
     return files
 
 

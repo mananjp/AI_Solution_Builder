@@ -99,7 +99,7 @@ class RenderDeployer:
         repo_name: str,
         branch: str = "main",
         dockerfile_path: str = "./backend/Dockerfile",
-        docker_context: str = ".",
+        docker_context: str = "./backend",
     ) -> dict[str, Any]:
         """Create a new Web Service on Render for the specified repository.
 

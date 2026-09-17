@@ -194,3 +194,39 @@ async def test_destroy_service(monkeypatch):
     deployer = RenderDeployer("rnd_secret_token")
     success = await deployer.destroy_service("srv-prod-456")
     assert success is True
+
+
+def test_sanitize_render_yaml_converts_legacy_pgsql():
+    from app.services.deployer import _sanitize_render_yaml
+
+    legacy = """services:
+  - name: my-cool-app-db
+    type: pgsql
+    plan: starter
+    database: my-cool-app
+
+  - name: my-cool-app-backend
+    type: web
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./backend/Dockerfile
+
+  - name: my-cool-app-frontend
+    type: web
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./frontend/Dockerfile
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+"""
+    sanitized = _sanitize_render_yaml(legacy)
+    assert "databases:" in sanitized
+    assert "- name: my-cool-app-db" in sanitized
+    assert "databaseName: my_cool_app" in sanitized
+    assert "plan: free" in sanitized
+    assert "dockerContext: ./backend" in sanitized
+    assert "dockerContext: ./frontend" in sanitized
+    assert "type: pgsql" not in sanitized
+    assert "buildCommand:" not in sanitized
+    assert "startCommand:" not in sanitized
+

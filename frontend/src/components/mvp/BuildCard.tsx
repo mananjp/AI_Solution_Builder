@@ -262,18 +262,31 @@ export function DeployModal({
 
               {/* 1-Click Render Deploy Blueprint fallback */}
               {deployResult.render_deploy_url && (
-                <a
-                  href={deployResult.render_deploy_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center justify-between p-3 rounded-xl bg-indigo-950/30 border border-indigo-500/20 hover:border-indigo-500/40 text-indigo-300 transition-all hover:scale-[1.01]"
-                >
-                  <div className="flex items-center gap-2.5 text-xs font-medium">
-                    <LayoutDashboard className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Deploy Blueprint on Render</span>
-                  </div>
-                  <ExternalLink className="w-3.5 h-3.5 text-indigo-400" />
-                </a>
+                <div className="space-y-2">
+                  <a
+                    href={deployResult.render_deploy_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-between p-3 rounded-xl bg-gradient-to-r from-indigo-950/40 to-cyan-950/30 border border-indigo-500/30 hover:border-cyan-400/50 text-indigo-200 transition-all hover:scale-[1.01]"
+                  >
+                    <div className="flex items-center gap-2.5 text-xs font-medium">
+                      <LayoutDashboard className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Deploy Blueprint on Render</span>
+                    </div>
+                    <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
+                  </a>
+                  {!deployResult.render_service_url && (
+                    <div className="p-3 rounded-xl bg-slate-900/60 border border-white/5 text-[11px] text-slate-300 space-y-1">
+                      <div className="font-semibold text-cyan-300 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                        Next Step on Render:
+                      </div>
+                      <p className="text-slate-400 leading-relaxed">
+                        Click <strong>Deploy Blueprint on Render</strong> to connect your GitHub repo. Render automatically parses the root <code className="text-indigo-300 font-mono">render.yaml</code> to launch your PostgreSQL database, FastAPI backend, and Next.js frontend.
+                      </p>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 

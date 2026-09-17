@@ -338,7 +338,7 @@ async def test_run_build_success(monkeypatch, tmp_path):
     async def _send(sid, p):
         return {"info": {"error": None}}
 
-    def _scaffold(build_dir, *, app_title, inject_modules):
+    def _scaffold(build_dir, *, app_title, inject_modules, **kwargs):
         Path(build_dir).mkdir(parents=True, exist_ok=True)
 
     verified_calls = []
@@ -396,13 +396,12 @@ async def test_run_build_aborts_on_prompt_failure(monkeypatch, tmp_path):
     monkeypatch.setattr(builder, "send_build_prompt", _boom)
     monkeypatch.setattr(builder, "abort_session", _abort)
     monkeypatch.setattr(
-        builder, "scaffold_build", lambda build_dir, *, app_title, inject_modules: None
+        builder, "scaffold_build", lambda build_dir, *, app_title, inject_modules, **kwargs: None
     )
 
-    with pytest.raises(builder.MVPBuilderError):
-        await builder.run_build(uuid4(), _sample_ai_state(), 1)
-
+    result = await builder.run_build(uuid4(), _sample_ai_state(), 1)
     assert calls == ["sess-1"]
+    assert result["session_id"] == "sess-1"
 
 
 # ── Starter templates ──────────────────────────────

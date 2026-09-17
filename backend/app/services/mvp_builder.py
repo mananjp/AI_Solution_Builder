@@ -384,11 +384,26 @@ def scaffold_build(
     root = Path(build_dir)
     shutil.copytree(template_root(), root, dirs_exist_ok=True, ignore=_ignore_artifacts)
 
+    # Ensure root has render.yaml, README.md, docker-compose.yml for Render Blueprint & GitHub
+    infra_dir = root / "infra"
+    if infra_dir.exists():
+        for filename in ("render.yaml", "docker-compose.yml", "README.md"):
+            src = infra_dir / filename
+            dst = root / filename
+            if src.exists() and not dst.exists():
+                shutil.copyfile(src, dst)
+        infra_gh = infra_dir / ".github"
+        root_gh = root / ".github"
+        if infra_gh.exists() and not root_gh.exists():
+            shutil.copytree(infra_gh, root_gh, dirs_exist_ok=True)
+
     app_name = _slugify(app_title)
+    db_name = re.sub(r"[^a-z0-9_]+", "_", app_name).strip("_") or "app_db"
     mapping = {
         "APP_NAME": app_name,
         "APP_TITLE": app_title,
         "APP_SLUG": app_name,
+        "APP_DB_NAME": db_name,
         "JWT_SECRET": "change-me-generated-jwt-secret",
     }
 
