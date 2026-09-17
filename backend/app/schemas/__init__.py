@@ -263,7 +263,7 @@ class MVPDeployRequest(BaseModel):
 
     repo_name: str = Field(..., min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_.-]+$")
     description: str = ""
-    private: bool = True
+    private: bool = False
     force: bool = False
 
 

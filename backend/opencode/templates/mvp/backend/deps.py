@@ -6,9 +6,14 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .core.config import settings
-from .core.security import decode_token
-from .db import get_session
+try:
+    from .core.config import settings
+    from .core.security import decode_token
+    from .db import get_session
+except (ImportError, ValueError):
+    from core.config import settings
+    from core.security import decode_token
+    from db import get_session
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_PREFIX}/auth/login")
 SessionDep = Annotated[AsyncSession, Depends(get_session)]

@@ -355,7 +355,11 @@ async def delete_{clean_name}(item_id: uuid.UUID, session: SessionDep) -> None:
     if routers_file.exists():
         content = routers_file.read_text(encoding="utf-8")
         if "# __ROUTER_INSERTION_POINT__" in content and router_chunks:
-            imports = "import uuid\nfrom sqlalchemy import select\nfrom . import models, schemas\n\n"
+            imports = (
+                "import uuid\nfrom sqlalchemy import select\n"
+                "try:\n    from . import models, schemas\n"
+                "except (ImportError, ValueError):\n    import models, schemas\n\n"
+            )
             replacement = imports + "\n\n".join(router_chunks) + "\n\n# __ROUTER_INSERTION_POINT__"
             routers_file.write_text(content.replace("# __ROUTER_INSERTION_POINT__", replacement), encoding="utf-8")
 

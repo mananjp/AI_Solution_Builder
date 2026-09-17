@@ -85,7 +85,7 @@ export function DeployModal({
 }) {
   const [repoName, setRepoName] = useState(`mvp-${build.build_id.slice(0, 8)}`);
   const [description, setDescription] = useState('');
-  const [privateRepo, setPrivateRepo] = useState(true);
+  const [privateRepo, setPrivateRepo] = useState(false);
   const [force, setForce] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -153,22 +153,29 @@ export function DeployModal({
               />
             </div>
 
-            <div className="space-y-2.5 pt-1">
-              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <div className="space-y-3 pt-1">
+              <label className="flex items-start gap-2.5 text-xs text-slate-300 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={privateRepo}
                   onChange={(e) => setPrivateRepo(e.target.checked)}
-                  className="accent-indigo-500"
+                  className="mt-0.5 accent-indigo-500 rounded"
                 />
-                Private repository
+                <div>
+                  <span className="font-medium text-slate-200">Make repository private</span>
+                  <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                    {privateRepo
+                      ? "⚠️ Private repos require authorizing Vercel to access private repos, or toggling repo to Public on GitHub."
+                      : "✅ Public repo (Recommended for 1-click Vercel & Render blueprint deployments without permission issues)."}
+                  </p>
+                </div>
               </label>
               <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={force}
                   onChange={(e) => setForce(e.target.checked)}
-                  className="accent-indigo-500"
+                  className="accent-indigo-500 rounded"
                 />
                 Force redeploy if already pushed
               </label>
@@ -263,21 +270,36 @@ export function DeployModal({
 
               {/* 1-Click Vercel Deploy option */}
               {deployResult.repo_url && (
-                <a
-                  href={`https://vercel.com/new/clone?repository-url=${encodeURIComponent(deployResult.repo_url)}&root-directory=frontend`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center justify-between p-3 rounded-xl bg-slate-900/90 border border-white/20 hover:border-white/40 text-white transition-all hover:scale-[1.01] shadow-md group"
-                >
-                  <div className="flex items-center gap-2.5 text-xs font-semibold">
-                    <Triangle className="w-3.5 h-3.5 fill-white text-white" />
-                    <span>Deploy Frontend on Vercel</span>
-                    <span className="px-1.5 py-0.2 rounded text-[9px] bg-white/10 text-slate-300 font-normal">
-                      Recommended for UI
-                    </span>
+                <div className="space-y-2">
+                  <a
+                    href={`https://vercel.com/new/clone?repository-url=${encodeURIComponent(deployResult.repo_url)}&root-directory=frontend&env=NEXT_PUBLIC_API_URL`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-between p-3 rounded-xl bg-slate-900/90 border border-white/20 hover:border-white/40 text-white transition-all hover:scale-[1.01] shadow-md group"
+                  >
+                    <div className="flex items-center gap-2.5 text-xs font-semibold">
+                      <Triangle className="w-3.5 h-3.5 fill-white text-white" />
+                      <span>Deploy Frontend on Vercel</span>
+                      <span className="px-1.5 py-0.2 rounded text-[9px] bg-white/10 text-slate-300 font-normal">
+                        Recommended for UI
+                      </span>
+                    </div>
+                    <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-white" />
+                  </a>
+
+                  {/* Vercel private repo import helper */}
+                  <div className="px-3 py-2 rounded-xl bg-slate-900/40 border border-white/5 text-[11px] text-slate-400 flex items-center justify-between">
+                    <span>If private, import via Vercel:</span>
+                    <a
+                      href={`https://vercel.com/new/import?s=${encodeURIComponent(deployResult.repo_url)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-indigo-400 hover:text-indigo-300 font-medium underline ml-2 shrink-0"
+                    >
+                      Import Git Project →
+                    </a>
                   </div>
-                  <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-white" />
-                </a>
+                </div>
               )}
 
               {/* 1-Click Render Deploy Blueprint fallback */}
@@ -528,7 +550,7 @@ export function BuildCard({
             {/* 1-Click Vercel Deploy button */}
             {build.repo_url && isDeployed && (
               <a
-                href={`https://vercel.com/new/clone?repository-url=${encodeURIComponent(build.repo_url)}&root-directory=frontend`}
+                href={`https://vercel.com/new/clone?repository-url=${encodeURIComponent(build.repo_url)}&root-directory=frontend&env=NEXT_PUBLIC_API_URL`}
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-semibold border border-white/20 shadow-md transition-all hover:scale-105"

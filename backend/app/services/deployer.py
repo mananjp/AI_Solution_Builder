@@ -248,6 +248,14 @@ async def deploy_to_github(
             repo_get = await client.get(f"{GH_API_BASE}/repos/{owner}/{repo_name}", headers=headers)
             if repo_get.status_code in (200, 201):
                 default_branch = repo_get.json().get("default_branch", "main")
+                try:
+                    await client.patch(
+                        f"{GH_API_BASE}/repos/{owner}/{repo_name}",
+                        headers=headers,
+                        json={"private": private},
+                    )
+                except Exception:
+                    pass
             logger.info("Target repo %s/%s already exists; updating in-place", owner, repo_name)
         else:
             raise DeployError(

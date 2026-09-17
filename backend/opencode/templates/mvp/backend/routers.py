@@ -9,8 +9,12 @@ from __future__ import annotations
 from fastapi import APIRouter
 from sqlalchemy import text
 
-from .core.config import settings
-from .deps import SessionDep
+try:
+    from .core.config import settings
+    from .deps import SessionDep
+except (ImportError, ValueError):
+    from core.config import settings
+    from deps import SessionDep
 
 router = APIRouter()
 

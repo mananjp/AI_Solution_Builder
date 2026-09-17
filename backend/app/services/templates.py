@@ -581,10 +581,16 @@ import uuid
 from typing import List
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select, text
-from .core.config import settings
-from .deps import SessionDep
-from .models import Project, Task
-from .schemas import ProjectCreate, ProjectRead, TaskCreate, TaskRead, TaskUpdate
+try:
+    from .core.config import settings
+    from .deps import SessionDep
+    from .models import Project, Task
+    from .schemas import ProjectCreate, ProjectRead, TaskCreate, TaskRead, TaskUpdate
+except (ImportError, ValueError):
+    from core.config import settings
+    from deps import SessionDep
+    from models import Project, Task
+    from schemas import ProjectCreate, ProjectRead, TaskCreate, TaskRead, TaskUpdate
 
 router = APIRouter()
 
@@ -879,10 +885,16 @@ import uuid
 from typing import List
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select, text
-from .core.config import settings
-from .deps import SessionDep
-from .models import Calculation
-from .schemas import CalculationEvaluate, CalculationRead
+try:
+    from .core.config import settings
+    from .deps import SessionDep
+    from .models import Calculation
+    from .schemas import CalculationEvaluate, CalculationRead
+except (ImportError, ValueError):
+    from core.config import settings
+    from deps import SessionDep
+    from models import Calculation
+    from schemas import CalculationEvaluate, CalculationRead
 
 router = APIRouter()
 
@@ -1150,10 +1162,16 @@ import uuid
 from typing import List
 from fastapi import APIRouter, status
 from sqlalchemy import select, text
-from .core.config import settings
-from .deps import SessionDep
-from .models import ContactMessage
-from .schemas import ContactMessageCreate, ContactMessageRead
+try:
+    from .core.config import settings
+    from .deps import SessionDep
+    from .models import ContactMessage
+    from .schemas import ContactMessageCreate, ContactMessageRead
+except (ImportError, ValueError):
+    from core.config import settings
+    from deps import SessionDep
+    from models import ContactMessage
+    from schemas import ContactMessageCreate, ContactMessageRead
 
 router = APIRouter()
 

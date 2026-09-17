@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from functools import lru_cache
 from typing import Any
 
@@ -50,10 +51,26 @@ class Settings(BaseSettings):
     @field_validator("DATABASE_URL")
     @classmethod
     def normalize_database_url(cls, v: str) -> str:
-        # Allow `postgresql://` scheme shorthand from Render/other hosts.
-        if v.startswith("postgresql://"):
-            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
-        return _clean_env(v)
+        url = _clean_env(v)
+        if not url:
+            return url
+        # SQLite support for local/test runs
+        if url.startswith("sqlite://") and not url.startswith("sqlite+aiosqlite://"):
+            return "sqlite+aiosqlite://" + url[len("sqlite://"):]
+        unsupported = {"channel_binding", "connect_timeout"}
+        if url.startswith("postgres://"):
+            url = "postgresql+asyncpg://" + url[len("postgres://"):]
+        elif url.startswith("postgresql://") and not url.startswith("postgresql+asyncpg://"):
+            url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+        if "sslmode=" in url:
+            url = url.replace("sslmode=", "ssl=")
+        parsed = urlsplit(url)
+        if parsed.query:
+            filtered = urlencode(
+                [(k, val) for k, val in parse_qsl(parsed.query) if k.lower() not in unsupported]
+            )
+            url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, filtered, parsed.fragment))
+        return url
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
