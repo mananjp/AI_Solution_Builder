@@ -29,17 +29,36 @@ ENV PYTHONUNBUFFERED=1 \
     NEXT_TELEMETRY_DISABLED=1 \
     APP_ENV=production \
     APP_ROLE=app \
-    PORT=3000
+    PORT=3000 \
+    HOME=/home/app \
+    XDG_CONFIG_HOME=/home/app/.config \
+    OPENCODE_SERVER_URL=http://127.0.0.1:4096 \
+    MVP_BUILD_DIR=/workspace
 
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         bash \
+        git \
         nodejs \
         npm \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd --system app && useradd --system --gid app app
+    && npm install -g opencode-ai@1.18.31 \
+    && groupadd --system app && useradd --system --gid app --create-home --home-dir /home/app app
+
+# OpenCode configuration + custom agents
+RUN mkdir -p /home/app/.config/opencode/agents \
+             /root/.config/opencode/agents \
+             /workspace \
+             /app/.data/uploads \
+             /app/.data/exports \
+    && chmod -R 777 /workspace
+
+COPY backend/opencode/config.json /home/app/.config/opencode/opencode.json
+COPY backend/opencode/agents/ /home/app/.config/opencode/agents/
+COPY backend/opencode/config.json /root/.config/opencode/opencode.json
+COPY backend/opencode/agents/ /root/.config/opencode/agents/
 
 # Python backend
 COPY backend/requirements.txt .
@@ -60,9 +79,8 @@ COPY --from=fe-build --chown=app:app /frontend/public ./frontend/public
 COPY --from=fe-build /frontend/package.json ./frontend/package.json
 RUN cd frontend && npm install --omit=dev --ignore-scripts --no-audit --no-fund
 
-RUN mkdir -p /app/.data/uploads /app/.data/exports && \
-    chmod +x /app/entrypoint.sh && \
-    chown -R app:app /app
+RUN chmod +x /app/entrypoint.sh && \
+    chown -R app:app /home/app /workspace /app
 
 USER app
 

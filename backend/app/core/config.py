@@ -90,7 +90,7 @@ class Settings(BaseSettings):
     RLS_ENABLED: bool = False
 
     # ── OpenCode MVP Builder (sidecar) ────────────
-    OPENCODE_SERVER_URL: str = "http://opencode:4096"
+    OPENCODE_SERVER_URL: str = "http://127.0.0.1:4096"
     OPENCODE_SERVER_PASSWORD: str = ""
     OPENCODE_MODEL: str = "groq/openai/gpt-oss-120b"
     OPENCODE_AGENT: str = "mvp-builder"

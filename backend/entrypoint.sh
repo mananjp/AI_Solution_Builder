@@ -32,6 +32,10 @@ run_migrations() {
 }
 
 start_app() {
+  log "Starting OpenCode sidecar on 127.0.0.1:4096 ..."
+  (cd /workspace 2>/dev/null || cd /app; opencode serve --port 4096 --hostname 127.0.0.1) &
+  OPENCODE_PID=$!
+
   log "Starting FastAPI API on 127.0.0.1:8000 with $UVICORN_WORKERS worker(s) ..."
   ($PYTHON_BIN -m uvicorn main:app --host 127.0.0.1 --port 8000 --workers "$UVICORN_WORKERS") &
   API_PID=$!
@@ -53,7 +57,7 @@ start_app() {
   (cd frontend && HOSTNAME=0.0.0.0 PORT="$PORT" node server.js) &
   NEXT_PID=$!
 
-  trap 'log "Shutting down (API=$API_PID, Next=$NEXT_PID)..."; kill $API_PID $NEXT_PID 2>/dev/null || true; wait' INT TERM
+  trap 'log "Shutting down (API=$API_PID, Next=$NEXT_PID, OpenCode=$OPENCODE_PID)..."; kill $API_PID $NEXT_PID $OPENCODE_PID 2>/dev/null || true; wait' INT TERM
   wait -n "$API_PID" "$NEXT_PID" 2>/dev/null || wait
 }
 
