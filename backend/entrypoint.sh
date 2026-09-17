@@ -19,8 +19,12 @@ cd /app 2>/dev/null || true
 ROLE="${1:-${APP_ROLE:-app}}"
 : "${PORT:=3000}"
 : "${UVICORN_WORKERS:=1}"
+: "${ENABLE_OPENCODE_SIDECAR:=true}"
 # Debian slim images ship python3; python:3.12-slim also aliases `python`.
 PYTHON_BIN="${PYTHON_BIN:-python3}"
+
+# Limit glibc memory arena fragmentation on 512MB RAM machines
+export MALLOC_ARENA_MAX=2
 
 log() { echo "[entrypoint] $*"; }
 
@@ -32,10 +36,6 @@ run_migrations() {
 }
 
 start_app() {
-  log "Starting OpenCode sidecar on 127.0.0.1:4096 ..."
-  (cd /workspace 2>/dev/null || cd /app; opencode serve --port 4096 --hostname 127.0.0.1) &
-  OPENCODE_PID=$!
-
   log "Starting FastAPI API on 127.0.0.1:8000 with $UVICORN_WORKERS worker(s) ..."
   ($PYTHON_BIN -m uvicorn main:app --host 127.0.0.1 --port 8000 --workers "$UVICORN_WORKERS") &
   API_PID=$!
@@ -53,11 +53,22 @@ start_app() {
     sleep 1
   done
 
-  log "Starting Next.js frontend on 0.0.0.0:${PORT} ..."
-  (cd frontend && HOSTNAME=0.0.0.0 PORT="$PORT" node server.js) &
+  log "Starting Next.js frontend on 0.0.0.0:${PORT} (Node heap cap: 110MB) ..."
+  (cd frontend && HOSTNAME=0.0.0.0 PORT="$PORT" NODE_OPTIONS="--max-old-space-size=110" node server.js) &
   NEXT_PID=$!
 
-  trap 'log "Shutting down (API=$API_PID, Next=$NEXT_PID, OpenCode=$OPENCODE_PID)..."; kill $API_PID $NEXT_PID $OPENCODE_PID 2>/dev/null || true; wait' INT TERM
+  OPENCODE_PID=""
+  if [ "$ENABLE_OPENCODE_SIDECAR" = "true" ]; then
+    # Brief pause to let Next.js finish its initial compilation/cache warmup
+    sleep 2
+    log "Starting OpenCode sidecar on 127.0.0.1:4096 (Node heap cap: 96MB) ..."
+    (cd /workspace 2>/dev/null || cd /app; NODE_OPTIONS="--max-old-space-size=96" opencode serve --port 4096 --hostname 127.0.0.1) &
+    OPENCODE_PID=$!
+  else
+    log "OpenCode sidecar disabled (ENABLE_OPENCODE_SIDECAR=false) to conserve RAM."
+  fi
+
+  trap 'log "Shutting down (API=$API_PID, Next=$NEXT_PID, OpenCode=${OPENCODE_PID:-none})..."; kill $API_PID $NEXT_PID ${OPENCODE_PID:-} 2>/dev/null || true; wait' INT TERM
   wait -n "$API_PID" "$NEXT_PID" 2>/dev/null || wait
 }
 

@@ -66,6 +66,11 @@ async def lifespan(app: FastAPI):
         logger.info("Database tables created/verified")
     except Exception as exc:
         logger.warning("Database create_all skipped or non-fatal error: %s", exc)
+
+    # Force garbage collection to reclaim startup import and schema reflection memory
+    import gc
+    gc.collect()
+
     yield
 
     # Shutdown

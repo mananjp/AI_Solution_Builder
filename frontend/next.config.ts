@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  compress: false, // Prevents memory spikes from internal zlib compression buffers in 512MB RAM
+  poweredByHeader: false,
+  productionBrowserSourceMaps: false,
 
   // When the app and API run in the same container, the browser should
   // call Next.js on port 3000 which proxies backend requests to 127.0.0.1:8000.

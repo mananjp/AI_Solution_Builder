@@ -29,6 +29,9 @@ class Settings(BaseSettings):
 
     # ── Database ──────────────────────────────────
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_solution_builder"
+    DB_POOL_SIZE: int = 3
+    DB_MAX_OVERFLOW: int = 2
+    DB_POOL_RECYCLE: int = 300
 
     # ── Redis ─────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"

@@ -33,7 +33,10 @@ ENV PYTHONUNBUFFERED=1 \
     HOME=/home/app \
     XDG_CONFIG_HOME=/home/app/.config \
     OPENCODE_SERVER_URL=http://127.0.0.1:4096 \
-    MVP_BUILD_DIR=/workspace
+    MVP_BUILD_DIR=/workspace \
+    MALLOC_ARENA_MAX=2 \
+    NODE_OPTIONS="--max-old-space-size=110" \
+    ENABLE_OPENCODE_SIDECAR=true
 
 WORKDIR /app
 
@@ -77,7 +80,7 @@ COPY --from=fe-build /frontend/.next/standalone ./frontend
 COPY --from=fe-build /frontend/.next/static ./frontend/.next/static
 COPY --from=fe-build --chown=app:app /frontend/public ./frontend/public
 COPY --from=fe-build /frontend/package.json ./frontend/package.json
-RUN cd frontend && npm install --omit=dev --ignore-scripts --no-audit --no-fund
+RUN cd frontend && npm install --omit=dev --ignore-scripts --no-audit --no-fund && npm cache clean --force
 
 RUN chmod +x /app/entrypoint.sh && \
     chown -R app:app /home/app /workspace /app
