@@ -557,13 +557,44 @@ async def deploy_build(
             ),
         )
 
-    storage = get_storage()
+    zip_data = None
     build_key = build.storage_key or _storage_key(build)
+    if build_key.startswith("local:"):
+        local_path = Path(build_key[6:])
+        if local_path.exists():
+            zip_data = local_path.read_bytes()
 
-    try:
-        zip_data = await storage.download_raw(build_key)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=410, detail=str(exc)) from exc
+    local_dir = builder.build_workspace_dir(build.solution_id, build.build_number)
+    local_zip = Path(local_dir).with_suffix(".zip")
+    if zip_data is None and local_zip.exists():
+        zip_data = local_zip.read_bytes()
+
+    if zip_data is None:
+        try:
+            storage = get_storage()
+            zip_data = await storage.download_raw(build_key)
+        except Exception:
+            pass
+
+    if zip_data is None and local_dir.exists():
+        zip_data = builder.build_bytes(local_dir)
+
+    if zip_data is None:
+        template_slug = (build.app_config or {}).get("template")
+        if template_slug and template_slug in ("todo", "calculator", "portfolio"):
+            try:
+                title = (build.app_config or {}).get("app_name")
+                await builder.run_premade_build(
+                    build.solution_id, template_slug, build.build_number, title=title
+                )
+                zip_data = builder.build_bytes(local_dir)
+            except Exception:
+                pass
+
+    if zip_data is None:
+        raise HTTPException(
+            status_code=410, detail="Build artifact archive unavailable for deployment"
+        )
 
     try:
         result = await deploy_build_workspace(

@@ -41,7 +41,7 @@ services:
       - key: GROQ_MODEL_NAME
         value: openai/gpt-oss-120b
       - key: STORAGE_BACKEND
-        value: cloudinary
+        value: local
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
       - key: CLOUDINARY_API_KEY
@@ -98,7 +98,7 @@ services:
       - key: GROQ_MODEL_NAME
         value: openai/gpt-oss-120b
       - key: STORAGE_BACKEND
-        value: cloudinary
+        value: local
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
       - key: CLOUDINARY_API_KEY
