@@ -19,7 +19,7 @@ cd /app 2>/dev/null || true
 ROLE="${1:-${APP_ROLE:-app}}"
 : "${PORT:=3000}"
 : "${UVICORN_WORKERS:=1}"
-: "${ENABLE_OPENCODE_SIDECAR:=true}"
+: "${ENABLE_OPENCODE_SIDECAR:=false}"
 # Debian slim images ship python3; python:3.12-slim also aliases `python`.
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
