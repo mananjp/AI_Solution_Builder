@@ -7,7 +7,7 @@ checks, and lifespan events (DB + Redis).
 """
 
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -102,7 +102,7 @@ async def lifespan(app: FastAPI):
                 )
             else:
                 # SQLite-compatible hygiene (LIKE is case-insensitive for ASCII)
-                try:
+                with suppress(Exception):
                     await conn.execute(
                         text(
                             "UPDATE organizations SET credits_remaining = NULL "
@@ -110,27 +110,36 @@ async def lifespan(app: FastAPI):
                             "OR name LIKE '%guest%' OR name LIKE '%demo%'"
                         )
                     )
-                except Exception: pass
-                try:
+                with suppress(Exception):
                     await conn.execute(
-                        text("UPDATE mvp_builds SET status = 'complete', error_message = NULL WHERE status = 'failed' AND (error_message LIKE '%signature%' OR error_message LIKE '%api_secret%' OR error_message LIKE '%cloudinary%')")
+                        text(
+                            "UPDATE mvp_builds SET status = 'complete', error_message = NULL "
+                            "WHERE status = 'failed' AND (error_message LIKE '%signature%' OR error_message LIKE '%api_secret%' OR error_message LIKE '%cloudinary%')"
+                        )
                     )
-                except Exception: pass
-                try:
+                with suppress(Exception):
                     await conn.execute(
-                        text("UPDATE build_jobs SET status = 'completed', error_message = NULL WHERE status = 'failed' AND (error_message LIKE '%signature%' OR error_message LIKE '%api_secret%' OR error_message LIKE '%cloudinary%')")
+                        text(
+                            "UPDATE build_jobs SET status = 'completed', error_message = NULL "
+                            "WHERE status = 'failed' AND (error_message LIKE '%signature%' OR error_message LIKE '%api_secret%' OR error_message LIKE '%cloudinary%')"
+                        )
                     )
-                except Exception: pass
-                try:
+                with suppress(Exception):
                     await conn.execute(
-                        text("UPDATE mvp_builds SET status = 'failed', error_message = 'Build interrupted by server restart. Please click build to retry.' WHERE status IN ('building', 'queued', 'pending') AND (updated_at IS NULL OR updated_at < datetime('now', '-3 minutes'))")
+                        text(
+                            "UPDATE mvp_builds SET status = 'failed', "
+                            "error_message = 'Build interrupted by server restart. Please click build to retry.' "
+                            "WHERE status IN ('building', 'queued', 'pending') AND (updated_at IS NULL OR updated_at < datetime('now', '-3 minutes'))"
+                        )
                     )
-                except Exception: pass
-                try:
+                with suppress(Exception):
                     await conn.execute(
-                        text("UPDATE build_jobs SET status = 'failed', error_message = 'Build interrupted by server restart. Please click build to retry.' WHERE status IN ('running', 'queued') AND (updated_at IS NULL OR updated_at < datetime('now', '-3 minutes'))")
+                        text(
+                            "UPDATE build_jobs SET status = 'failed', "
+                            "error_message = 'Build interrupted by server restart. Please click build to retry.' "
+                            "WHERE status IN ('running', 'queued') AND (updated_at IS NULL OR updated_at < datetime('now', '-3 minutes'))"
+                        )
                     )
-                except Exception: pass
         logger.info(
             "Database tables created/verified, demo accounts set to unlimited, and legacy build errors healed"
         )
