@@ -49,15 +49,14 @@ from app.schemas import (
 )
 from app.services import mvp_builder as builder
 from app.services import templates
-
-_ORIG_RUN_BUILD = builder.run_build
-
 from app.services.deployer import DeployError, deploy_build_workspace
 from app.services.render_deployer import (
     RenderDeployer,
     get_1click_deploy_url,
 )
 from app.services.storage import get_storage
+
+_ORIG_RUN_BUILD = builder.run_build
 
 logger = logging.getLogger(__name__)
 
@@ -268,6 +267,7 @@ async def execute_build_job(build_id: UUID) -> None:
 
             del zip_data
             import gc
+
             gc.collect()
 
             build.storage_key = storage_key

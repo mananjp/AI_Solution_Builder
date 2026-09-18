@@ -11,6 +11,7 @@ try:
     from . import db  # noqa: E402
     from .core.config import settings
     from .routers import router
+
     try:
         from .models import Base
     except (ImportError, ValueError):
@@ -19,6 +20,7 @@ except (ImportError, ValueError):
     import db  # noqa: E402
     from core.config import settings
     from routers import router
+
     try:
         from models import Base
     except (ImportError, ValueError):

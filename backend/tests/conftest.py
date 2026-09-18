@@ -25,7 +25,7 @@ from app.core.database import engine as app_engine
 
 settings.GITHUB_TOKEN = ""
 settings.RENDER_API_KEY = ""
-from main import app
+from main import app  # noqa: E402
 
 
 @pytest_asyncio.fixture()

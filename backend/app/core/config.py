@@ -131,7 +131,9 @@ class Settings(BaseSettings):
         except (ValueError, TypeError):
             return None
 
-    @field_validator("CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET", mode="before")
+    @field_validator(
+        "CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET", mode="before"
+    )
     @classmethod
     def clean_cloudinary_creds(cls, v: Any) -> str:
         if not v:

@@ -1,0 +1,54 @@
+name: Keep Backend Awake
+
+on:
+  schedule:
+    # Runs every 10 minutes (Render free tier spins down after 15 minutes of inactivity)
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      backend_url:
+        description: "Target Backend URL (leave blank to use secret or default)"
+        required: false
+        default: ""
+
+jobs:
+  keep-alive:
+    name: Ping Health Endpoint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Ping Backend Health Endpoint
+        env:
+          DEFAULT_URL: "https://ai-solution-builder.onrender.com"
+          SECRET_URL: ${{ secrets.BACKEND_URL }}
+          INPUT_URL: ${{ github.event.inputs.backend_url }}
+        run: |
+          # Priority: Manual input -> GitHub Secret -> Default URL
+          TARGET_URL="${INPUT_URL:-${SECRET_URL:-$DEFAULT_URL}}"
+          TARGET_URL="${TARGET_URL%/}"
+          HEALTH_URL="${TARGET_URL}/ready"
+
+          echo "============================================="
+          echo "Pinging: $HEALTH_URL"
+          echo "Timestamp (UTC): $(date -u)"
+          echo "============================================="
+
+          # Allow up to 75s timeout (Render cold starts can take ~30-50s)
+          # Try up to 2 times with a 5s pause if the first ping encounters a connection issue
+          HTTP_STATUS=$(curl -s -S -o /dev/null -w "%{http_code}" \
+            --connect-timeout 20 \
+            --max-time 75 \
+            --retry 2 \
+            --retry-delay 5 \
+            -H "User-Agent: GitHub-Actions-KeepAlive/1.0" \
+            "$HEALTH_URL" || echo "failed")
+
+          echo "Response HTTP Status: $HTTP_STATUS"
+
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 400 ]; then
+            echo "✅ Backend is active and healthy!"
+          else
+            echo "⚠️ Backend returned status $HTTP_STATUS. (Service may be spinning up or down)."
+            # Non-zero exit code so you receive an alert if the service remains unreachable
+            exit 1
+          fi

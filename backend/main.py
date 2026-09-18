@@ -85,12 +85,15 @@ async def lifespan(app: FastAPI):
                     "WHERE status = 'failed' AND (error_message ILIKE '%signature%' OR error_message ILIKE '%api_secret%' OR error_message ILIKE '%cloudinary%')"
                 )
             )
-        logger.info("Database tables created/verified, demo accounts set to unlimited, and legacy build errors healed")
+        logger.info(
+            "Database tables created/verified, demo accounts set to unlimited, and legacy build errors healed"
+        )
     except Exception as exc:
         logger.warning("Database setup non-fatal warning: %s", exc)
 
     # Force garbage collection to reclaim startup import and schema reflection memory
     import gc
+
     gc.collect()
 
     yield

@@ -537,6 +537,7 @@ export const api = {
 def apply_template_files(build_dir: Any, slug: str, app_title: str | None = None) -> None:
     """Instantiate the complete working files for a starter template directly into build_dir."""
     from pathlib import Path
+
     root = Path(build_dir)
     backend_dir = root / "backend"
     frontend_dir = root / "frontend"
@@ -562,6 +563,7 @@ def apply_template_files(build_dir: Any, slug: str, app_title: str | None = None
 
 def _apply_todo_template(backend_dir: Any, frontend_dir: Any, title: str) -> None:
     from pathlib import Path
+
     b_dir = Path(backend_dir)
     f_dir = Path(frontend_dir)
 
@@ -895,6 +897,7 @@ export default function Home() {
 
 def _apply_calculator_template(backend_dir: Any, frontend_dir: Any, title: str) -> None:
     from pathlib import Path
+
     b_dir = Path(backend_dir)
     f_dir = Path(frontend_dir)
 
@@ -1171,6 +1174,7 @@ export default function Home() {
 
 def _apply_portfolio_template(backend_dir: Any, frontend_dir: Any, title: str) -> None:
     from pathlib import Path
+
     b_dir = Path(backend_dir)
     f_dir = Path(frontend_dir)
 
@@ -1392,4 +1396,3 @@ export default function Home() {
 }
 """.replace("__APP_TITLE__", title)
     (f_dir / "src" / "app" / "page.tsx").write_text(page_content, encoding="utf-8")
-

@@ -285,4 +285,3 @@ def test_sanitize_render_yaml_converts_legacy_pgsql():
     assert "type: pgsql" not in sanitized
     assert "buildCommand:" not in sanitized
     assert "startCommand:" not in sanitized
-

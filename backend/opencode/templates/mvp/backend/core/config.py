@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from functools import lru_cache
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -56,12 +56,12 @@ class Settings(BaseSettings):
             return url
         # SQLite support for local/test runs
         if url.startswith("sqlite://") and not url.startswith("sqlite+aiosqlite://"):
-            return "sqlite+aiosqlite://" + url[len("sqlite://"):]
+            return "sqlite+aiosqlite://" + url[len("sqlite://") :]
         unsupported = {"channel_binding", "connect_timeout"}
         if url.startswith("postgres://"):
-            url = "postgresql+asyncpg://" + url[len("postgres://"):]
+            url = "postgresql+asyncpg://" + url[len("postgres://") :]
         elif url.startswith("postgresql://") and not url.startswith("postgresql+asyncpg://"):
-            url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+            url = "postgresql+asyncpg://" + url[len("postgresql://") :]
         if "sslmode=" in url:
             url = url.replace("sslmode=", "ssl=")
         parsed = urlsplit(url)
@@ -80,6 +80,7 @@ class Settings(BaseSettings):
             if v.startswith("[") and v.endswith("]"):
                 try:
                     import json
+
                     parsed = json.loads(v)
                     if isinstance(parsed, list):
                         return [str(x).strip() for x in parsed if str(x).strip()]

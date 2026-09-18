@@ -8,6 +8,7 @@ GitHub/network failure.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import zipfile
@@ -56,12 +57,18 @@ def _sanitize_render_yaml(content: str) -> str:
         content = db_block + content.lstrip()
 
     # 2. Ensure dockerContext is present for backend and frontend
-    if "dockerfilePath: ./backend/Dockerfile" in content and "dockerContext: ./backend" not in content:
+    if (
+        "dockerfilePath: ./backend/Dockerfile" in content
+        and "dockerContext: ./backend" not in content
+    ):
         content = content.replace(
             "dockerfilePath: ./backend/Dockerfile",
             "dockerContext: ./backend\n    dockerfilePath: ./backend/Dockerfile",
         )
-    if "dockerfilePath: ./frontend/Dockerfile" in content and "dockerContext: ./frontend" not in content:
+    if (
+        "dockerfilePath: ./frontend/Dockerfile" in content
+        and "dockerContext: ./frontend" not in content
+    ):
         content = content.replace(
             "dockerfilePath: ./frontend/Dockerfile",
             "dockerContext: ./frontend\n    dockerfilePath: ./frontend/Dockerfile",
@@ -116,6 +123,7 @@ def _extract_mvp_files(root: Path) -> dict[str, str]:
     # Guarantee frontend/src/lib/api.ts and public/.gitkeep are in deployed repo
     if any(k.startswith("frontend/src/") for k in files) and "frontend/src/lib/api.ts" not in files:
         from app.services.templates import _API_CLIENT_TS
+
         files["frontend/src/lib/api.ts"] = _API_CLIENT_TS
     if any(k.startswith("frontend/") for k in files) and "frontend/public/.gitkeep" not in files:
         files["frontend/public/.gitkeep"] = ""
@@ -257,14 +265,12 @@ async def deploy_to_github(
             repo_get = await client.get(f"{GH_API_BASE}/repos/{owner}/{repo_name}", headers=headers)
             if repo_get.status_code in (200, 201):
                 default_branch = repo_get.json().get("default_branch", "main")
-                try:
+                with contextlib.suppress(Exception):
                     await client.patch(
                         f"{GH_API_BASE}/repos/{owner}/{repo_name}",
                         headers=headers,
                         json={"private": private},
                     )
-                except Exception:
-                    pass
             logger.info("Target repo %s/%s already exists; updating in-place", owner, repo_name)
         else:
             raise DeployError(
@@ -352,7 +358,8 @@ async def deploy_to_github(
                                 f"{GH_API_BASE}/repos/{owner}/{repo_name}/git/commits",
                                 headers=headers,
                                 json={
-                                    "message": description or "Deploy solution by AI Solution Builder",
+                                    "message": description
+                                    or "Deploy solution by AI Solution Builder",
                                     "tree": new_tree_sha,
                                     "parents": [parent_commit_sha] if parent_commit_sha else [],
                                 },
@@ -368,7 +375,9 @@ async def deploy_to_github(
                                     if up_resp.status_code in (200, 201):
                                         atomic_success = True
             except Exception as e:
-                logger.warning("Atomic Git Data API attempt hit exception, falling back to contents API: %s", e)
+                logger.warning(
+                    "Atomic Git Data API attempt hit exception, falling back to contents API: %s", e
+                )
 
         # 4. Fallback: If atomic Git Data API was skipped or unavailable,
         # use Contents API with robust automatic 409/422 retry that always fetches fresh SHAs.
@@ -405,12 +414,15 @@ async def deploy_to_github(
                     resp = await client.put(path, headers=headers, json=payload)
                     # When 409 conflict or 422 occurs, query the exact current SHA and retry
                     if resp.status_code in (409, 422):
-                        cur = await client.get(path, headers=headers, params={"ref": default_branch})
+                        cur = await client.get(
+                            path, headers=headers, params={"ref": default_branch}
+                        )
                         if cur.status_code == 200:
                             payload["sha"] = cur.json().get("sha")
                             resp = await client.put(path, headers=headers, json=payload)
                         elif "is at " in resp.text:
                             import re
+
                             m = re.search(r"is at ([0-9a-f]{40})", resp.text)
                             if m:
                                 payload["sha"] = m.group(1)

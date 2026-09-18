@@ -19,6 +19,7 @@ builds never collide.
 """
 
 import base64
+import contextlib
 import io
 import json
 import logging
@@ -248,13 +249,23 @@ def _auto_synthesize_slots(root: Path, ai_state: dict[str, Any], app_title: str)
     if not backend_dir.exists():
         return
 
-    er = ai_state.get("er_diagram", {}).get("content", {}) if isinstance(ai_state.get("er_diagram"), dict) else {}
+    er = (
+        ai_state.get("er_diagram", {}).get("content", {})
+        if isinstance(ai_state.get("er_diagram"), dict)
+        else {}
+    )
     entities = er.get("entities", []) if isinstance(er, dict) else []
 
     if not entities:
         modules = ai_state.get("confirmed_modules") or ai_state.get("identified_solutions", [])
         if modules:
-            entities = [{"name": re.sub(r"[^a-zA-Z0-9_]+", "_", str(m).lower()).strip("_"), "fields": [{"name": "name", "type": "VARCHAR(255)"}]} for m in modules[:3]]
+            entities = [
+                {
+                    "name": re.sub(r"[^a-zA-Z0-9_]+", "_", str(m).lower()).strip("_"),
+                    "fields": [{"name": "name", "type": "VARCHAR(255)"}],
+                }
+                for m in modules[:3]
+            ]
         else:
             entities = [{"name": "item", "fields": [{"name": "title", "type": "VARCHAR(255)"}]}]
 
@@ -340,7 +351,9 @@ async def delete_{clean_name}(item_id: uuid.UUID, session: SessionDep) -> dict[s
         if "# __MODEL_INSERTION_POINT__" in content and model_chunks:
             imports = "import uuid\nfrom datetime import UTC, datetime\nfrom sqlalchemy import DateTime, String\nfrom sqlalchemy.dialects.postgresql import UUID\nfrom sqlalchemy.orm import Mapped, mapped_column\n\n"
             replacement = imports + "\n\n".join(model_chunks) + "\n\n# __MODEL_INSERTION_POINT__"
-            models_file.write_text(content.replace("# __MODEL_INSERTION_POINT__", replacement), encoding="utf-8")
+            models_file.write_text(
+                content.replace("# __MODEL_INSERTION_POINT__", replacement), encoding="utf-8"
+            )
 
     # Apply to schemas.py
     schemas_file = backend_dir / "schemas.py"
@@ -349,7 +362,9 @@ async def delete_{clean_name}(item_id: uuid.UUID, session: SessionDep) -> dict[s
         if "# __SCHEMA_INSERTION_POINT__" in content and schema_chunks:
             imports = "import uuid\nfrom datetime import datetime\nfrom pydantic import BaseModel, ConfigDict\n\n"
             replacement = imports + "\n\n".join(schema_chunks) + "\n\n# __SCHEMA_INSERTION_POINT__"
-            schemas_file.write_text(content.replace("# __SCHEMA_INSERTION_POINT__", replacement), encoding="utf-8")
+            schemas_file.write_text(
+                content.replace("# __SCHEMA_INSERTION_POINT__", replacement), encoding="utf-8"
+            )
 
     # Apply to routers.py
     routers_file = backend_dir / "routers.py"
@@ -362,14 +377,19 @@ async def delete_{clean_name}(item_id: uuid.UUID, session: SessionDep) -> dict[s
                 "except (ImportError, ValueError):\n    import models, schemas\n\n"
             )
             replacement = imports + "\n\n".join(router_chunks) + "\n\n# __ROUTER_INSERTION_POINT__"
-            routers_file.write_text(content.replace("# __ROUTER_INSERTION_POINT__", replacement), encoding="utf-8")
+            routers_file.write_text(
+                content.replace("# __ROUTER_INSERTION_POINT__", replacement), encoding="utf-8"
+            )
 
     # Apply to frontend page.tsx
     page_file = frontend_dir / "src" / "app" / "page.tsx"
     if page_file.exists():
         content = page_file.read_text(encoding="utf-8")
         if "{/* __MODULE_LINKS__ */}" in content and card_chunks:
-            page_file.write_text(content.replace("{/* __MODULE_LINKS__ */}", "\n".join(card_chunks)), encoding="utf-8")
+            page_file.write_text(
+                content.replace("{/* __MODULE_LINKS__ */}", "\n".join(card_chunks)),
+                encoding="utf-8",
+            )
 
 
 def scaffold_build(
@@ -410,6 +430,7 @@ def scaffold_build(
         api_ts = lib_dir / "api.ts"
         if not api_ts.exists():
             from app.services.templates import _API_CLIENT_TS
+
             api_ts.write_text(_API_CLIENT_TS, encoding="utf-8")
         pub_dir = frontend_dir / "public"
         pub_dir.mkdir(parents=True, exist_ok=True)
@@ -679,10 +700,8 @@ async def run_build(
                 solution_id,
             )
             if session_id and session_id != "auto-synthesized":
-                try:
+                with contextlib.suppress(Exception):
                     await abort_session(session_id)
-                except Exception:
-                    pass
     else:
         logger.info(
             "OpenCode sidecar offline; build synthesized instantly from blueprint for solution=%s",

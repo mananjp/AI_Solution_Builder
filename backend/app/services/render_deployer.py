@@ -122,7 +122,8 @@ class RenderDeployer:
             )
             if resp.status_code in (200, 201):
                 data = resp.json()
-                return data.get("id")
+                deploy_id = data.get("id")
+                return str(deploy_id) if deploy_id is not None else None
             logger.warning(
                 "Trigger deploy for service %s returned HTTP %d: %s",
                 service_id,

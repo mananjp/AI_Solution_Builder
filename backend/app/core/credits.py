@@ -97,6 +97,7 @@ async def require_and_deduct_credit(
         )
         return {"credits_remaining": None, "deducted": 0, "cost": cost}
 
+    assert org.credits_remaining is not None
     if org.credits_remaining < cost:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
