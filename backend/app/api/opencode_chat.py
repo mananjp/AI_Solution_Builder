@@ -47,7 +47,7 @@ async def health() -> dict[str, Any]:
     """Report whether the AI build engine is reachable and ready."""
     sidecar_ok = await builder.health()
     return {
-        "healthy": True,
+        "healthy": sidecar_ok,
         "sidecar_healthy": sidecar_ok,
         "mode": "opencode-sidecar" if sidecar_ok else "integrated-synthesizer",
     }
