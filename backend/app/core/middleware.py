@@ -14,6 +14,7 @@ AI Solution Builder — Core Middleware
 import logging
 import time
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import Request
 from sqlalchemy import text as sa_text
@@ -167,9 +168,10 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
                     sa_text(
                         "INSERT INTO audit_logs (id, user_id, org_id, action, resource, "
                         "request_id, method, path, ip_address, status_code, created_at) "
-                        "VALUES (gen_random_uuid(), :uid, :org, :action, :resource, :reqid, :method, :path, :ip, :status, NOW())"
+                        "VALUES (:id, :uid, :org, :action, :resource, :reqid, :method, :path, :ip, :status, :created_at)"
                     ),
                     {
+                        "id": str(uuid.uuid4()),
                         "uid": user_id,
                         "org": getattr(request.state, "org_id", None),
                         "action": request.method,
@@ -179,6 +181,7 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
                         "path": path,
                         "ip": _client_ip(request),
                         "status": response.status_code,
+                        "created_at": datetime.now(UTC),
                     },
                 )
                 await session.commit()

@@ -3,388 +3,271 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
-  Sparkles,
-  Plus,
-  Layers,
-  FolderKanban,
-  Clock,
-  ArrowUpRight,
-  Trash2,
-  Compass,
-  Rocket,
-  Zap,
-  Wrench,
-  Loader2,
-  CircleCheck,
-  Radio,
-  RefreshCw,
+  Plus, Layers, FolderKanban, Clock, ArrowUpRight, Trash2,
+  Compass, Rocket, Zap, Wrench, Loader2, RefreshCw, Circle,
 } from 'lucide-react';
 import { workspaceApi, solutionApi, mvpApi, opencodeApi } from '@/lib/api';
 import { Solution, Workspace, MVPBuild, MVPTemplate, MVPDeployResult } from '@/types';
 import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
 
-const QUICK_TEMPLATES: MVPTemplate[] = [
+const FALLBACK_TEMPLATES: MVPTemplate[] = [
+  { slug: 'todo', title: 'Todo List', description: 'Simple CRUD app with items, tags, and completion states.', app_name: 'todo-app', industry: 'Productivity' },
+  { slug: 'calculator', title: 'Calculator', description: 'Interactive calculator with a persistent history ledger.', app_name: 'calculator', industry: 'Utilities' },
+  { slug: 'portfolio', title: 'Portfolio Site', description: 'Public portfolio with project showcases and a contact form.', app_name: 'portfolio', industry: 'Web' },
+];
+
+const INDUSTRY_PROMPTS = [
   {
-    slug: 'todo',
-    title: 'Todo List Workspace',
-    description: 'A minimal single-module CRUD app — items, tags, and completion states.',
-    app_name: 'todo-app',
-    industry: 'Productivity',
+    title: 'Retail & Omnichannel Commerce',
+    desc: 'POS, real-time stock sync, multi-store, loyalty engine',
+    prompt: 'I want to build an omnichannel retail system with inventory management, POS terminal support, and loyalty rewards.',
   },
   {
-    slug: 'calculator',
-    title: 'Calculator',
-    description: 'A simple interactive calculator with a persistent history ledger.',
-    app_name: 'calculator',
-    industry: 'Utilities',
+    title: 'Healthcare EHR & Telemedicine',
+    desc: 'HIPAA patient portal, video consults, prescriptions, audit trails',
+    prompt: 'I want to build a telemedicine platform with HIPAA compliance, scheduling, WebRTC video, and electronic health records.',
   },
   {
-    slug: 'portfolio',
-    title: 'Portfolio Site',
-    description: 'A public-facing portfolio with project showcases and contact forms.',
-    app_name: 'portfolio',
-    industry: 'Web',
+    title: 'Logistics & Fleet Dispatch',
+    desc: 'Live GPS tracking, route optimization, driver apps, POD scanning',
+    prompt: 'I want to build a freight dispatch system with automated route planning, live driver tracking, and digital proof of delivery.',
+  },
+  {
+    title: 'B2B SaaS Multi-Tenant Platform',
+    desc: 'RBAC, usage metering, Stripe invoicing, team workspaces',
+    prompt: 'I want to build a multi-tenant B2B SaaS platform with organization billing, role-based access, and audit logs.',
   },
 ];
 
 export default function DashboardPage() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [solutions, setSolutions] = useState<Solution[]>([]);
-  const [selectedWorkspace, setSelectedWorkspace] = useState<string>('');
-
-  const [sidecarHealthy, setSidecarHealthy] = useState<boolean | null>(null);
+  const [selectedWorkspace, setSelectedWorkspace] = useState('');
+  const [engineOnline, setEngineOnline] = useState<boolean | null>(null);
   const [builds, setBuilds] = useState<MVPBuild[]>([]);
-  const [templates, setTemplates] = useState<MVPTemplate[]>(QUICK_TEMPLATES);
-  const [buildingTemplate, setBuildingTemplate] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<MVPTemplate[]>(FALLBACK_TEMPLATES);
+  const [buildingSlug, setBuildingSlug] = useState<string | null>(null);
+  const [actionErr, setActionErr] = useState<string | null>(null);
   const [deployTarget, setDeployTarget] = useState<MVPBuild | null>(null);
   const [configureTarget, setConfigureTarget] = useState<MVPBuild | null>(null);
-
-  // New Workspace form state
   const [newWsName, setNewWsName] = useState('');
   const [creatingWs, setCreatingWs] = useState(false);
 
+  // Load workspaces + solutions
   useEffect(() => {
-    async function loadData() {
+    async function load() {
       try {
         const wsList = await workspaceApi.list();
-        if (wsList && wsList.length > 0) {
+        if (wsList?.length > 0) {
           setWorkspaces(wsList);
           setSelectedWorkspace(wsList[0].id);
-          const solList = await solutionApi.list(wsList[0].id);
-          setSolutions(solList);
+          const sols = await solutionApi.list(wsList[0].id);
+          setSolutions(sols);
         } else {
-          try {
-            const defaultWs = await workspaceApi.create({
-              name: 'Primary Enterprise Systems',
-              description: 'Flagship product architecture and engineering specs',
-            });
-            setWorkspaces([defaultWs]);
-            setSelectedWorkspace(defaultWs.id);
-          } catch {
-            setWorkspaces([
-              { id: 'ws-demo-1', org_id: 'org-1', name: 'Primary Enterprise Systems', description: 'Core product architecture', created_at: new Date().toISOString() }
-            ]);
-            setSelectedWorkspace('ws-demo-1');
-          }
+          const ws = await workspaceApi.create({ name: 'Primary Workspace', description: 'Core architecture zone' });
+          setWorkspaces([ws]);
+          setSelectedWorkspace(ws.id);
         }
       } catch {
-        setWorkspaces([
-          { id: 'ws-demo-1', org_id: 'org-1', name: 'Primary Enterprise Systems', description: 'Flagship product architecture and engineering specs', created_at: new Date().toISOString() }
-        ]);
-        setSelectedWorkspace('ws-demo-1');
+        const demoWs = { id: 'ws-demo', org_id: 'demo-org', name: 'Primary Workspace', description: 'Core architecture zone', created_at: new Date().toISOString() };
+        setWorkspaces([demoWs]);
+        setSelectedWorkspace('ws-demo');
         setSolutions([
-          {
-            id: 'sol-demo-1',
-            workspace_id: 'ws-demo-1',
-            title: 'Omnichannel Retail POS & Inventory Platform',
-            description: 'Multi-store point-of-sale with real-time stock sync, offline barcode scanning, and staff scheduling.',
-            status: 'complete',
-            created_at: new Date().toISOString(),
-          },
-          {
-            id: 'sol-demo-2',
-            workspace_id: 'ws-demo-1',
-            title: 'HIPAA-Compliant Telehealth & EHR Portal',
-            description: 'Doctor appointments, encrypted WebRTC consultations, prescription workflow, and audit logging.',
-            status: 'complete',
-            created_at: new Date().toISOString(),
-          }
+          { id: 'sol-1', workspace_id: 'ws-demo', title: 'Omnichannel Retail POS & Inventory', description: 'Multi-store POS with real-time stock sync, offline barcode scanning, and staff scheduling.', status: 'complete', created_at: new Date().toISOString() },
+          { id: 'sol-2', workspace_id: 'ws-demo', title: 'HIPAA-Compliant Telehealth & EHR Portal', description: 'Doctor appointments, encrypted WebRTC consultations, prescription workflow, and audit logging.', status: 'complete', created_at: new Date().toISOString() },
         ]);
       }
     }
-    loadData();
+    load();
   }, []);
 
-  // Probe the OpenCode sidecar for the dashboard banner.
+  // Ping engine
   useEffect(() => {
     let mounted = true;
-    const check = () => {
-      opencodeApi
-        .health()
-        .then((res) => {
-          if (mounted) setSidecarHealthy(Boolean(res.healthy));
-        })
-        .catch(() => {
-          if (mounted) setSidecarHealthy(true);
-        });
-    };
+    const check = () => opencodeApi.health()
+      .then((r) => { if (mounted) setEngineOnline(Boolean(r.healthy)); })
+      .catch(() => { if (mounted) setEngineOnline(false); });
     check();
-    const interval = setInterval(check, 10000);
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-    };
+    const t = setInterval(check, 15000);
+    return () => { mounted = false; clearInterval(t); };
   }, []);
 
-  // Load premade templates + any builds created from them.
+  // Load templates
   useEffect(() => {
-    mvpApi
-      .listTemplates()
-      .then((list) => {
-        if (list && list.length > 0) setTemplates(list);
-      })
-      .catch(() => undefined);
+    mvpApi.listTemplates().then((l) => { if (l?.length > 0) setTemplates(l); }).catch(() => undefined);
   }, []);
 
-  // Poll the latest quick-build status while any build is still active.
+  // Poll active builds
   useEffect(() => {
-    const activeBuildIds = builds
-      .filter((b) => b.status === 'queued' || b.status === 'pending' || b.status === 'building')
-      .map((b) => b.build_id);
-    if (activeBuildIds.length === 0) return;
-    const timer = setInterval(async () => {
-      for (const buildId of activeBuildIds) {
+    const active = builds.filter((b) => ['queued', 'pending', 'building'].includes(b.status)).map((b) => b.build_id);
+    if (!active.length) return;
+    const t = setInterval(async () => {
+      for (const id of active) {
         try {
-          const fresh = await mvpApi.getStatus(buildId);
-          setBuilds((prev) => prev.map((b) => (b.build_id === buildId ? fresh : b)));
-        } catch {
-          // ignore transient failures; next poll will retry
-        }
+          const fresh = await mvpApi.getStatus(id);
+          setBuilds((p) => p.map((b) => (b.build_id === id ? fresh : b)));
+        } catch { /* ignore */ }
       }
     }, 3000);
-    return () => clearInterval(timer);
+    return () => clearInterval(t);
   }, [builds]);
 
-  const handleCreateWorkspace = async (e: React.FormEvent) => {
+  const handleCreateWs = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newWsName.trim()) return;
     setCreatingWs(true);
     try {
-      const created = await workspaceApi.create({ name: newWsName });
-      setWorkspaces([...workspaces, created]);
-      setSelectedWorkspace(created.id);
+      const ws = await workspaceApi.create({ name: newWsName });
+      setWorkspaces((p) => [...p, ws]);
+      setSelectedWorkspace(ws.id);
       setNewWsName('');
     } catch {
-      const mockWs: Workspace = {
-        id: `ws-${Date.now()}`,
-        org_id: 'demo-org',
-        name: newWsName,
-        created_at: new Date().toISOString(),
-      };
-      setWorkspaces([...workspaces, mockWs]);
-      setSelectedWorkspace(mockWs.id);
+      const mock: Workspace = { id: `ws-${Date.now()}`, org_id: 'demo', name: newWsName, created_at: new Date().toISOString() };
+      setWorkspaces((p) => [...p, mock]);
+      setSelectedWorkspace(mock.id);
       setNewWsName('');
-    } finally {
-      setCreatingWs(false);
-    }
+    } finally { setCreatingWs(false); }
   };
 
-  const handleDeleteSolution = async (id: string) => {
-    try {
-      await solutionApi.delete(id);
-      setSolutions(solutions.filter(s => s.id !== id));
-    } catch {
-      setSolutions(solutions.filter(s => s.id !== id));
-    }
+  const handleDeleteSol = async (id: string) => {
+    try { await solutionApi.delete(id); } catch { /* ignore */ }
+    setSolutions((p) => p.filter((s) => s.id !== id));
   };
 
-  const handleQuickBuild = async (template: MVPTemplate) => {
-    setBuildingTemplate(template.slug);
-    setActionError(null);
+  const handleQuickBuild = async (tpl: MVPTemplate) => {
+    setBuildingSlug(tpl.slug);
+    setActionErr(null);
     try {
-      const build = await mvpApi.quickBuild({
-        template: template.slug,
-        app_name: template.app_name,
-      });
-      setBuilds((prev) => [build, ...prev]);
+      const build = await mvpApi.quickBuild({ template: tpl.slug, app_name: tpl.app_name });
+      setBuilds((p) => [build, ...p]);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed to start quick build.');
-    } finally {
-      setBuildingTemplate(null);
-    }
+      setActionErr(err instanceof Error ? err.message : 'Build failed.');
+    } finally { setBuildingSlug(null); }
   };
 
   const handleDownload = async (build: MVPBuild) => {
-    try {
-      await mvpApi.downloadBuild(build.build_id, `mvp_${build.solution_id.slice(0, 8)}_build${build.build_number}.zip`);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Download failed.');
-    }
+    try { await mvpApi.downloadBuild(build.build_id, `mvp_build${build.build_number}.zip`); }
+    catch (err) { setActionErr(err instanceof Error ? err.message : 'Download failed.'); }
   };
 
   const handleDestroy = async (build: MVPBuild) => {
-    if (!window.confirm(`Destroy build #${build.build_number}? The workspace will be deleted.`)) return;
-    try {
-      await mvpApi.destroy(build.build_id);
-      setBuilds((prev) => prev.filter((b) => b.build_id !== build.build_id));
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Destroy failed.');
-    }
+    if (!window.confirm(`Destroy build #${build.build_number}?`)) return;
+    try { await mvpApi.destroy(build.build_id); setBuilds((p) => p.filter((b) => b.build_id !== build.build_id)); }
+    catch (err) { setActionErr(err instanceof Error ? err.message : 'Destroy failed.'); }
   };
 
   const handleDeployed = (result: MVPDeployResult | string) => {
     const repoUrl = typeof result === 'string' ? result : result.repo_url;
     const renderUrl = typeof result === 'string' ? null : (result.frontend_url || result.render_service_url);
-    const backendUrl = typeof result === 'string' ? null : result.backend_url;
-    const renderDash = typeof result === 'string' ? null : result.render_dashboard_url;
-    const renderDeploy = typeof result === 'string' ? null : result.render_deploy_url;
-    setBuilds((prev) =>
-      prev.map((b) =>
-        b.status === 'complete' && b.build_id === deployTarget?.build_id
-          ? {
-              ...b,
-              repo_url: repoUrl,
-              render_service_url: renderUrl,
-              frontend_url: renderUrl,
-              backend_url: backendUrl,
-              render_dashboard_url: renderDash,
-              render_deploy_url: renderDeploy,
-            }
-          : b
-      )
-    );
+    setBuilds((p) => p.map((b) =>
+      b.status === 'complete' && b.build_id === deployTarget?.build_id
+        ? { ...b, repo_url: repoUrl, render_service_url: renderUrl, frontend_url: renderUrl }
+        : b
+    ));
   };
 
   return (
-    <div className="space-y-8">
-      {/* Top Banner */}
-      <div className="relative p-8 rounded-3xl bg-gradient-to-r from-indigo-950/60 via-slate-900/80 to-purple-950/40 border border-white/5 overflow-hidden shadow-2xl">
-        <div className="relative z-10 max-w-2xl space-y-3">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-semibold">
-            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-            <span>AI Solution Builder</span>
-          </div>
-          <h2 className="text-3xl font-extrabold text-white tracking-tight">
-            Build Working Apps in Two Ways
-          </h2>
-          <p className="text-sm text-slate-300 leading-relaxed">
-            Spin up a production-grade app from a premade template in one click, or chat
-            directly with the AI developer to design something completely custom.
-          </p>
-          <div className="pt-2 flex flex-wrap items-center gap-3">
-            <Link
-              href="/chat"
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 text-xs font-semibold transition-colors"
-            >
-              <Wrench className="w-4 h-4 text-indigo-400" />
-              <span>Custom App Builder</span>
-            </Link>
-          </div>
-        </div>
+    <div className="space-y-8 animate-fade-up">
 
-        {/* Ambient background decoration */}
-        <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-gradient-to-l from-indigo-500/10 to-transparent pointer-events-none" />
+      {/* Page header */}
+      <div>
+        <h1 className="text-lg font-semibold text-white">Dashboard</h1>
+        <p className="text-sm text-[#666] mt-0.5">Build and manage your architecture blueprints and apps.</p>
       </div>
 
-      {/* Sidecar health banner */}
-      {sidecarHealthy !== null && (
-        <div
-          className={`flex items-center gap-3 px-5 py-3.5 rounded-2xl border transition-colors ${
-            sidecarHealthy
-              ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
-              : 'bg-amber-950/30 border-amber-500/30 text-amber-300'
-          }`}
-        >
-          {sidecarHealthy ? (
-            <CircleCheck className="w-4 h-4 flex-shrink-0" />
-          ) : (
-            <Radio className="w-4 h-4 flex-shrink-0 animate-pulse" />
-          )}
-          <p className="text-xs font-medium">
-            {sidecarHealthy
-              ? 'AI build engine is online. Custom builds and premade app builds are ready to go.'
-              : 'The AI build engine is unreachable. You can still design blueprints, but app builds may be delayed.'}
-          </p>
+      {/* Engine status bar */}
+      {engineOnline !== null && (
+        <div className={`flex items-center gap-2.5 px-4 py-2.5 rounded-lg border text-[13px] ${engineOnline
+            ? 'bg-[#22c55e0a] border-[#22c55e20] text-[#4ade80]'
+            : 'bg-[#f59e0b0a] border-[#f59e0b20] text-[#fbbf24]'
+          }`}>
+          <Circle className={`w-2 h-2 fill-current ${engineOnline ? 'animate-pulse-dot' : ''}`} />
+          {engineOnline
+            ? 'AI build engine is online — custom and premade app builds are ready.'
+            : 'AI build engine is offline. Blueprint generation still works; app builds may be delayed.'}
         </div>
       )}
 
-      {/* Two-Path Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Path 1: Premade Apps */}
-        <div className="p-6 rounded-2xl bg-slate-900/40 border border-white/5 space-y-5" id="premade">
+      {/* Stat row */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Solutions', value: solutions.length, icon: Layers },
+          { label: 'Workspaces', value: workspaces.length, icon: FolderKanban },
+          { label: 'Quick Builds', value: builds.length, icon: Rocket },
+          { label: 'Engine', value: engineOnline === null ? '—' : engineOnline ? 'Online' : 'Offline', icon: Circle },
+        ].map((m) => {
+          const Icon = m.icon;
+          return (
+            <div key={m.label} className="p-4 rounded-xl bg-[#111] border border-[#1a1a1a]">
+              <div className="flex items-center gap-2 text-[#555] mb-2">
+                <Icon className="w-3.5 h-3.5" />
+                <span className="text-[11px] font-medium uppercase tracking-wider">{m.label}</span>
+              </div>
+              <p className="text-2xl font-semibold text-white">{m.value}</p>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Two paths */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" id="premade">
+
+        {/* Premade apps */}
+        <div className="bg-[#111] border border-[#1a1a1a] rounded-xl p-5 space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Zap className="w-4 h-4 text-cyan-400" />
-                <span>Premade Apps</span>
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                One-click builds from polished templates. Scaffolded, verified, and ready to download or deploy.
-              </p>
+              <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+                <Zap className="w-4 h-4 text-[#6366f1]" />
+                Premade Apps
+              </h2>
+              <p className="text-[12px] text-[#555] mt-0.5">One-click builds from verified templates.</p>
             </div>
             <button
               onClick={async () => {
                 const refreshed: MVPBuild[] = [];
-                for (const build of builds) {
-                  try {
-                    refreshed.push(await mvpApi.getStatus(build.build_id));
-                  } catch {
-                    refreshed.push(build);
-                  }
+                for (const b of builds) {
+                  try { refreshed.push(await mvpApi.getStatus(b.build_id)); }
+                  catch { refreshed.push(b); }
                 }
                 if (refreshed.length > 0) setBuilds(refreshed);
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] font-semibold text-slate-300 border border-white/10 transition-colors"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-transparent hover:bg-[#161616] border border-[#242424] text-[12px] text-[#666] hover:text-[#a1a1a1] transition-colors"
             >
               <RefreshCw className="w-3 h-3" />
-              <span>Refresh</span>
+              Refresh
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             {templates.map((tpl) => (
-              <div
-                key={tpl.slug}
-                className="p-4 rounded-2xl bg-slate-950/40 border border-white/5 hover:border-cyan-500/30 transition-all flex flex-col gap-3"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-white">{tpl.title}</span>
-                  <span className="px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[10px] font-semibold text-cyan-300">
-                    {tpl.industry}
-                  </span>
+              <div key={tpl.slug} className="flex flex-col gap-3 p-3.5 rounded-lg bg-[#0a0a0a] border border-[#1a1a1a] hover:border-[#242424] transition-colors">
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-[12px] font-semibold text-white">{tpl.title}</span>
+                  </div>
+                  <span className="text-[11px] text-[#444]">{tpl.industry}</span>
+                  <p className="text-[11px] text-[#555] mt-1.5 leading-relaxed">{tpl.description}</p>
                 </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed flex-1">{tpl.description}</p>
                 <button
                   onClick={() => handleQuickBuild(tpl)}
-                  disabled={buildingTemplate !== null}
-                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-lg shadow-cyan-600/20 transition-all hover:scale-[1.02] disabled:opacity-40 disabled:hover:scale-100"
+                  disabled={buildingSlug !== null}
+                  className="mt-auto flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-white text-[12px] font-medium transition-colors disabled:opacity-40"
                 >
-                  {buildingTemplate === tpl.slug ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Starting build...</span>
-                    </>
+                  {buildingSlug === tpl.slug ? (
+                    <><Loader2 className="w-3 h-3 animate-spin" />Building…</>
                   ) : (
-                    <>
-                      <Rocket className="w-3.5 h-3.5" />
-                      <span>Build App</span>
-                    </>
+                    <><Rocket className="w-3 h-3" />Build</>
                   )}
                 </button>
               </div>
             ))}
           </div>
 
-          {actionError && (
-            <p className="text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2">
-              {actionError}
-            </p>
-          )}
+          {actionErr && <p className="text-[12px] text-[#f87171] bg-[#ef444410] border border-[#ef444420] rounded-lg px-3 py-2">{actionErr}</p>}
 
           {builds.length > 0 && (
-            <div className="space-y-4 pt-2 border-t border-white/5">
-              <h4 className="text-sm font-bold text-white">Your Quick Builds</h4>
+            <div className="space-y-3 pt-3 border-t border-[#1a1a1a]">
+              <h3 className="text-[12px] font-semibold text-white">Your Builds</h3>
               {builds.map((build) => (
                 <BuildCard
                   key={build.build_id}
@@ -400,257 +283,164 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Path 2: Custom App Builder */}
-        <div className="p-6 rounded-2xl bg-gradient-to-br from-indigo-950/40 to-slate-900/60 border border-indigo-500/20 space-y-5 flex flex-col justify-between">
+        {/* Custom builder */}
+        <div className="bg-[#111] border border-[#1a1a1a] rounded-xl p-5 flex flex-col justify-between gap-6">
           <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Wrench className="w-5 h-5 text-indigo-400" />
-              <h3 className="text-base font-bold text-white">Custom App Builder</h3>
-            </div>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Skip the templates. Chat directly with the AI developer — describe your idea, iterate
-              on the scaffolded FastAPI + Next.js workspace, and finalize a build when you are happy.
+            <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+              <Wrench className="w-4 h-4 text-[#6366f1]" />
+              Custom App Builder
+            </h2>
+            <p className="text-[13px] text-[#666] leading-relaxed">
+              Skip the templates. Chat with the AI developer — describe your idea, iterate on scaffolded FastAPI + Next.js workspace, and finalize a build.
             </p>
-            <p className="text-[11px] text-amber-400/80 flex items-center gap-1.5 pt-0.5">
-              <span>⏱</span>
-              <span>Custom apps take 2–5 min: AI code generation + a fresh cloud deploy.</span>
-            </p>
-            <ul className="space-y-2 pt-1">
+            <ul className="space-y-2">
               {[
                 'Persistent conversational session per build',
-                'Live editing of your FastAPI + Next.js workspace',
+                'Live editing of FastAPI + Next.js workspace',
                 'Upload a spec or PRD for context',
-                'Finalize, download, tune, or deploy to GitHub',
+                'Finalize, download, or deploy to GitHub',
               ].map((item) => (
-                <li key={item} className="flex items-start gap-2 text-[11px] text-slate-300">
-                  <CircleCheck className="w-3.5 h-3.5 text-emerald-400 mt-0.5 flex-shrink-0" />
-                  <span>{item}</span>
+                <li key={item} className="flex items-center gap-2 text-[12px] text-[#777]">
+                  <div className="w-1.5 h-1.5 rounded-full bg-[#6366f1] shrink-0" />
+                  {item}
                 </li>
               ))}
             </ul>
+            <p className="text-[12px] text-[#555]">⏱ Custom apps take 2–5 min: AI code generation + fresh cloud deploy.</p>
           </div>
-
           <Link
             href="/chat"
-            className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-cyan-500 hover:opacity-95 text-white text-xs font-bold shadow-xl shadow-indigo-600/30 transition-all hover:scale-[1.02]"
+            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-white text-[13px] font-medium transition-colors"
           >
-            <Sparkles className="w-4 h-4" />
-            <span>Open Custom App Builder</span>
-            <ArrowUpRight className="w-4 h-4" />
+            <Wrench className="w-4 h-4" />
+            Open Custom Builder
+            <ArrowUpRight className="w-4 h-4 ml-1" />
           </Link>
         </div>
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-5 rounded-2xl bg-slate-900/40 border border-white/5 flex items-center justify-between">
-          <div>
-            <p className="text-xs text-slate-400 font-medium">Active Solutions</p>
-            <p className="text-2xl font-bold text-white mt-1">{solutions.length}</p>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
-            <Layers className="w-5 h-5" />
-          </div>
-        </div>
-
-        <div className="p-5 rounded-2xl bg-slate-900/40 border border-white/5 flex items-center justify-between">
-          <div>
-            <p className="text-xs text-slate-400 font-medium">Workspaces</p>
-            <p className="text-2xl font-bold text-white mt-1">{workspaces.length}</p>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
-            <FolderKanban className="w-5 h-5" />
-          </div>
-        </div>
-
-        <div className="p-5 rounded-2xl bg-slate-900/40 border border-white/5 flex items-center justify-between">
-          <div>
-            <p className="text-xs text-slate-400 font-medium">Premade App Builds</p>
-            <p className="text-2xl font-bold text-emerald-400 mt-1">{builds.length}</p>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-            <Rocket className="w-5 h-5" />
-          </div>
-        </div>
-
-        <div className="p-5 rounded-2xl bg-slate-900/40 border border-white/5 flex items-center justify-between">
-          <div>
-            <p className="text-xs text-slate-400 font-medium">AI Build Engine</p>
-            <p className="text-2xl font-bold text-indigo-400 mt-1">
-              {sidecarHealthy === null ? '…' : sidecarHealthy ? 'Online' : 'Offline'}
-            </p>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
-            <Radio className="w-5 h-5" />
-          </div>
-        </div>
-      </div>
-
-      {/* Solutions Section */}
-      <div className="space-y-4" id="blueprints">
+      {/* Solutions */}
+      <div className="space-y-3" id="blueprints">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-bold text-white">Generated Solution Blueprints</h3>
-            <p className="text-xs text-slate-400 mt-0.5">Explore full architecture specs, database schemas, and roadmaps</p>
+            <h2 className="text-sm font-semibold text-white">Solution Blueprints</h2>
+            <p className="text-[12px] text-[#555] mt-0.5">Architecture specs, database schemas, and roadmaps</p>
           </div>
           <Link
             href="/chat"
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-indigo-400 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-transparent hover:bg-[#111] border border-[#1a1a1a] text-[12px] text-[#666] hover:text-[#a1a1a1] transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Generate New</span>
+            Generate New
           </Link>
         </div>
 
         {solutions.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {solutions.map((solution) => (
-              <div
-                key={solution.id}
-                className="p-5 rounded-2xl bg-slate-900/40 border border-white/5 hover:border-indigo-500/30 transition-all flex flex-col justify-between group"
-              >
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {solutions.map((sol) => (
+              <div key={sol.id} className="p-4 rounded-xl bg-[#111] border border-[#1a1a1a] hover:border-[#242424] transition-colors flex flex-col justify-between gap-4">
                 <div>
-                  <div className="flex items-start justify-between gap-4 mb-2">
-                    <span className="text-[11px] px-2.5 py-0.5 rounded-full font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                      {solution.status.toUpperCase()}
-                    </span>
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <span className="badge badge-green">{sol.status.toUpperCase()}</span>
                     <button
-                      onClick={() => handleDeleteSolution(solution.id)}
-                      className="text-slate-500 hover:text-rose-400 transition-colors p-1"
+                      onClick={() => handleDeleteSol(sol.id)}
+                      className="text-[#444] hover:text-[#f87171] transition-colors p-0.5"
                       title="Delete solution"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    ><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>
-
-                  <h4 className="text-base font-bold text-white group-hover:text-indigo-300 transition-colors">
-                    {solution.title}
-                  </h4>
-                  <p className="text-xs text-slate-400 mt-1.5 line-clamp-2 leading-relaxed">
-                    {solution.description || 'Enterprise solution blueprint with architecture, schemas, and roadmap.'}
+                  <h3 className="text-sm font-semibold text-white">{sol.title}</h3>
+                  <p className="text-[12px] text-[#555] mt-1.5 leading-relaxed line-clamp-2">
+                    {sol.description || 'Enterprise solution blueprint with architecture, schemas, and roadmap.'}
                   </p>
                 </div>
-
-                <div className="mt-5 pt-4 border-t border-white/5 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
-                    <Clock className="w-3.5 h-3.5" />
-                    <span>{new Date(solution.created_at).toLocaleDateString()}</span>
+                <div className="flex items-center justify-between pt-3 border-t border-[#1a1a1a]">
+                  <div className="flex items-center gap-1.5 text-[11px] text-[#444]">
+                    <Clock className="w-3 h-3" />
+                    {new Date(sol.created_at).toLocaleDateString()}
                   </div>
-
                   <Link
-                    href={`/solution/${solution.id}`}
-                    className="flex items-center gap-1.5 text-xs font-semibold text-indigo-400 hover:text-indigo-300 group-hover:translate-x-0.5 transition-transform"
+                    href={`/solution/${sol.id}`}
+                    className="flex items-center gap-1 text-[12px] font-medium text-[#6366f1] hover:text-[#818cf8] transition-colors"
                   >
-                    <span>View Blueprints</span>
-                    <ArrowUpRight className="w-3.5 h-3.5" />
+                    View Blueprints <ArrowUpRight className="w-3.5 h-3.5" />
                   </Link>
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <div className="p-12 text-center rounded-2xl bg-slate-900/20 border border-dashed border-white/10 space-y-3">
-            <Layers className="w-10 h-10 text-slate-600 mx-auto" />
-            <h4 className="text-sm font-semibold text-slate-300">No solutions generated yet</h4>
-            <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              Build a premade app above, or start a custom session with the AI developer.
-            </p>
+          <div className="py-14 text-center rounded-xl bg-[#111] border border-dashed border-[#1a1a1a]">
+            <Layers className="w-8 h-8 text-[#333] mx-auto mb-3" />
+            <p className="text-sm font-medium text-[#555]">No solutions yet</p>
+            <p className="text-[12px] text-[#444] mt-1 mb-4">Build a premade app or start a custom session.</p>
             <Link
               href="/chat"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold shadow-lg shadow-indigo-600/20 hover:bg-indigo-500 transition-all"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-white text-[13px] font-medium transition-colors"
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Start Building</span>
+              Start Building
             </Link>
           </div>
         )}
       </div>
 
-      {/* Workspaces & Industry Templates Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-4">
-        {/* Workspace Manager */}
-        <div className="p-6 rounded-2xl bg-slate-900/40 border border-white/5 space-y-4" id="workspaces">
-          <h4 className="font-bold text-white text-sm flex items-center gap-2">
-            <FolderKanban className="w-4 h-4 text-cyan-400" />
-            <span>Workspaces</span>
-          </h4>
-          <p className="text-xs text-slate-400">Organize your software solutions by product line or client.</p>
+      {/* Bottom row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pb-6">
+        {/* Workspaces */}
+        <div className="p-5 rounded-xl bg-[#111] border border-[#1a1a1a] space-y-3" id="workspaces">
+          <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+            <FolderKanban className="w-4 h-4 text-[#6366f1]" /> Workspaces
+          </h2>
+          <p className="text-[12px] text-[#555]">Organize solutions by product line or client.</p>
 
-          <form onSubmit={handleCreateWorkspace} className="flex gap-2">
+          <form onSubmit={handleCreateWs} className="flex gap-2">
             <input
               type="text"
               value={newWsName}
               onChange={(e) => setNewWsName(e.target.value)}
-              placeholder="New workspace name..."
-              className="flex-1 px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+              placeholder="New workspace name…"
+              className="flex-1 px-3 py-2 rounded-lg bg-[#0a0a0a] border border-[#1a1a1a] text-[13px] text-white placeholder:text-[#444] focus:outline-none focus:border-[#3a3a3a] transition-colors"
             />
             <button
               type="submit"
               disabled={creatingWs || !newWsName.trim()}
-              className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors disabled:opacity-40"
+              className="px-3 py-2 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-white text-[13px] font-medium disabled:opacity-40 transition-colors"
             >
               Add
             </button>
           </form>
 
-          <div className="space-y-2 pt-2">
+          <div className="space-y-1.5">
             {workspaces.map((ws) => (
               <div
                 key={ws.id}
                 onClick={() => setSelectedWorkspace(ws.id)}
-                className={`p-3 rounded-xl border text-xs cursor-pointer transition-all ${
-                  selectedWorkspace === ws.id
-                    ? 'bg-indigo-950/30 border-indigo-500/50 text-indigo-300'
-                    : 'bg-white/[0.02] border-white/5 text-slate-400 hover:border-white/10'
-                }`}
+                className={`px-3 py-2.5 rounded-lg text-[13px] cursor-pointer border transition-colors ${selectedWorkspace === ws.id
+                    ? 'bg-[#6366f10a] border-[#6366f130] text-white'
+                    : 'bg-transparent border-[#1a1a1a] text-[#666] hover:text-[#a1a1a1] hover:border-[#242424]'
+                  }`}
               >
-                <div className="font-semibold text-slate-200">{ws.name}</div>
-                {ws.description && <div className="text-[11px] text-slate-500 mt-0.5">{ws.description}</div>}
+                <p className="font-medium">{ws.name}</p>
+                {ws.description && <p className="text-[11px] text-[#444] mt-0.5">{ws.description}</p>}
               </div>
             ))}
           </div>
         </div>
 
-        {/* Industry Templates Quickstart */}
-        <div className="lg:col-span-2 p-6 rounded-2xl bg-slate-900/40 border border-white/5 space-y-4" id="templates">
-          <h4 className="font-bold text-white text-sm flex items-center gap-2">
-            <Compass className="w-4 h-4 text-purple-400" />
-            <span>Blueprints by Industry</span>
-          </h4>
-          <p className="text-xs text-slate-400">Pre-seeded vertical prompts to kick off a custom architecture session.</p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-            {[
-              {
-                title: 'Retail & Omnichannel Commerce',
-                desc: 'Point-of-Sale, Real-time Stock Sync, Multi-Store, Customer Loyalty Engine',
-                prompt: 'I want to build an omnichannel retail system with inventory management, POS terminal support, and loyalty rewards.',
-              },
-              {
-                title: 'Healthcare EHR & Telemedicine',
-                desc: 'HIPAA Patient Portal, Encrypted Video Consults, Digital Prescriptions, Audit Trails',
-                prompt: 'I want to build a telemedicine platform with HIPAA compliance, scheduling, WebRTC video, and electronic health records.',
-              },
-              {
-                title: 'Logistics & Fleet Dispatch',
-                desc: 'Live GPS Tracking, Route Optimization, Driver Mobile Apps, POD Scanning',
-                prompt: 'I want to build a freight dispatch system with automated route planning, live driver tracking, and digital proof of delivery.',
-              },
-              {
-                title: 'B2B SaaS Multi-Tenant Platform',
-                desc: 'RBAC Authorization, Usage Metering, Stripe Invoicing, Team Workspaces',
-                prompt: 'I want to build a multi-tenant B2B SaaS platform with organization billing, role-based access, and audit logs.',
-              },
-            ].map((t, idx) => (
+        {/* Industry templates */}
+        <div className="lg:col-span-2 p-5 rounded-xl bg-[#111] border border-[#1a1a1a] space-y-3" id="templates">
+          <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+            <Compass className="w-4 h-4 text-[#6366f1]" /> Blueprints by Industry
+          </h2>
+          <p className="text-[12px] text-[#555]">Pre-seeded vertical prompts to kick off a custom architecture session.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {INDUSTRY_PROMPTS.map((t) => (
               <Link
-                key={idx}
+                key={t.title}
                 href={`/chat?prompt=${encodeURIComponent(t.prompt)}`}
-                className="p-4 rounded-xl bg-white/[0.02] hover:bg-indigo-950/20 border border-white/5 hover:border-indigo-500/30 transition-all text-left group"
+                className="p-3.5 rounded-lg bg-[#0a0a0a] border border-[#1a1a1a] hover:border-[#242424] transition-colors group"
               >
-                <h5 className="font-semibold text-xs text-white group-hover:text-indigo-300 transition-colors">
-                  {t.title}
-                </h5>
-                <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">{t.desc}</p>
+                <p className="text-[13px] font-semibold text-white group-hover:text-[#818cf8] transition-colors">{t.title}</p>
+                <p className="text-[11px] text-[#555] mt-1 leading-relaxed">{t.desc}</p>
               </Link>
             ))}
           </div>
@@ -658,9 +448,7 @@ export default function DashboardPage() {
       </div>
 
       {deployTarget && <DeployModal build={deployTarget} onClose={() => setDeployTarget(null)} onDeployed={handleDeployed} />}
-      {configureTarget && (
-        <ConfigureModal build={configureTarget} onClose={() => setConfigureTarget(null)} onConfigured={() => undefined} />
-      )}
+      {configureTarget && <ConfigureModal build={configureTarget} onClose={() => setConfigureTarget(null)} onConfigured={() => undefined} />}
     </div>
   );
 }

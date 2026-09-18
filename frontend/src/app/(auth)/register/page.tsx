@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Sparkles, Lock, Mail, Building, User, AlertCircle, Loader2 } from 'lucide-react';
-import { authApi } from '@/lib/api';
+import { authApi, setDemoSession } from '@/lib/api';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -73,11 +73,12 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       await authApi.anonymousLogin();
-      router.push('/dashboard');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Guest demo login failed.');
+    } catch {
+      // Backend offline — fall back to client-side demo session
+      setDemoSession();
     } finally {
       setLoading(false);
+      router.push('/dashboard');
     }
   };
 

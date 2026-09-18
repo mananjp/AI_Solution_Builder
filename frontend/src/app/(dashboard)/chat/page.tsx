@@ -2,152 +2,89 @@
 
 import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import {
-  Send,
-  Paperclip,
-  Loader2,
-  Wrench,
-  Rocket,
-  CircleCheck,
-  Radio,
-} from 'lucide-react';
+import { Send, Paperclip, Loader2, Wrench, CheckCircle2, Circle } from 'lucide-react';
 import ChatMessage from '@/components/ChatMessage';
 import FileUploader from '@/components/FileUploader';
 import { opencodeApi, sendOpenCodeChatStream, mvpApi } from '@/lib/api';
 import { MVPBuild, MVPDeployResult, OpenCodeChatComplete } from '@/types';
 import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
 
-type ChatMessageItem = {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  agent?: string;
-};
+type Msg = { role: 'user' | 'assistant' | 'system'; content: string; agent?: string };
 
 function ChatContent() {
   const searchParams = useSearchParams();
   const initialPrompt = searchParams.get('prompt') || '';
 
-  const [inputMessage, setInputMessage] = useState(initialPrompt);
-  const [messages, setMessages] = useState<ChatMessageItem[]>([
-    {
-      role: 'assistant',
-      agent: 'AI Developer',
-      content:
-        "I'm your custom app builder. Tell me what you want to build and I'll scaffold a working FastAPI + Next.js app and iterate on it with you. Upload a spec/PRD for extra context, and hit **Build App** whenever you're ready to finalize a downloadable, deployable build.",
-    },
-  ]);
-
+  const [input, setInput] = useState(initialPrompt);
+  const [messages, setMessages] = useState<Msg[]>([{
+    role: 'assistant',
+    agent: 'AI Developer',
+    content: "I'm your custom app builder. Tell me what you want to build and I'll scaffold a working FastAPI + Next.js app. Upload a spec/PRD for extra context, and toggle **Build** whenever you're ready to finalize a deployable build.",
+  }]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [solutionId, setSolutionId] = useState<string | null>(null);
-  const [uploadedContext, setUploadedContext] = useState<string>('');
-  const [uploadedFilename, setUploadedFilename] = useState<string>('');
+  const [uploadedContext, setUploadedContext] = useState('');
+  const [uploadedFilename, setUploadedFilename] = useState('');
   const [showUploader, setShowUploader] = useState(false);
-
   const [isStreaming, setIsStreaming] = useState(false);
   const [buildRequested, setBuildRequested] = useState(false);
   const [finalizedBuild, setFinalizedBuild] = useState<MVPBuild | null>(null);
-  const [sidecarHealthy, setSidecarHealthy] = useState<boolean | null>(null);
+  const [engineOnline, setEngineOnline] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
-
   const [deployTarget, setDeployTarget] = useState<MVPBuild | null>(null);
   const [configureTarget, setConfigureTarget] = useState<MVPBuild | null>(null);
+  const endRef = useRef<HTMLDivElement>(null);
 
-  const chatEndRef = useRef<HTMLDivElement>(null);
-
-  const scrollToBottom = () => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages, isStreaming]);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isStreaming]);
 
   useEffect(() => {
     let mounted = true;
-    const probe = () => {
-      opencodeApi
-        .health()
-        .then((res) => {
-          if (mounted) setSidecarHealthy(Boolean(res.healthy));
-        })
-        .catch(() => {
-          if (mounted) setSidecarHealthy(false);
-        });
-    };
+    const probe = () => opencodeApi.health()
+      .then((r) => { if (mounted) setEngineOnline(Boolean(r.healthy)); })
+      .catch(() => { if (mounted) setEngineOnline(false); });
     probe();
-    const interval = setInterval(probe, sidecarHealthy ? 20000 : 4000);
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-    };
-  }, [sidecarHealthy]);
+    const t = setInterval(probe, engineOnline ? 20000 : 5000);
+    return () => { mounted = false; clearInterval(t); };
+  }, [engineOnline]);
 
-  const pushAssistant = (content: string, agent?: string) => {
-    setMessages((prev) => [...prev, { role: 'assistant', content, agent }]);
-  };
+  const push = (content: string, agent?: string) =>
+    setMessages((p) => [...p, { role: 'assistant', content, agent }]);
 
-  const handleSendMessage = async (finalize: boolean) => {
-    const text = inputMessage.trim();
+  const handleSend = async (finalize: boolean) => {
+    const text = input.trim();
     if (!text || isStreaming) return;
-
-    setInputMessage('');
+    setInput('');
     setError(null);
-    setMessages((prev) => [...prev, { role: 'user', content: text }]);
+    setMessages((p) => [...p, { role: 'user', content: text }]);
     setIsStreaming(true);
-
     try {
       await sendOpenCodeChatStream(
-        {
-          message: text,
-          solution_id: solutionId,
-          session_id: sessionId,
-          uploaded_context: uploadedContext,
-          build_requested: finalize,
-        },
+        { message: text, solution_id: solutionId, session_id: sessionId, uploaded_context: uploadedContext, build_requested: finalize },
         {
           onEvent: (event, data) => {
             if (event === 'agent_start') {
               if (typeof data.session_id === 'string') setSessionId(data.session_id);
               if (typeof data.solution_id === 'string') setSolutionId(data.solution_id);
-              const text = data.message || 'Connected to the AI build engine...';
-              pushAssistant(text, (data.agent as string) || 'AI Developer');
+              push(data.message as string || 'Connected to AI build engine…', (data.agent as string) || 'AI Developer');
             } else if (event === 'message' && data.message) {
-              pushAssistant(data.message, (data.agent as string) || 'AI Developer');
+              push(data.message as string, (data.agent as string) || 'AI Developer');
             }
           },
           onComplete: (data) => {
-            const complete = data as OpenCodeChatComplete;
-            if (complete.session_id) setSessionId(complete.session_id);
-            if (complete.solution_id) setSolutionId(complete.solution_id);
-            const text = complete.message || 'Build created.';
-            pushAssistant(text, 'AI Developer');
-
-            if (complete.build_id) {
-              const build: MVPBuild = {
-                build_id: complete.build_id,
-                solution_id: complete.solution_id || solutionId || '',
-                build_number: complete.build_number || 1,
-                status: 'complete',
-                workspace_path: '',
-                file_count: 0,
-              };
-              setFinalizedBuild(build);
+            const c = data as OpenCodeChatComplete;
+            if (c.session_id) setSessionId(c.session_id);
+            if (c.solution_id) setSolutionId(c.solution_id);
+            push(c.message || 'Done.', 'AI Developer');
+            if (c.build_id) {
+              setFinalizedBuild({ build_id: c.build_id, solution_id: c.solution_id || solutionId || '', build_number: c.build_number || 1, status: 'complete', workspace_path: '', file_count: 0 });
             }
-            if (finalize) {
-              setBuildRequested(false);
-            }
+            if (finalize) setBuildRequested(false);
             setIsStreaming(false);
           },
           onError: (err) => {
-            const message =
-              typeof err === 'object' && err && 'message' in err
-                ? String((err as { message: string }).message)
-                : 'Something went wrong talking to the AI build engine.';
-            setError(message);
-            setMessages((prev) => [
-              ...prev,
-              { role: 'assistant', agent: 'AI Developer', content: message },
-            ]);
+            const msg = typeof err === 'object' && err && 'message' in err ? String((err as { message: string }).message) : 'Something went wrong.';
+            setError(msg);
+            push(msg, 'AI Developer');
             setIsStreaming(false);
           },
         }
@@ -159,102 +96,67 @@ function ChatContent() {
   };
 
   const handleDownload = async (build: MVPBuild) => {
-    try {
-      await mvpApi.downloadBuild(build.build_id, `mvp_${build.solution_id.slice(0, 8)}_build${build.build_number}.zip`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Download failed.');
-    }
+    try { await mvpApi.downloadBuild(build.build_id, `mvp_build${build.build_number}.zip`); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Download failed.'); }
   };
 
   const handleDestroy = async (build: MVPBuild) => {
-    if (!window.confirm(`Destroy this build #${build.build_number}?`)) return;
-    try {
-      await mvpApi.destroy(build.build_id);
-      setFinalizedBuild(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Destroy failed.');
-    }
+    if (!window.confirm(`Destroy build #${build.build_number}?`)) return;
+    try { await mvpApi.destroy(build.build_id); setFinalizedBuild(null); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Destroy failed.'); }
   };
 
   const handleDeployed = (result: MVPDeployResult | string) => {
     const repoUrl = typeof result === 'string' ? result : result.repo_url;
     const renderUrl = typeof result === 'string' ? null : (result.frontend_url || result.render_service_url);
-    const backendUrl = typeof result === 'string' ? null : result.backend_url;
-    const renderDash = typeof result === 'string' ? null : result.render_dashboard_url;
-    const renderDeploy = typeof result === 'string' ? null : result.render_deploy_url;
-    setFinalizedBuild((prev) =>
-      prev
-        ? {
-            ...prev,
-            repo_url: repoUrl,
-            render_service_url: renderUrl,
-            frontend_url: renderUrl,
-            backend_url: backendUrl,
-            render_dashboard_url: renderDash,
-            render_deploy_url: renderDeploy,
-          }
-        : prev
-    );
+    setFinalizedBuild((p) => p ? { ...p, repo_url: repoUrl, render_service_url: renderUrl, frontend_url: renderUrl } : p);
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8.5rem)] max-w-5xl mx-auto">
+    <div className="flex flex-col h-[calc(100vh-7rem)] max-w-4xl mx-auto">
+
       {/* Header */}
-      <div className="mb-4 flex items-center justify-between flex-wrap gap-3">
+      <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
-            <Wrench className="w-5 h-5" />
+          <div className="w-8 h-8 rounded-lg bg-[#161616] border border-[#242424] flex items-center justify-center text-[#6366f1]">
+            <Wrench className="w-4 h-4" />
           </div>
           <div>
-            <h2 className="text-lg font-extrabold text-white tracking-tight">Custom App Builder</h2>
-            <p className="text-[11px] text-slate-500">
-              Chat with the AI developer — your FastAPI + Next.js workspace is scaffolded and edited live.
-            </p>
+            <h1 className="text-sm font-semibold text-white">Custom App Builder</h1>
+            <p className="text-[11px] text-[#555]">Chat → scaffold FastAPI + Next.js workspace in real time</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[11px] font-semibold ${
-              sidecarHealthy === null
-                ? 'bg-slate-900/60 border-white/10 text-slate-400'
-                : sidecarHealthy
-                ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300'
-                : 'bg-amber-950/40 border-amber-500/30 text-amber-300'
-            }`}
-          >
-            {sidecarHealthy === null ? (
-              <Loader2 className="w-3 h-3 animate-spin" />
-            ) : sidecarHealthy ? (
-              <CircleCheck className="w-3 h-3" />
-            ) : (
-              <Radio className="w-3 h-3 animate-pulse" />
-            )}
-            <span>{sidecarHealthy === null ? 'Checking...' : sidecarHealthy ? 'Engine Online' : 'Engine Offline'}</span>
-          </span>
+        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[11px] font-medium ${engineOnline === null ? 'bg-[#111] border-[#1a1a1a] text-[#555]'
+            : engineOnline ? 'bg-[#22c55e0a] border-[#22c55e20] text-[#4ade80]'
+              : 'bg-[#f59e0b0a] border-[#f59e0b20] text-[#fbbf24]'
+          }`}>
+          {engineOnline === null
+            ? <Loader2 className="w-3 h-3 animate-spin" />
+            : engineOnline
+              ? <CheckCircle2 className="w-3 h-3" />
+              : <Circle className="w-3 h-3 animate-pulse-dot" />
+          }
+          {engineOnline === null ? 'Checking…' : engineOnline ? 'Engine Online' : 'Engine Offline'}
         </div>
       </div>
 
-      {/* Chat Thread Container */}
-      <div className="flex-1 bg-slate-950/60 border border-white/5 rounded-2xl p-6 overflow-y-auto backdrop-blur-xl shadow-2xl space-y-4">
-        {messages.map((msg, index) => (
-          <ChatMessage key={index} role={msg.role} content={msg.content} agent={msg.agent} />
-        ))}
+      {/* Thread */}
+      <div className="flex-1 bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-5 overflow-y-auto space-y-4">
+        {messages.map((m, i) => <ChatMessage key={i} role={m.role} content={m.content} agent={m.agent} />)}
 
-        {/* Streaming Indicator */}
         {isStreaming && (
-          <div className="flex items-center gap-3 p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-500/20 max-w-sm text-indigo-300 text-xs">
-            <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
-            <span>The AI developer is working in your workspace...</span>
+          <div className="flex items-center gap-2.5 text-[12px] text-[#555] py-1">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-[#6366f1]" />
+            AI developer is working in your workspace…
           </div>
         )}
 
-        {/* Finalized Build Card */}
         {finalizedBuild && (
-          <div className="my-6 space-y-3">
-            <div className="flex items-center gap-2">
-              <CircleCheck className="w-4 h-4 text-emerald-400" />
-              <h3 className="text-sm font-bold text-white">Your app is built and ready</h3>
+          <div className="pt-2 space-y-2">
+            <div className="flex items-center gap-2 text-[12px] text-[#4ade80]">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span className="font-medium">Build ready</span>
             </div>
             <BuildCard
               build={finalizedBuild}
@@ -266,111 +168,84 @@ function ChatContent() {
             />
           </div>
         )}
-
-        <div ref={chatEndRef} />
+        <div ref={endRef} />
       </div>
 
-      {/* Chat Input & File Uploader Bar */}
-      <div className="mt-4 space-y-2">
+      {/* Input area */}
+      <div className="mt-3 space-y-2">
         {error && (
-          <p className="text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2">
-            {error}
-          </p>
+          <p className="text-[11px] text-[#f87171] bg-[#ef444410] border border-[#ef444420] rounded-lg px-3 py-2">{error}</p>
         )}
 
         {showUploader && (
-          <div className="p-3 bg-slate-900/60 border border-white/10 rounded-2xl">
+          <div className="p-3 bg-[#111] border border-[#1a1a1a] rounded-xl">
             <FileUploader
               onParsedContext={(text, filename) => {
                 setUploadedContext(text);
                 setUploadedFilename(filename);
                 setShowUploader(false);
-                pushAssistant(`Extracted content from **${filename}** (${text.length} characters). You can now ask about this document.`);
+                push(`Extracted content from **${filename}** (${text.length} chars). You can now ask about this document.`);
               }}
-              onClear={() => {
-                setUploadedContext('');
-                setUploadedFilename('');
-              }}
+              onClear={() => { setUploadedContext(''); setUploadedFilename(''); }}
             />
           </div>
         )}
 
         <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSendMessage(buildRequested);
-          }}
-          className="relative flex items-center"
+          onSubmit={(e) => { e.preventDefault(); handleSend(buildRequested); }}
+          className="flex items-center gap-2"
         >
           <button
             type="button"
             onClick={() => setShowUploader(!showUploader)}
-            className={`p-3 rounded-xl border mr-2 transition-colors ${
-              uploadedContext
-                ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300'
-                : 'bg-slate-900 border-white/10 text-slate-400 hover:text-slate-200'
-            }`}
-            title="Attach PRD or specification document"
+            className={`p-2.5 rounded-lg border transition-colors shrink-0 ${uploadedContext
+                ? 'bg-[#6366f10a] border-[#6366f130] text-[#818cf8]'
+                : 'bg-[#111] border-[#1a1a1a] text-[#555] hover:text-[#a1a1a1] hover:border-[#242424]'
+              }`}
+            title="Attach PRD"
           >
             <Paperclip className="w-4 h-4" />
           </button>
 
           <input
             type="text"
-            value={inputMessage}
-            onChange={(e) => setInputMessage(e.target.value)}
-            placeholder={
-              uploadedFilename
-                ? `Ask using context from ${uploadedFilename}...`
-                : 'Describe the app you want to build (e.g. "an inventory management API")...'
-            }
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={uploadedFilename ? `Ask using context from ${uploadedFilename}…` : 'Describe the app you want to build…'}
             disabled={isStreaming}
-            className="flex-1 py-3.5 pl-4 pr-32 rounded-xl bg-slate-900 border border-white/10 text-white text-xs placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition-colors shadow-inner"
+            className="flex-1 py-2.5 pl-4 pr-3 rounded-lg bg-[#111] border border-[#1a1a1a] text-white text-[13px] placeholder:text-[#444] focus:outline-none focus:border-[#2e2e2e] transition-colors"
           />
 
-          {/* Finalize toggle */}
-          <label
-            className={`absolute right-20 flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-[11px] font-semibold cursor-pointer select-none transition-colors ${
-              buildRequested ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/5 text-slate-400'
-            }`}
-            title="Finalize the build when sending this message"
-          >
-            <input
-              type="checkbox"
-              checked={buildRequested}
-              onChange={(e) => setBuildRequested(e.target.checked)}
-              className="accent-emerald-500"
-            />
-            <Rocket className={`w-3 h-3 ${buildRequested ? 'text-emerald-300' : 'text-slate-500'}`} />
+          {/* Build toggle */}
+          <label className={`flex items-center gap-1.5 px-3 py-2.5 rounded-lg border text-[12px] font-medium cursor-pointer select-none transition-colors shrink-0 ${buildRequested ? 'bg-[#22c55e0a] border-[#22c55e30] text-[#4ade80]' : 'bg-[#111] border-[#1a1a1a] text-[#555]'
+            }`}>
+            <input type="checkbox" checked={buildRequested} onChange={(e) => setBuildRequested(e.target.checked)} className="sr-only" />
             Build
           </label>
 
           <button
             type="submit"
-            disabled={!inputMessage.trim() || isStreaming}
-            className="absolute right-2 p-2 rounded-lg bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white transition-all disabled:opacity-40"
+            disabled={!input.trim() || isStreaming}
+            className="p-2.5 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-white transition-colors disabled:opacity-40 shrink-0"
           >
-            <Send className="w-3.5 h-3.5" />
+            <Send className="w-4 h-4" />
           </button>
         </form>
 
-        <p className="text-[10px] text-slate-600 leading-relaxed">
-          Toggle <span className="text-emerald-400 font-semibold">Build</span> and send to verify the workspace and create
-          a download/deploy-ready build. Building consumes MVP-build credits.
+        <p className="text-[11px] text-[#444]">
+          Toggle <span className="text-[#4ade80]">Build</span> and send to finalize a download/deploy-ready build.
         </p>
       </div>
 
       {deployTarget && <DeployModal build={deployTarget} onClose={() => setDeployTarget(null)} onDeployed={handleDeployed} />}
-      {configureTarget && (
-        <ConfigureModal build={configureTarget} onClose={() => setConfigureTarget(null)} onConfigured={() => undefined} />
-      )}
+      {configureTarget && <ConfigureModal build={configureTarget} onClose={() => setConfigureTarget(null)} onConfigured={() => undefined} />}
     </div>
   );
 }
 
 export default function ChatPage() {
   return (
-    <Suspense fallback={<div className="text-white text-xs p-6">Loading Custom App Builder...</div>}>
+    <Suspense fallback={<div className="text-[#555] text-sm p-6">Loading…</div>}>
       <ChatContent />
     </Suspense>
   );
