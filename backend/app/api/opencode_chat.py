@@ -149,9 +149,7 @@ async def chat(
                     yield {
                         "event": "error",
                         "data": json.dumps(
-                            {
-                                "message": "OpenCode sidecar is unreachable. Ensure the opencode service is running."
-                            }
+                            {"message": "OpenCode sidecar is unreachable. Ensure the opencode service is running."}
                         ),
                     }
                     return
@@ -162,15 +160,11 @@ async def chat(
                 if session_id and payload.session_id and session_id != payload.session_id:
                     yield {
                         "event": "error",
-                        "data": json.dumps(
-                            {"message": "Session id does not match this solution."}
-                        ),
+                        "data": json.dumps({"message": "Session id does not match this solution."}),
                     }
                     return
                 if not session_id:
-                    session_id = await builder.create_session(
-                        f"Custom Build - {solution.title}"
-                    )
+                    session_id = await builder.create_session(f"Custom Build - {solution.title}")
                     ai_state["opencode_session_id"] = session_id
                 agent_name = "opencode"
                 agent_msg = "Connected to the OpenCode sidecar..."
@@ -279,9 +273,7 @@ async def chat(
                             ws_dir,
                             session_id=session_id if sidecar_ok else None,
                             target_dir=target_dir,
-                            send_prompt_fn=builder.send_message
-                            if sidecar_ok
-                            else None,
+                            send_prompt_fn=builder.send_message if sidecar_ok else None,
                             check_npm=False,
                             max_repair_turns=2 if sidecar_ok else 0,
                         )
