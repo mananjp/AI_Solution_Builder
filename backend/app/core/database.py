@@ -7,6 +7,7 @@ Provides session factory and dependency injection for FastAPI routes.
 
 import uuid
 from collections.abc import AsyncGenerator
+from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy.ext.asyncio import (
@@ -28,11 +29,11 @@ try:
     from sqlalchemy.ext.compiler import compiles
 
     @compiles(_PG_JSONB, "sqlite")
-    def _compile_jsonb_sqlite(type_, compiler, **kw):  # type: ignore[no-untyped-def]
+    def _compile_jsonb_sqlite(type_: Any, compiler: Any, **kw: Any) -> str:
         return "JSON"
 
     @compiles(_PG_UUID, "sqlite")
-    def _compile_uuid_sqlite(type_, compiler, **kw):  # type: ignore[no-untyped-def]
+    def _compile_uuid_sqlite(type_: Any, compiler: Any, **kw: Any) -> str:
         return "CHAR(36)"
 
     # SQLite stores UUIDs as plain 32-char hex strings, but the PostgreSQL
@@ -42,12 +43,12 @@ try:
     # first so they bind identically to stored values.
     _orig_uuid_bind = _PG_UUID.bind_processor
 
-    def _sqlite_uuid_bind_processor(self, dialect):  # type: ignore[no-untyped-def]
-        process = _orig_uuid_bind(self, dialect)
+    def _sqlite_uuid_bind_processor(self: Any, dialect: Any) -> Any:
+        process = _orig_uuid_bind(self, dialect)  # type: ignore[no-untyped-call]
         if process is None or dialect.name != "sqlite":
             return process
 
-        def wrapped(value):
+        def wrapped(value: Any) -> Any:
             if value is None:
                 return None
             if isinstance(value, str):
@@ -59,7 +60,7 @@ try:
 
         return wrapped
 
-    _PG_UUID.bind_processor = _sqlite_uuid_bind_processor
+    _PG_UUID.bind_processor = _sqlite_uuid_bind_processor  # type: ignore[method-assign]
 except Exception:
     pass
 
