@@ -157,16 +157,12 @@ async def chat(
                 if session_id and payload.session_id and session_id != payload.session_id:
                     yield {
                         "event": "error",
-                        "data": json.dumps(
-                            {"message": "Session id does not match this solution."}
-                        ),
+                        "data": json.dumps({"message": "Session id does not match this solution."}),
                     }
                     return
 
                 if not session_id:
-                    session_id = await builder.create_session(
-                        f"Custom Build - {solution.title}"
-                    )
+                    session_id = await builder.create_session(f"Custom Build - {solution.title}")
                     ai_state["opencode_session_id"] = session_id
 
                 agent_name = "opencode"
@@ -208,9 +204,7 @@ async def chat(
                 )
                 if payload.uploaded_context:
                     context = payload.uploaded_context[:_TARGET_MAX_CONTEXT]
-                    instruction = (
-                        f"## Context from uploaded document\n{context}\n\n" + instruction
-                    )
+                    instruction = f"## Context from uploaded document\n{context}\n\n" + instruction
 
                 response = await builder.send_message(
                     session_id,
