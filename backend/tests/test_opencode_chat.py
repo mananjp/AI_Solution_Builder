@@ -78,12 +78,11 @@ async def test_chat_falls_back_to_synthesizer_when_sidecar_down(auth_client, mon
     class _FakeResponse:
         content = "I've outlined the inventory module for your app."
 
-    async def _fake_invoke(messages):
-        return _FakeResponse()
+    class _FakeLLM:
+        async def ainvoke(self, messages, **kwargs):
+            return _FakeResponse()
 
-    monkeypatch.setattr(
-        "app.api.opencode_chat.get_llm", lambda: type("LLM", (), {"ainvoke": _fake_invoke})()
-    )
+    monkeypatch.setattr("app.api.opencode_chat.get_llm", lambda: _FakeLLM())
 
     resp = await client.post("/api/v1/opencode/chat", json={"message": "hi"}, headers=headers)
     assert resp.status_code == 200, resp.text
