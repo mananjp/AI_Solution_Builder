@@ -8,6 +8,7 @@ Supports:
 3. Live URL and Dashboard URL discovery
 4. 1-Click Render Blueprint Portal URL generation (https://render.com/deploy?repo=...)
 5. Preview service teardown (DELETE /v1/services/{service_id})
+6. Deploy status polling (GET /v1/services/{service_id}/deploys/{deploy_id})
 """
 
 import logging
@@ -111,7 +112,10 @@ class RenderDeployer:
             return None
 
     async def trigger_deploy(self, service_id: str, clear_cache: bool = False) -> str | None:
-        """Trigger a new deployment for an existing service."""
+        """Trigger a new deployment for an existing service.
+
+        Returns the deploy ID on success, which can be used to poll status.
+        """
         if not service_id:
             return None
         async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -132,6 +136,78 @@ class RenderDeployer:
             )
             return None
 
+    # -- Deploy status inspection ------------------------------------------------
+
+    # Render deploy statuses grouped for UI display
+    _LIVE_STATUSES = {"live"}
+    _FAILED_STATUSES = {"build_failed", "update_failed", "canceled", "pre_deploy_failed"}
+    _BUILDING_STATUSES = {
+        "created",
+        "queued",
+        "build_in_progress",
+        "update_in_progress",
+        "pre_deploy_in_progress",
+    }
+
+    async def get_deploy_status(
+        self,
+        service_id: str,
+        deploy_id: str,
+    ) -> dict[str, Any] | None:
+        """Retrieve the status of a specific deploy.
+
+        Returns the full deploy object from Render, or None on failure.
+        The ``status`` field will be one of: created, queued,
+        build_in_progress, update_in_progress, live, deactivated,
+        build_failed, update_failed, canceled, pre_deploy_in_progress,
+        pre_deploy_failed.
+        """
+        if not service_id or not deploy_id:
+            return None
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.get(
+                f"{RENDER_API_BASE}/services/{service_id}/deploys/{deploy_id}",
+                headers=self._headers,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, dict):
+                    return data
+                return None
+            logger.warning(
+                "Deploy status for %s/%s returned HTTP %d",
+                service_id,
+                deploy_id,
+                resp.status_code,
+            )
+            return None
+
+    def _classify_render_status(self, raw: str) -> str:
+        """Map a raw Render deploy status to a simplified UI status.
+
+        Returns ``'live'``, ``'building'``, or ``'failed'``.
+        """
+        if raw in self._LIVE_STATUSES:
+            return "live"
+        if raw in self._FAILED_STATUSES:
+            return "failed"
+        return "building"
+
+    async def check_deploy_status(
+        self,
+        service_id: str,
+        deploy_id: str,
+    ) -> str:
+        """Single-shot deploy status check.
+
+        Returns a simplified status: ``'building'``, ``'live'``, or ``'failed'``.
+        Defaults to ``'building'`` if the API can't be reached.
+        """
+        deploy = await self.get_deploy_status(service_id, deploy_id)
+        if deploy is None:
+            return "building"
+        return self._classify_render_status(deploy.get("status", "created"))
+
     async def create_or_update_service(
         self,
         name: str,
@@ -142,7 +218,11 @@ class RenderDeployer:
         docker_context: str,
         env_vars: list[dict[str, str]] | None = None,
     ) -> dict[str, Any] | None:
-        """Create a web service or trigger a redeploy if it already exists."""
+        """Create a web service or trigger a redeploy if it already exists.
+
+        The returned dict now includes a ``deploy_id`` key (str | None) so
+        callers can poll the deploy status via ``check_deploy_status()``.
+        """
         # 1. Check if service already exists
         existing = await self.get_service_by_name(name)
         if existing:
@@ -155,13 +235,15 @@ class RenderDeployer:
                 svc_id,
                 svc_url,
             )
+            deploy_id = None
             if svc_id:
-                await self.trigger_deploy(svc_id)
+                deploy_id = await self.trigger_deploy(svc_id)
             return {
                 "id": svc_id,
                 "url": svc_url,
                 "dashboard_url": dash_url,
                 "name": name,
+                "deploy_id": deploy_id,
             }
 
         payload: dict[str, Any] = {
@@ -196,12 +278,18 @@ class RenderDeployer:
                 service_details = service.get("serviceDetails", {})
                 svc_url = service_details.get("url")
                 dash_url = service.get("dashboardUrl")
+                # New services auto-deploy; capture the initial deploy ID
+                initial_deploy_id: str | None = None
+                deploys = res_data.get("deploys") or []
+                if deploys and isinstance(deploys, list):
+                    initial_deploy_id = deploys[0].get("id")
                 logger.info("Render service created: %s (%s) -> %s", name, svc_id, svc_url)
                 return {
                     "id": svc_id,
                     "url": svc_url,
                     "dashboard_url": dash_url,
                     "name": name,
+                    "deploy_id": initial_deploy_id,
                 }
 
             # If creation failed because name already taken, attempt lookup fallback
@@ -211,13 +299,15 @@ class RenderDeployer:
                     svc_id = existing_retry.get("id")
                     svc_url = existing_retry.get("serviceDetails", {}).get("url")
                     dash_url = existing_retry.get("dashboardUrl")
+                    deploy_id = None
                     if svc_id:
-                        await self.trigger_deploy(svc_id)
+                        deploy_id = await self.trigger_deploy(svc_id)
                     return {
                         "id": svc_id,
                         "url": svc_url,
                         "dashboard_url": dash_url,
                         "name": name,
+                        "deploy_id": deploy_id,
                     }
 
             error_body = resp.text[:400]
@@ -250,6 +340,7 @@ class RenderDeployer:
           - dashboard_url: str | None
           - deploy_url: str (1-click blueprint portal fallback/complement)
           - status: 'deployed' | 'pending_connection'
+          - render_deploy_status: 'building' | 'live' | 'failed'
           - message: str
         """
         deploy_portal_url = get_1click_deploy_url(repo_url)
@@ -266,6 +357,7 @@ class RenderDeployer:
                 "dashboard_url": None,
                 "deploy_url": deploy_portal_url,
                 "status": "pending_connection",
+                "render_deploy_status": "failed",
                 "message": str(err),
             }
 
@@ -313,6 +405,18 @@ class RenderDeployer:
         if not dashboard_url and backend_info:
             dashboard_url = backend_info.get("dashboard_url")
 
+        # 3. Single-shot deploy status check (fire-and-forget; frontend polls)
+        render_deploy_status = "building"  # default: assume still building
+        fe_deploy_id = frontend_info.get("deploy_id") if frontend_info else None
+        if service_id and fe_deploy_id:
+            try:
+                render_deploy_status = await self.check_deploy_status(
+                    service_id,
+                    fe_deploy_id,
+                )
+            except Exception as poll_err:
+                logger.warning("Deploy status check failed: %s", poll_err)
+
         if service_url:
             return {
                 "service_id": service_id,
@@ -322,7 +426,13 @@ class RenderDeployer:
                 "dashboard_url": dashboard_url,
                 "deploy_url": deploy_portal_url,
                 "status": "deployed",
-                "message": f"Service successfully deployed on Render. Live frontend: {service_url}",
+                "render_deploy_status": render_deploy_status,
+                "message": f"Service provisioned on Render. Frontend: {service_url}"
+                + (
+                    " (still building — may take a few minutes)"
+                    if render_deploy_status == "building"
+                    else ""
+                ),
             }
 
         return {
@@ -333,6 +443,7 @@ class RenderDeployer:
             "dashboard_url": None,
             "deploy_url": deploy_portal_url,
             "status": "pending_connection",
+            "render_deploy_status": "failed",
             "message": "Render automated service provisioning pending. Use the 1-click blueprint deploy URL to connect.",
         }
 

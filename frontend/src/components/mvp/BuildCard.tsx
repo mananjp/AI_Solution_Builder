@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import {
   Box,
   Check,
+  Clock,
   Download,
   ExternalLink,
   FolderTree,
@@ -232,25 +233,50 @@ export function DeployModal({
                   href={(deployResult.frontend_url || deployResult.render_service_url)!}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center justify-between p-3.5 rounded-2xl bg-gradient-to-r from-emerald-950/60 to-slate-900 border border-emerald-500/30 hover:border-emerald-500/60 text-emerald-200 transition-all hover:scale-[1.01] shadow-lg group"
+                  className={`flex items-center justify-between p-3.5 rounded-2xl border shadow-lg group transition-all hover:scale-[1.01] ${
+                    deployResult.render_deploy_status === 'live'
+                      ? 'bg-gradient-to-r from-emerald-950/60 to-slate-900 border-emerald-500/30 hover:border-emerald-500/60 text-emerald-200'
+                      : 'bg-gradient-to-r from-amber-950/40 to-slate-900 border-amber-500/30 hover:border-amber-500/60 text-amber-200'
+                  }`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-400 group-hover:scale-110 transition-transform">
-                      <Globe className="w-4 h-4" />
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform ${
+                      deployResult.render_deploy_status === 'live'
+                        ? 'bg-emerald-500/20 text-emerald-400'
+                        : 'bg-amber-500/20 text-amber-400'
+                    }`}>
+                      {deployResult.render_deploy_status === 'live'
+                        ? <Globe className="w-4 h-4" />
+                        : <Loader2 className="w-4 h-4 animate-spin" />}
                     </div>
                     <div>
                       <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                        <span>Live Frontend Application</span>
-                        <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-emerald-500/20 text-emerald-300 uppercase tracking-wider">
-                          Ready
-                        </span>
+                        <span>{deployResult.render_deploy_status === 'live' ? 'Live Frontend Application' : 'Frontend Application'}</span>
+                        {deployResult.render_deploy_status === 'live' ? (
+                          <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-emerald-500/20 text-emerald-300 uppercase tracking-wider">
+                            Live
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-amber-500/20 text-amber-300 uppercase tracking-wider animate-pulse">
+                            Deploying
+                          </span>
+                        )}
                       </div>
-                      <p className="text-[11px] text-emerald-400/80 font-mono mt-0.5 truncate max-w-xs">
+                      <p className={`text-[11px] font-mono mt-0.5 truncate max-w-xs ${
+                        deployResult.render_deploy_status === 'live' ? 'text-emerald-400/80' : 'text-amber-400/80'
+                      }`}>
                         {deployResult.frontend_url || deployResult.render_service_url}
                       </p>
+                      {deployResult.render_deploy_status !== 'live' && (
+                        <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                          First-time Render builds take 3–5 min. The link will work once the build finishes.
+                        </p>
+                      )}
                     </div>
                   </div>
-                  <ExternalLink className="w-4 h-4 text-emerald-400 opacity-80 group-hover:opacity-100" />
+                  <ExternalLink className={`w-4 h-4 opacity-80 group-hover:opacity-100 ${
+                    deployResult.render_deploy_status === 'live' ? 'text-emerald-400' : 'text-amber-400'
+                  }`} />
                 </a>
               )}
 
@@ -512,10 +538,28 @@ export function BuildCard({
               href={(build.frontend_url || build.render_service_url)!}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/25 transition-all shadow-sm shadow-emerald-500/10"
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-[11px] font-semibold transition-all shadow-sm ${
+                build.render_deploy_status === 'live'
+                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/25 shadow-emerald-500/10'
+                  : build.render_deploy_status === 'failed'
+                    ? 'bg-rose-500/15 border-rose-500/30 text-rose-400 hover:text-rose-300 hover:bg-rose-500/25 shadow-rose-500/10'
+                    : 'bg-amber-500/15 border-amber-500/30 text-amber-400 hover:text-amber-300 hover:bg-amber-500/25 shadow-amber-500/10 animate-pulse'
+              }`}
             >
-              <Globe className="w-3 h-3" />
-              <span>Live App</span>
+              {build.render_deploy_status === 'live' ? (
+                <Globe className="w-3 h-3" />
+              ) : build.render_deploy_status === 'failed' ? (
+                <X className="w-3 h-3" />
+              ) : (
+                <Clock className="w-3 h-3" />
+              )}
+              <span>
+                {build.render_deploy_status === 'live'
+                  ? 'Live App'
+                  : build.render_deploy_status === 'failed'
+                    ? 'Deploy Failed'
+                    : 'Deploying…'}
+              </span>
             </a>
           )}
           {build.repo_url && (

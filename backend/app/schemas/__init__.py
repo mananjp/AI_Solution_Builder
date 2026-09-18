@@ -289,6 +289,7 @@ class MVPBuildResponse(BaseModel):
     backend_url: str | None = None
     render_dashboard_url: str | None = None
     render_deploy_url: str | None = None
+    render_deploy_status: str | None = None
     files: list[MVPFileEntry] = []
 
 

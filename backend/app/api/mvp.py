@@ -150,6 +150,7 @@ def _build_response(build: MVPBuild, include_files: bool = False) -> MVPBuildRes
         backend_url=app_config.get("backend_url"),
         render_dashboard_url=app_config.get("render_dashboard_url"),
         render_deploy_url=render_deploy_url,
+        render_deploy_status=app_config.get("render_deploy_status"),
         files=files,
     )
 
@@ -632,6 +633,7 @@ async def deploy_build(
     frontend_url = None
     backend_url = None
     render_dashboard_url = None
+    render_deploy_status = None
     render_msg = "Connected on Render via render.yaml in repo root"
 
     if render_token:
@@ -647,6 +649,7 @@ async def deploy_build(
             backend_url = r_res.get("backend_url")
             render_service_url = frontend_url
             render_dashboard_url = r_res.get("dashboard_url")
+            render_deploy_status = r_res.get("render_deploy_status", "building")
             if r_res.get("deploy_url"):
                 render_deploy_url = r_res["deploy_url"]
             if r_res.get("message"):
@@ -665,6 +668,7 @@ async def deploy_build(
         "backend_url": backend_url,
         "render_dashboard_url": render_dashboard_url,
         "render_deploy_url": render_deploy_url,
+        "render_deploy_status": render_deploy_status,
     }
     await db.commit()
     return {
@@ -679,6 +683,7 @@ async def deploy_build(
         "backend_url": backend_url,
         "render_dashboard_url": render_dashboard_url,
         "render_deploy_url": render_deploy_url,
+        "render_deploy_status": render_deploy_status,
     }
 
 

@@ -411,6 +411,10 @@ export default function DashboardPage() {
               Skip the templates. Chat directly with the AI developer — describe your idea, iterate
               on the scaffolded FastAPI + Next.js workspace, and finalize a build when you are happy.
             </p>
+            <p className="text-[11px] text-amber-400/80 flex items-center gap-1.5 pt-0.5">
+              <span>⏱</span>
+              <span>Custom apps take 2–5 min: AI code generation + a fresh cloud deploy.</span>
+            </p>
             <ul className="space-y-2 pt-1">
               {[
                 'Persistent conversational session per build',

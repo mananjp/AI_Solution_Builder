@@ -220,6 +220,7 @@ export interface MVPBuild {
   backend_url?: string | null;
   render_dashboard_url?: string | null;
   render_deploy_url?: string | null;
+  render_deploy_status?: 'building' | 'live' | 'failed' | null;
   files?: MVPFileEntry[];
 }
 
@@ -249,6 +250,7 @@ export interface MVPDeployResult {
   backend_url?: string | null;
   render_dashboard_url?: string | null;
   render_deploy_url?: string | null;
+  render_deploy_status?: 'building' | 'live' | 'failed' | null;
 }
 
 export interface SocialProvidersResponse {
