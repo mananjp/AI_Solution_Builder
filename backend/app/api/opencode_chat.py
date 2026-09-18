@@ -149,7 +149,9 @@ async def chat(
                     yield {
                         "event": "error",
                         "data": json.dumps(
-                            {"message": "OpenCode sidecar is unreachable. Ensure the opencode service is running."}
+                            {
+                                "message": "OpenCode sidecar is unreachable. Ensure the opencode service is running."
+                            }
                         ),
                     }
                     return
