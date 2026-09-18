@@ -19,6 +19,7 @@ import io
 import logging
 import tempfile
 import zipfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -217,6 +218,7 @@ async def execute_build_job(build_id: UUID) -> None:
                     build.build_number,
                     title=title,
                     check_npm=settings.MVP_VERIFY_NPM,
+                    allow_offline=True,
                 )
 
             # Re-fetch under row lock to guard against concurrent cancellation
@@ -460,6 +462,30 @@ async def build_status(
     never touches a local workspace directory.
     """
     build = await _get_build_for_user(db, build_id, current_user)
+
+    # Auto-reconcile stranded builds that lost their executing task (e.g. after container restart or OOM)
+    if build.status in ("building", "queued"):
+        now = datetime.now(UTC)
+        age = (now - build.updated_at).total_seconds() if build.updated_at else 9999
+        task_active = any(
+            t.get_name() == f"mvp-build-{build.id}" and not t.done() for t in _build_tasks
+        )
+        if not task_active and age > 180:  # 3 minutes with no active task
+            local_dir = Path(build.workspace_path)
+            files = builder.list_build_files(local_dir) if local_dir.exists() else []
+            if files:
+                build.status = "complete"
+                build.file_count = len(files)
+                build.file_list = builder.relative_paths(local_dir)
+                build.error_message = None
+            else:
+                build.status = "failed"
+                build.error_message = (
+                    "Build timed out or was interrupted by a server restart. Please click retry."
+                )
+            await db.commit()
+            await db.refresh(build)
+
     return _build_response(build, include_files=(build.status in _STATUS_END_STATES))
 
 

@@ -646,9 +646,10 @@ async def run_build(
     *,
     title: str | None = None,
     check_npm: bool = False,
+    allow_offline: bool = False,
 ) -> dict[str, Any]:
     """Run an OpenCode MVP build synchronously. Returns build result metadata."""
-    if not await health():
+    if not allow_offline and not await health():
         raise MVPBuilderError(
             "OpenCode sidecar is unreachable. Ensure the opencode service is running."
         )
