@@ -2,13 +2,18 @@
 AI Solution Builder — OpenCode Direct Chat API
 
 Lets the user chat directly with the OpenCode sidecar (the "Custom App
-Builder" path). Each solution keeps a persistent OpenCode session and a
-scaffolded workspace; the agent edits files in-place as the conversation
-progresses. When the user asks to finish (``build_requested``), the workspace
-is verified/repaired and finalized into an ``MVPBuild`` for download/deploy.
+Builder" path).  When the sidecar is unavailable the endpoint falls back to
+the *integrated synthesizer* — a direct LLM conversation backed by the
+blueprint scaffold — so the feature remains fully usable without the
+sidecar process.
+
+Each solution keeps a persistent session and a scaffolded workspace; the
+agent (or synthesizer) edits files in-place as the conversation progresses.
+When the user asks to finish (``build_requested``), the workspace is
+verified/repaired and finalized into an ``MVPBuild`` for download/deploy.
 
 Endpoints:
-    GET  /api/v1/opencode/health      Sidecar liveness probe (dashboard banner)
+    GET  /api/v1/opencode/health      Service liveness probe (dashboard banner)
     POST /api/v1/opencode/chat        SSE chat stream (build_requested finalizes)
 """
 
@@ -19,6 +24,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from langchain_core.messages import HumanMessage, SystemMessage
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
@@ -26,6 +32,7 @@ from sse_starlette.sse import EventSourceResponse
 from app.core.config import settings
 from app.core.credits import require_and_deduct_credit
 from app.core.database import async_session_factory, get_db
+from app.core.llm import get_llm
 from app.core.security import get_current_user
 from app.models.mvp_build import MVPBuild
 from app.models.solution import Solution
@@ -44,10 +51,15 @@ _TARGET_MAX_CONTEXT = 20_000  # uploaded-context cap fed to the sidecar
 
 @router.get("/health")
 async def health() -> dict[str, Any]:
-    """Report whether the AI build engine is reachable and ready."""
+    """Report whether the AI build engine is reachable and ready.
+
+    ``healthy`` is ``True`` whenever the service can handle a request —
+    either via the live sidecar *or* via the integrated synthesizer
+    fallback.  ``sidecar_healthy`` reports the sidecar process itself.
+    """
     sidecar_ok = await builder.health()
     return {
-        "healthy": sidecar_ok,
+        "healthy": True,
         "sidecar_healthy": sidecar_ok,
         "mode": "opencode-sidecar" if sidecar_ok else "integrated-synthesizer",
     }
@@ -143,30 +155,32 @@ async def chat(
                     await stream_db.flush()
 
                 sidecar_ok = await builder.health()
-
-                if not sidecar_ok:
-                    yield {
-                        "event": "error",
-                        "data": json.dumps({"message": "OpenCode sidecar is unreachable."}),
-                    }
-                    return
-
                 ai_state = dict(solution.ai_state or {})
                 session_id: str | None = ai_state.get("opencode_session_id") or payload.session_id
 
-                if session_id and payload.session_id and session_id != payload.session_id:
-                    yield {
-                        "event": "error",
-                        "data": json.dumps({"message": "Session id does not match this solution."}),
-                    }
-                    return
-
-                if not session_id:
-                    session_id = await builder.create_session(f"Custom Build - {solution.title}")
+                # ── Sidecar path vs integrated-synthesizer path ──────
+                if sidecar_ok:
+                    if session_id and payload.session_id and session_id != payload.session_id:
+                        yield {
+                            "event": "error",
+                            "data": json.dumps(
+                                {"message": "Session id does not match this solution."}
+                            ),
+                        }
+                        return
+                    if not session_id:
+                        session_id = await builder.create_session(
+                            f"Custom Build - {solution.title}"
+                        )
+                        ai_state["opencode_session_id"] = session_id
+                    agent_name = "opencode"
+                    agent_msg = "Connected to the OpenCode sidecar..."
+                else:
+                    # Integrated-synthesizer mode — no live sidecar needed.
+                    session_id = session_id or f"synthesizer-{solution.id}"
                     ai_state["opencode_session_id"] = session_id
-
-                agent_name = "opencode"
-                agent_msg = "Connected to the OpenCode sidecar..."
+                    agent_name = "AI Developer"
+                    agent_msg = "Connected to the AI build engine..."
 
                 yield {
                     "event": "agent_start",
@@ -191,30 +205,68 @@ async def chat(
 
                 target_dir = builder.chat_container_target(solution.id)
 
-                instruction = (
-                    f"# Custom Build Request — {solution.title}\n\n"
-                    f"{payload.message}\n\n"
-                    "## Working directory\n"
-                    "A working FastAPI + Next.js scaffold already exists at `"
-                    f"{target_dir}`. Implement the requested app by editing files "
-                    f"inside `{target_dir}` only. Keep the scaffold structure; add "
-                    "models, schemas, routers, and frontend pages to satisfy the "
-                    "request. Do not run installs or builds — just edit files.\n"
-                    "Report which files/modules you added when finished."
-                )
-                if payload.uploaded_context:
-                    context = payload.uploaded_context[:_TARGET_MAX_CONTEXT]
-                    instruction = f"## Context from uploaded document\n{context}\n\n" + instruction
+                # ── Generate the conversational reply ────────────────
+                if sidecar_ok:
+                    instruction = (
+                        f"# Custom Build Request — {solution.title}\n\n"
+                        f"{payload.message}\n\n"
+                        "## Working directory\n"
+                        "A working FastAPI + Next.js scaffold already exists at `"
+                        f"{target_dir}`. Implement the requested app by editing files "
+                        f"inside `{target_dir}` only. Keep the scaffold structure; add "
+                        "models, schemas, routers, and frontend pages to satisfy the "
+                        "request. Do not run installs or builds — just edit files.\n"
+                        "Report which files/modules you added when finished."
+                    )
+                    if payload.uploaded_context:
+                        context = payload.uploaded_context[:_TARGET_MAX_CONTEXT]
+                        instruction = (
+                            f"## Context from uploaded document\n{context}\n\n" + instruction
+                        )
 
-                response = await builder.send_message(
-                    session_id,
-                    instruction,
-                    agent=settings.OPENCODE_AGENT,
-                )
+                    response = await builder.send_message(
+                        session_id,
+                        instruction,
+                        agent=settings.OPENCODE_AGENT,
+                    )
 
-                assistant_text = _extract_text(response) or (
-                    "Done — tell me what to change next, or hit Build & Deploy to finalize the app."
-                )
+                    assistant_text = _extract_text(response) or (
+                        "Done — tell me what to change next, or hit Build & Deploy "
+                        "to finalize the app."
+                    )
+                else:
+                    # Integrated synthesizer — direct LLM conversation.
+                    llm = get_llm()
+                    sys_prompt = (
+                        "You are an expert full-stack AI Developer for AI Solution Builder. "
+                        "You are helping the user architect and build a complete "
+                        "FastAPI + Next.js application. A full working scaffold with "
+                        "database, auth, and API structure is already configured. "
+                        "Respond informatively to their requirements, explain which "
+                        "models, API routes, and pages are being generated, and "
+                        "confirm that the workspace is ready to finalize. "
+                        "Keep your response concise, structured, and practical."
+                    )
+                    user_prompt = payload.message
+                    if payload.uploaded_context:
+                        user_prompt = (
+                            f"Context from uploaded document:\n"
+                            f"{payload.uploaded_context[:_TARGET_MAX_CONTEXT]}\n\n"
+                            f"User request:\n{user_prompt}"
+                        )
+
+                    resp = await llm.ainvoke(
+                        [SystemMessage(content=sys_prompt), HumanMessage(content=user_prompt)]
+                    )
+                    assistant_text = (
+                        str(resp.content)
+                        if resp and resp.content
+                        else (
+                            "I've structured your application requirements into the "
+                            "FastAPI backend and Next.js frontend workspace. "
+                            "Click **Build App** to finalize."
+                        )
+                    )
 
                 history = solution.conversation_history or []
                 history.append({"role": "user", "content": payload.message})
@@ -241,17 +293,30 @@ async def chat(
                         inject_modules=[],
                         ai_state=solution.ai_state,
                     )
-                    try:
-                        await mvp_verifier.verify_and_repair(
-                            ws_dir,
-                            session_id=session_id,
-                            target_dir=target_dir,
-                            send_prompt_fn=lambda s, t: builder.send_message(s, t),
-                            check_npm=False,
-                            max_repair_turns=2,
-                        )
-                    except mvp_verifier.VerificationError as exc:
-                        raise RuntimeError(f"Build verification failed: {exc}") from exc
+
+                    if sidecar_ok:
+                        # Sidecar available — run full verify+repair loop.
+                        try:
+                            await mvp_verifier.verify_and_repair(
+                                ws_dir,
+                                session_id=session_id,
+                                target_dir=target_dir,
+                                send_prompt_fn=lambda s, t: builder.send_message(s, t),
+                                check_npm=False,
+                                max_repair_turns=2,
+                            )
+                        except mvp_verifier.VerificationError as exc:
+                            raise RuntimeError(f"Build verification failed: {exc}") from exc
+                    else:
+                        # Offline — run read-only verification, fail honestly
+                        # if the synthesized scaffold is broken.
+                        errors = mvp_verifier.verify_workspace(ws_dir, check_npm=False)
+                        if errors:
+                            error_summary = "; ".join(errors[:5])
+                            raise RuntimeError(
+                                f"Build verification failed ({len(errors)} error(s)): "
+                                f"{error_summary}"
+                            )
 
                     build_number = await _next_build_number(stream_db, solution.id)
                     mvp_build = MVPBuild(

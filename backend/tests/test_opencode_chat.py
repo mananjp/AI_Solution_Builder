@@ -34,7 +34,9 @@ def _patch_sidecar(monkeypatch, response_text="I added the inventory API."):
     return created
 
 
-async def test_health_reports_unhealthy(auth_client, monkeypatch):
+async def test_health_reports_sidecar_down_but_service_healthy(auth_client, monkeypatch):
+    """When the sidecar is offline the service is still healthy (via the
+    integrated synthesizer).  ``sidecar_healthy`` accurately reports False."""
     client = auth_client["client"]
 
     async def _no():
@@ -43,7 +45,10 @@ async def test_health_reports_unhealthy(auth_client, monkeypatch):
     monkeypatch.setattr("app.api.opencode_chat.builder.health", _no)
     resp = await client.get("/api/v1/opencode/health", headers=auth_client["headers"])
     assert resp.status_code == 200
-    assert resp.json()["healthy"] is False
+    body = resp.json()
+    assert body["healthy"] is True
+    assert body["sidecar_healthy"] is False
+    assert body["mode"] == "integrated-synthesizer"
 
 
 async def test_health_reports_healthy(auth_client, monkeypatch):
@@ -58,7 +63,9 @@ async def test_health_reports_healthy(auth_client, monkeypatch):
     assert resp.json()["healthy"] is True
 
 
-async def test_chat_unhealthy_emits_error_event(auth_client, monkeypatch):
+async def test_chat_falls_back_to_synthesizer_when_sidecar_down(auth_client, monkeypatch):
+    """When the sidecar is offline the chat endpoint falls back to the
+    integrated synthesizer (direct LLM) instead of emitting an error."""
     client = auth_client["client"]
     headers = auth_client["headers"]
 
@@ -67,10 +74,24 @@ async def test_chat_unhealthy_emits_error_event(auth_client, monkeypatch):
 
     monkeypatch.setattr("app.api.opencode_chat.builder.health", _no)
 
+    # Mock the LLM so we don't need real credentials in CI.
+    class _FakeResponse:
+        content = "I've outlined the inventory module for your app."
+
+    async def _fake_invoke(messages):
+        return _FakeResponse()
+
+    monkeypatch.setattr(
+        "app.api.opencode_chat.get_llm", lambda: type("LLM", (), {"ainvoke": _fake_invoke})()
+    )
+
     resp = await client.post("/api/v1/opencode/chat", json={"message": "hi"}, headers=headers)
     assert resp.status_code == 200, resp.text
-    assert "event: error" in resp.text
-    assert "sidecar is unreachable" in resp.text
+    # Should NOT contain an error event.
+    assert "event: error" not in resp.text
+    # Should contain a successful reply from the synthesizer fallback.
+    assert '"agent": "AI Developer"' in resp.text
+    assert "I've outlined the inventory module" in resp.text
 
 
 async def test_chat_reuses_persisted_session(workspace_solution, monkeypatch):
