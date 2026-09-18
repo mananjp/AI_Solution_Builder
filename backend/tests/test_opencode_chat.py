@@ -88,7 +88,7 @@ async def test_chat_reuses_persisted_session(workspace_solution, monkeypatch):
         workdir.mkdir(parents=True, exist_ok=True)
         return workdir
 
-    def _scaffold(build_dir, *, app_title, inject_modules):
+    def _scaffold(build_dir, *, app_title, inject_modules, **kwargs):
         build_dir.mkdir(parents=True, exist_ok=True)
         (build_dir / "placeholder.txt").write_text("scaffolded", encoding="utf-8")
 
@@ -151,7 +151,7 @@ async def test_chat_rejects_session_id_mismatch(workspace_solution, monkeypatch)
         workdir.mkdir(parents=True, exist_ok=True)
         return workdir
 
-    def _scaffold(build_dir, *, app_title, inject_modules):
+    def _scaffold(build_dir, *, app_title, inject_modules, **kwargs):
         build_dir.mkdir(parents=True, exist_ok=True)
         (build_dir / "placeholder.txt").write_text("scaffolded", encoding="utf-8")
 
