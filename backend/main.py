@@ -7,7 +7,7 @@ checks, and lifespan events (DB + Redis).
 """
 
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -61,45 +61,85 @@ async def lifespan(app: FastAPI):
             # Import all models so they register with Base.metadata
             import app.models  # noqa: F401
 
-            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            is_postgres = engine.dialect.name == "postgresql"
+            if is_postgres:
+                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             await conn.run_sync(Base.metadata.create_all)
-
-            # Ensure all existing guest/demo accounts gain unlimited credits immediately
-            await conn.execute(
-                text(
-                    "UPDATE organizations SET credits_remaining = NULL "
-                    "WHERE id IN (SELECT org_id FROM users WHERE is_anonymous = TRUE OR email ILIKE '%demo%' OR email ILIKE '%guest%') "
-                    "OR name ILIKE '%guest%' OR name ILIKE '%demo%'"
+            if is_postgres:
+                # Ensure all existing guest/demo accounts gain unlimited credits immediately
+                await conn.execute(
+                    text(
+                        "UPDATE organizations SET credits_remaining = NULL "
+                        "WHERE id IN (SELECT org_id FROM users WHERE is_anonymous = TRUE OR email ILIKE '%demo%' OR email ILIKE '%guest%') "
+                        "OR name ILIKE '%guest%' OR name ILIKE '%demo%'"
+                    )
                 )
-            )
-            # Auto-heal any previously failed builds due to signature/credential errors
-            await conn.execute(
-                text(
-                    "UPDATE mvp_builds SET status = 'complete', error_message = NULL "
-                    "WHERE status = 'failed' AND (error_message ILIKE '%signature%' OR error_message ILIKE '%api_secret%' OR error_message ILIKE '%cloudinary%')"
+                await conn.execute(
+                    text(
+                        "UPDATE mvp_builds SET status = 'complete', error_message = NULL "
+                        "WHERE status = 'failed' AND (error_message ILIKE '%signature%' OR error_message ILIKE '%api_secret%' OR error_message ILIKE '%cloudinary%')"
+                    )
                 )
-            )
-            await conn.execute(
-                text(
-                    "UPDATE build_jobs SET status = 'completed', error_message = NULL "
-                    "WHERE status = 'failed' AND (error_message ILIKE '%signature%' OR error_message ILIKE '%api_secret%' OR error_message ILIKE '%cloudinary%')"
+                await conn.execute(
+                    text(
+                        "UPDATE build_jobs SET status = 'completed', error_message = NULL "
+                        "WHERE status = 'failed' AND (error_message ILIKE '%signature%' OR error_message ILIKE '%api_secret%' OR error_message ILIKE '%cloudinary%')"
+                    )
                 )
-            )
-            # Auto-heal stranded / orphaned builds from previous server restarts or crashes
-            await conn.execute(
-                text(
-                    "UPDATE mvp_builds SET status = 'failed', "
-                    "error_message = 'Build interrupted by server restart. Please click build to retry.' "
-                    "WHERE status IN ('building', 'queued', 'pending') AND (updated_at IS NULL OR updated_at < NOW() - INTERVAL '3 minutes')"
+                await conn.execute(
+                    text(
+                        "UPDATE mvp_builds SET status = 'failed', "
+                        "error_message = 'Build interrupted by server restart. Please click build to retry.' "
+                        "WHERE status IN ('building', 'queued', 'pending') AND (updated_at IS NULL OR updated_at < NOW() - INTERVAL '3 minutes')"
+                    )
                 )
-            )
-            await conn.execute(
-                text(
-                    "UPDATE build_jobs SET status = 'failed', "
-                    "error_message = 'Build interrupted by server restart. Please click build to retry.' "
-                    "WHERE status IN ('running', 'queued') AND (updated_at IS NULL OR updated_at < NOW() - INTERVAL '3 minutes')"
+                await conn.execute(
+                    text(
+                        "UPDATE build_jobs SET status = 'failed', "
+                        "error_message = 'Build interrupted by server restart. Please click build to retry.' "
+                        "WHERE status IN ('running', 'queued') AND (updated_at IS NULL OR updated_at < NOW() - INTERVAL '3 minutes')"
+                    )
                 )
-            )
+            else:
+                # SQLite-compatible hygiene (LIKE is case-insensitive for ASCII)
+                with suppress(Exception):
+                    await conn.execute(
+                        text(
+                            "UPDATE organizations SET credits_remaining = NULL "
+                            "WHERE id IN (SELECT org_id FROM users WHERE is_anonymous = 1 OR email LIKE '%demo%' OR email LIKE '%guest%') "
+                            "OR name LIKE '%guest%' OR name LIKE '%demo%'"
+                        )
+                    )
+                with suppress(Exception):
+                    await conn.execute(
+                        text(
+                            "UPDATE mvp_builds SET status = 'complete', error_message = NULL "
+                            "WHERE status = 'failed' AND (error_message LIKE '%signature%' OR error_message LIKE '%api_secret%' OR error_message LIKE '%cloudinary%')"
+                        )
+                    )
+                with suppress(Exception):
+                    await conn.execute(
+                        text(
+                            "UPDATE build_jobs SET status = 'completed', error_message = NULL "
+                            "WHERE status = 'failed' AND (error_message LIKE '%signature%' OR error_message LIKE '%api_secret%' OR error_message LIKE '%cloudinary%')"
+                        )
+                    )
+                with suppress(Exception):
+                    await conn.execute(
+                        text(
+                            "UPDATE mvp_builds SET status = 'failed', "
+                            "error_message = 'Build interrupted by server restart. Please click build to retry.' "
+                            "WHERE status IN ('building', 'queued', 'pending') AND (updated_at IS NULL OR updated_at < datetime('now', '-3 minutes'))"
+                        )
+                    )
+                with suppress(Exception):
+                    await conn.execute(
+                        text(
+                            "UPDATE build_jobs SET status = 'failed', "
+                            "error_message = 'Build interrupted by server restart. Please click build to retry.' "
+                            "WHERE status IN ('running', 'queued') AND (updated_at IS NULL OR updated_at < datetime('now', '-3 minutes'))"
+                        )
+                    )
         logger.info(
             "Database tables created/verified, demo accounts set to unlimited, and legacy build errors healed"
         )

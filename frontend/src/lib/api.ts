@@ -34,8 +34,8 @@ function normalizeApiUrl(url?: string | null): string {
 const rawApiUrl =
   typeof window !== 'undefined'
     ? (process.env.NEXT_PUBLIC_API_URL && !process.env.NEXT_PUBLIC_API_URL.startsWith('http://localhost')
-        ? normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL)
-        : '/api/v1')
+      ? normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL)
+      : '/api/v1')
     : normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api/v1');
 
 const API_BASE_URL = rawApiUrl;
@@ -79,7 +79,27 @@ export function setAuthToken(token: string) {
 export function removeAuthToken() {
   if (typeof window !== 'undefined') {
     localStorage.removeItem('access_token');
+    localStorage.removeItem('demo_session');
   }
+}
+
+/**
+ * Write a client-side-only demo session so the app can be explored
+ * fully offline without a running backend.
+ */
+export function setDemoSession() {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('demo_session', 'true');
+    // Use a synthetic token so API calls include an Authorization header
+    // (they'll still fail at the network level, but the app has
+    // extensive mock-data fallbacks for every route).
+    localStorage.setItem('access_token', 'DEMO_SESSION');
+  }
+}
+
+export function isDemoSession(): boolean {
+  if (typeof window === 'undefined') return false;
+  return localStorage.getItem('demo_session') === 'true';
 }
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {

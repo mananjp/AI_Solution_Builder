@@ -2,210 +2,161 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { 
-  Sparkles, 
-  Cpu, 
-  Database, 
-  ArrowRight, 
-  CheckCircle2, 
-  Zap, 
-  FileText, 
-  Compass,
-  Terminal
-} from 'lucide-react';
+import { Sparkles, ArrowRight, CheckCircle2, Cpu, FileText, Database, Compass } from 'lucide-react';
+
+const features = [
+  {
+    title: '6-Agent Swarm',
+    desc: 'Business Analyst, Solutions Architect, UX, DB and Blueprint agents collaborate via LangGraph.',
+    icon: Cpu,
+  },
+  {
+    title: 'Any PRD, Any Format',
+    desc: 'Drop PDFs, DOCX, CSV schemas, or paste a URL — extracted and fed as context to every agent.',
+    icon: FileText,
+  },
+  {
+    title: 'Industry Templates',
+    desc: 'Curated patterns for Commerce, Logistics, Healthcare, FinTech and B2B SaaS.',
+    icon: Compass,
+  },
+  {
+    title: 'Production Artifacts',
+    desc: 'HLD, LLD, ER + DDL, OpenAPI 3.1, BPMN 2.0, 12-week roadmap — exportable to PDF/DOCX.',
+    icon: Database,
+  },
+];
+
+const pipeline = [
+  { step: '01', label: 'Discovery & Analysis', desc: 'Prompt parsed — domain, intent, and constraints extracted.' },
+  { step: '02', label: 'Module Matching', desc: 'Subsystems identified and mapped from curated templates.' },
+  { step: '03', label: 'Blueprint Synthesis', desc: 'HLD, LLD, DDL, OpenAPI, BPMN, and 12-week plan generated.' },
+];
 
 export default function LandingPage() {
-  const features = [
-    {
-      title: '6-Agent Autonomous Swarm',
-      desc: 'Business Analyst, Solutions Architect, UX Specialist, Database Engineer, and Blueprint Generator work in harmony.',
-      icon: Cpu,
-      gradient: 'from-indigo-500 to-purple-500',
-    },
-    {
-      title: 'Multi-Format PRD Ingestion',
-      desc: 'Drag and drop PDFs, DOCX, CSV schemas, or Excel sheets. Instant text extraction and requirement synthesis.',
-      icon: FileText,
-      gradient: 'from-blue-500 to-cyan-500',
-    },
-    {
-      title: 'Industry Template Intelligence',
-      desc: 'Pre-seeded vertical patterns for E-Commerce, Logistics, Healthcare, FinTech, and B2B SaaS workflows.',
-      icon: Compass,
-      gradient: 'from-emerald-500 to-teal-500',
-    },
-    {
-      title: 'Full Engineering Artifacts',
-      desc: 'Generates production-grade HLD, LLD, ER diagrams, PostgreSQL DDL schemas, OpenAPI specs, and delivery roadmaps.',
-      icon: Database,
-      gradient: 'from-purple-500 to-pink-500',
-    },
-  ];
-
   return (
-    <div className="min-h-screen bg-[#070a13] text-slate-100 selection:bg-indigo-500 selection:text-white relative overflow-hidden">
-      {/* Dynamic Background Glows */}
-      <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-indigo-600/15 rounded-full blur-[140px] pointer-events-none" />
-      <div className="absolute top-1/3 right-1/4 w-[500px] h-[500px] bg-cyan-500/10 rounded-full blur-[140px] pointer-events-none" />
-      <div className="absolute bottom-10 left-1/3 w-[700px] h-[700px] bg-purple-600/10 rounded-full blur-[160px] pointer-events-none" />
+    <div className="min-h-screen bg-[#0a0a0a] text-[#f5f5f5]">
 
-      {/* Grid Pattern */}
-      <div className="absolute inset-0 bg-grid-pattern opacity-40 pointer-events-none" />
-
-      {/* Navigation Header */}
-      <header className="relative z-20 max-w-7xl mx-auto px-6 h-20 flex items-center justify-between border-b border-white/5">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30">
-            <Sparkles className="w-5 h-5" />
+      {/* Nav */}
+      <header className="h-14 border-b border-[#1a1a1a] flex items-center justify-between px-6 max-w-[1200px] mx-auto">
+        <Link href="/" className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-md bg-[#6366f1] flex items-center justify-center text-white">
+            <Sparkles className="w-3.5 h-3.5" />
           </div>
-          <div>
-            <span className="font-extrabold text-white text-lg tracking-tight">AI Solution</span>
-            <span className="text-xs text-indigo-400 font-semibold tracking-wider uppercase ml-1.5 px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20">
-              Builder OS
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-4">
+          <span className="text-sm font-semibold text-white">AI Solution Builder</span>
+        </Link>
+        <div className="flex items-center gap-2">
           <Link
             href="/login"
-            className="px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/5 rounded-xl transition-all"
+            className="px-3 py-1.5 text-[13px] text-[#666] hover:text-white transition-colors"
           >
-            Sign In
+            Sign in
           </Link>
           <Link
             href="/dashboard"
-            className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white shadow-lg shadow-indigo-500/25 transition-all hover:scale-105"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-white text-[13px] font-medium transition-colors"
           >
-            <span>Open Studio</span>
-            <ArrowRight className="w-3.5 h-3.5" />
+            Open Studio <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </div>
       </header>
 
-      {/* Hero Section */}
-      <main className="relative z-10 max-w-6xl mx-auto px-6 pt-20 pb-28 text-center">
-        {/* Top Badge */}
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-semibold mb-8 animate-fade-in">
-          <Zap className="w-3.5 h-3.5 text-indigo-400" />
-          <span>Powered by Groq 120B & LangGraph Swarm Intelligence</span>
-        </div>
+      <main className="max-w-[1000px] mx-auto px-6 py-20 space-y-20">
 
-        <h1 className="text-4xl sm:text-6xl lg:text-7xl font-extrabold text-white tracking-tight leading-[1.1] max-w-5xl mx-auto">
-          Turn Rough Business Ideas Into{' '}
-          <span className="gradient-text">Complete System Blueprints</span>{' '}
-          In Minutes.
-        </h1>
-
-        <p className="mt-6 text-base sm:text-lg text-slate-400 max-w-3xl mx-auto leading-relaxed">
-          Autonomous multi-agent pipeline that dissects user prompts, analyzes PRD documents, recommends vertical architectures, and generates production-ready High-Level Designs, wireframe specs, database schemas, and delivery roadmaps.
-        </p>
-
-        {/* CTA Group */}
-        <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-          <Link
-            href="/chat"
-            className="flex items-center gap-2.5 px-6 py-3.5 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-cyan-500 hover:opacity-95 text-white font-semibold text-sm shadow-xl shadow-indigo-600/30 transition-all hover:scale-105"
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>Start AI Architecture Session</span>
-          </Link>
-          <Link
-            href="/dashboard"
-            className="flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-slate-900/80 hover:bg-slate-800/80 border border-white/10 text-slate-200 font-semibold text-sm transition-all"
-          >
-            <span>Explore Workspaces</span>
-          </Link>
-        </div>
-
-        {/* Interactive Architecture Swarm Visualizer */}
-        <div className="mt-16 text-left max-w-4xl mx-auto p-1 rounded-2xl bg-gradient-to-b from-white/10 to-transparent shadow-2xl">
-          <div className="bg-[#0b0f19] rounded-2xl p-6 border border-white/10 overflow-hidden">
-            <div className="flex items-center justify-between pb-4 border-b border-white/5 text-xs text-slate-400">
-              <div className="flex items-center gap-2">
-                <Terminal className="w-4 h-4 text-indigo-400" />
-                <span className="font-mono text-slate-200">Autonomous Execution Pipeline</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-emerald-400 font-mono text-[11px]">System Online</span>
-              </div>
-            </div>
-
-            <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="p-4 rounded-xl bg-slate-900/80 border border-indigo-500/20 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-indigo-300">1. Discovery & Analysis</span>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  User prompt parsed, confidence 94%, domain categorized as Omnichannel Retail.
-                </p>
-              </div>
-
-              <div className="p-4 rounded-xl bg-slate-900/80 border border-cyan-500/20 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-cyan-300">2. Module Matching</span>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  Synthesized 4 core subsystems: Inventory Engine, Point-of-Sale, Analytics, Loyalty.
-                </p>
-              </div>
-
-              <div className="p-4 rounded-xl bg-slate-900/80 border border-purple-500/20 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-purple-300">3. Blueprint Synthesis</span>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  Produced HLD, LLD, PostgreSQL DDL schemas, OpenAPI specs, and 12-week roadmap.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Features Grid */}
-        <div className="mt-28">
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <h2 className="text-2xl sm:text-3xl font-bold text-white">
-              Enterprise-Grade Architecture Generation
-            </h2>
-            <p className="text-sm text-slate-400 mt-3">
-              Everything engineering leads and product owners need to jumpstart system delivery.
-            </p>
+        {/* Hero */}
+        <section className="text-center space-y-6 animate-fade-up">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#111] border border-[#242424] text-[#666] text-xs">
+            <span className="animate-pulse-dot dot-green" />
+            Groq 120B · LangGraph · SQLite local dev
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
-            {features.map((feat, idx) => {
-              const Icon = feat.icon;
+          <h1 className="text-[40px] sm:text-[56px] font-bold tracking-tight leading-[1.05] text-white text-balance">
+            Turn rough ideas into<br />
+            <span className="text-[#a1a1a1]">complete system blueprints</span>
+            <br />in minutes.
+          </h1>
+
+          <p className="text-[#666] text-base max-w-[580px] mx-auto leading-relaxed text-balance">
+            The autonomous pipeline that dissects prompts, ingests PRDs, recommends architectures and ships
+            HLD, LLD, schemas, APIs, BPMN and roadmaps — then mounts a live working app.
+          </p>
+
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <Link
+              href="/chat"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-white text-sm font-medium transition-colors"
+            >
+              <Sparkles className="w-4 h-4" />
+              Start AI Architecture Session
+            </Link>
+            <Link
+              href="/dashboard"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#111] hover:bg-[#161616] border border-[#242424] text-white text-sm font-medium transition-colors"
+            >
+              Explore Workspaces
+            </Link>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-5 text-xs text-[#555]">
+            <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-[#22c55e]" />No Docker required</span>
+            <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-[#22c55e]" />Tenant-isolated schemas</span>
+            <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-[#22c55e]" />2–5 min builds</span>
+          </div>
+        </section>
+
+        {/* Pipeline preview */}
+        <section className="border border-[#1a1a1a] rounded-xl overflow-hidden animate-fade-up" style={{ animationDelay: '0.1s' }}>
+          <div className="px-5 py-3.5 border-b border-[#1a1a1a] flex items-center justify-between">
+            <div className="flex items-center gap-2 text-[13px] font-medium text-white">
+              Autonomous Execution Pipeline
+            </div>
+            <span className="badge badge-green">LIVE</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-[#1a1a1a]">
+            {pipeline.map((p) => (
+              <div key={p.step} className="px-5 py-5 bg-[#0a0a0a]">
+                <span className="text-[11px] font-semibold text-[#444] tracking-widest">{p.step}</span>
+                <p className="text-sm font-semibold text-white mt-2">{p.label}</p>
+                <p className="text-[13px] text-[#666] mt-1 leading-relaxed">{p.desc}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Features */}
+        <section className="space-y-6 animate-fade-up" style={{ animationDelay: '0.2s' }}>
+          <div>
+            <h2 className="text-xl font-semibold text-white">Enterprise-grade generation</h2>
+            <p className="text-sm text-[#666] mt-1">Everything product and engineering need to jumpstart delivery.</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {features.map((f) => {
+              const Icon = f.icon;
               return (
                 <div
-                  key={idx}
-                  className="p-6 rounded-2xl bg-slate-900/40 border border-white/5 hover:border-indigo-500/30 transition-all hover:bg-slate-900/60"
+                  key={f.title}
+                  className="p-5 rounded-xl bg-[#111] border border-[#1a1a1a] hover:border-[#242424] transition-colors"
                 >
-                  <div className={`w-10 h-10 rounded-xl bg-gradient-to-tr ${feat.gradient} flex items-center justify-center text-white mb-4 shadow-md`}>
-                    <Icon className="w-5 h-5" />
+                  <div className="w-8 h-8 rounded-lg bg-[#161616] border border-[#242424] flex items-center justify-center text-[#6366f1] mb-3">
+                    <Icon className="w-4 h-4" />
                   </div>
-                  <h3 className="text-lg font-semibold text-white mb-2">{feat.title}</h3>
-                  <p className="text-xs text-slate-400 leading-relaxed">{feat.desc}</p>
+                  <h3 className="text-sm font-semibold text-white">{f.title}</h3>
+                  <p className="text-[13px] text-[#666] mt-1.5 leading-relaxed">{f.desc}</p>
                 </div>
               );
             })}
           </div>
-        </div>
-
-        {/* Footer */}
-        <footer className="mt-28 pt-8 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
-          <p>© 2026 AI Solution Builder OS. Alpine PostgreSQL + Groq 120B.</p>
-          <div className="flex items-center gap-6">
-            <Link href="/dashboard" className="hover:text-slate-300">Dashboard</Link>
-            <Link href="/chat" className="hover:text-slate-300">AI Architect</Link>
-            <Link href="/login" className="hover:text-slate-300">Account</Link>
-          </div>
-        </footer>
+        </section>
       </main>
+
+      <footer className="border-t border-[#1a1a1a] py-6 px-6 max-w-[1200px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-[#444]">
+        <p>© 2026 AI Solution Builder OS</p>
+        <div className="flex items-center gap-5">
+          <Link href="/dashboard" className="hover:text-[#a1a1a1] transition-colors">Dashboard</Link>
+          <Link href="/chat" className="hover:text-[#a1a1a1] transition-colors">AI Architect</Link>
+          <Link href="/login" className="hover:text-[#a1a1a1] transition-colors">Account</Link>
+        </div>
+      </footer>
     </div>
   );
 }

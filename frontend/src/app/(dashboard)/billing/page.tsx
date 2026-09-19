@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { 
-  Check, 
-  Clock, 
+import {
+  Check,
+  Clock,
   Zap
 } from 'lucide-react';
 import { billingApi } from '@/lib/api';
@@ -28,7 +28,6 @@ export default function BillingPage() {
         setUsage(usg);
         setTransactions(txs);
       } catch {
-        // Fallback for UI demonstration
         setPlans([
           {
             id: 'free',
@@ -67,7 +66,6 @@ export default function BillingPage() {
           { id: 'tx-2', amount: -200, action: 'generate_solution', description: 'Full Swarm Solution Synthesis', created_at: '2026-09-10T12:00:00Z' },
           { id: 'tx-3', amount: -50, action: 'regenerate_artifact', description: 'Regenerated Database Schema (v2)', created_at: '2026-09-10T15:30:00Z' },
         ]);
-      } finally {
       }
     }
 
@@ -79,7 +77,7 @@ export default function BillingPage() {
     setTopupSuccess(null);
     try {
       await billingApi.topup(amount);
-      setTopupSuccess(`Successfully credited +${amount.toLocaleString()} credits!`);
+      setTopupSuccess(`Credited +${amount.toLocaleString()} credits.`);
       if (usage && usage.current_balance != null) {
         setUsage({ ...usage, current_balance: usage.current_balance + amount });
       }
@@ -87,7 +85,7 @@ export default function BillingPage() {
       if (usage && usage.current_balance != null) {
         setUsage({ ...usage, current_balance: usage.current_balance + amount });
       }
-      setTopupSuccess(`Successfully credited +${amount.toLocaleString()} demo credits!`);
+      setTopupSuccess(`Credited +${amount.toLocaleString()} demo credits.`);
     } finally {
       setTopupLoading(false);
       setTimeout(() => setTopupSuccess(null), 4000);
@@ -100,122 +98,113 @@ export default function BillingPage() {
       : 0;
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto">
+    <div className="space-y-6 max-w-6xl mx-auto animate-fade-up">
       {/* Top Banner: Credit Meter */}
-      <div className="p-8 rounded-3xl bg-gradient-to-r from-indigo-950/60 via-slate-900/80 to-purple-950/40 border border-white/5 shadow-2xl relative overflow-hidden">
-        <div className="relative z-10 flex flex-wrap items-center justify-between gap-6">
-          <div className="space-y-2 max-w-xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-semibold">
-              <Zap className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Current Plan: {usage?.plan_name || 'Professional'}</span>
-            </div>
-            <h2 className="text-2xl font-extrabold text-white tracking-tight">AI Credits & Subscription</h2>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              Credits power autonomous swarm synthesis, workable application provisioning, and isolated component regenerations.
-            </p>
+      <div className="p-6 rounded-xl bg-[#111] border border-[#1a1a1a] flex flex-wrap items-center justify-between gap-6">
+        <div className="space-y-2 flex-1 min-w-[280px]">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#161616] border border-[#242424] text-[#818cf8] text-xs font-medium">
+            <Zap className="w-3.5 h-3.5 text-[#6366f1]" />
+            <span>Plan: {usage?.plan_name || 'Professional'}</span>
+          </div>
+          <h1 className="text-xl font-semibold text-white">AI Credits &amp; Subscription</h1>
+          <p className="text-xs text-[#555] leading-relaxed">
+            Credits power autonomous swarm synthesis, workable application provisioning, and component regenerations.
+          </p>
 
-            {/* Credit Gauge */}
-            <div className="pt-3 space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400">Monthly Usage</span>
-                <span className="text-white font-bold">
-                  {usage?.current_balance == null
-                    ? 'Unlimited Credits'
-                    : `${usage.current_balance.toLocaleString()} / ${(usage.monthly_limit || 0).toLocaleString()} Credits Remaining`}
-                </span>
-              </div>
-              <div className="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-white/5">
-                <div 
-                  className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-cyan-400 rounded-full transition-all duration-500" 
-                  style={{ width: `${100 - percentUsed}%` }} 
-                />
-              </div>
+          <div className="pt-2 space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[#555]">Monthly Usage</span>
+              <span className="text-white font-medium">
+                {usage?.current_balance == null
+                  ? 'Unlimited Credits'
+                  : `${usage.current_balance.toLocaleString()} / ${(usage.monthly_limit || 0).toLocaleString()} Credits Remaining`}
+              </span>
+            </div>
+            <div className="w-full h-1.5 bg-[#0a0a0a] rounded-full overflow-hidden border border-[#1a1a1a]">
+              <div
+                className="h-full bg-[#6366f1] rounded-full transition-all duration-500"
+                style={{ width: `${100 - percentUsed}%` }}
+              />
             </div>
           </div>
+        </div>
 
-          {/* Quick Top-Up Action */}
-          <div className="p-5 rounded-2xl bg-slate-900/80 border border-white/10 space-y-3 min-w-[240px]">
-            <span className="text-xs font-bold text-white block">Need More Credits?</span>
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={() => handleTopup(5000)}
-                disabled={topupLoading}
-                className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-200 border border-white/10 transition-colors"
-              >
-                <span>+5,000 Credits</span>
-                <span className="text-indigo-400 font-mono font-bold">$25</span>
-              </button>
-              <button
-                onClick={() => handleTopup(15000)}
-                disabled={topupLoading}
-                className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white shadow-md shadow-indigo-600/20 transition-all hover:scale-105"
-              >
-                <span>+15,000 Credits</span>
-                <span className="text-cyan-200 font-mono font-bold">$60</span>
-              </button>
-            </div>
-            {topupSuccess && (
-              <p className="text-[11px] text-emerald-400 font-medium animate-fade-in">{topupSuccess}</p>
-            )}
+        {/* Quick Top-Up Action */}
+        <div className="p-4 rounded-lg bg-[#0a0a0a] border border-[#1a1a1a] space-y-2 min-w-[220px]">
+          <span className="text-xs font-semibold text-white block">Top Up Credits</span>
+          <div className="flex flex-col gap-1.5">
+            <button
+              onClick={() => handleTopup(5000)}
+              disabled={topupLoading}
+              className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-[#161616] hover:bg-[#1f1f1f] text-xs font-medium text-white border border-[#242424] transition-colors"
+            >
+              <span>+5,000 Credits</span>
+              <span className="text-[#818cf8] font-mono">$25</span>
+            </button>
+            <button
+              onClick={() => handleTopup(15000)}
+              disabled={topupLoading}
+              className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-xs font-medium text-white transition-colors"
+            >
+              <span>+15,000 Credits</span>
+              <span className="text-white font-mono">$60</span>
+            </button>
           </div>
+          {topupSuccess && (
+            <p className="text-[11px] text-[#4ade80] font-medium">{topupSuccess}</p>
+          )}
         </div>
       </div>
 
       {/* Subscription Plans */}
-      <div className="space-y-4">
+      <div className="space-y-3">
         <div>
-          <h3 className="text-lg font-bold text-white">Subscription Plans</h3>
-          <p className="text-xs text-slate-400 mt-0.5">Scale your architecture capability as your team grows</p>
+          <h2 className="text-sm font-semibold text-white">Subscription Plans</h2>
+          <p className="text-xs text-[#555] mt-0.5">Scale your architecture capability as your team grows</p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {plans.map((p) => {
             const isPro = p.id === 'pro';
             return (
               <div
                 key={p.id}
-                className={`p-6 rounded-2xl border flex flex-col justify-between relative transition-all ${
-                  isPro
-                    ? 'bg-gradient-to-b from-indigo-950/40 to-slate-900/80 border-indigo-500/50 shadow-xl shadow-indigo-500/10'
-                    : 'bg-slate-900/40 border-white/5'
-                }`}
+                className={`p-5 rounded-xl border flex flex-col justify-between transition-colors ${isPro
+                    ? 'bg-[#111] border-[#6366f150]'
+                    : 'bg-[#111] border-[#1a1a1a]'
+                  }`}
               >
-                {isPro && (
-                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-wider shadow-md">
-                    Most Popular
-                  </span>
-                )}
-
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="font-bold text-lg text-white">{p.name}</h4>
-                    <div className="mt-2 flex items-baseline gap-1">
-                      <span className="text-3xl font-extrabold text-white">${p.price_usd}</span>
-                      <span className="text-xs text-slate-400">/month</span>
-                    </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-sm text-white">{p.name}</h3>
+                    {isPro && <span className="badge badge-blue">Popular</span>}
                   </div>
 
-                  <div className="p-3 rounded-xl bg-slate-950/60 border border-white/5 text-xs text-slate-300">
-                    <span className="text-indigo-400 font-bold">{p.monthly_credits.toLocaleString()}</span> credits included monthly
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-2xl font-semibold text-white">${p.price_usd}</span>
+                    <span className="text-xs text-[#555]">/month</span>
                   </div>
 
-                  <ul className="space-y-2.5 pt-2 text-xs text-slate-300">
+                  <p className="text-xs text-[#a1a1a1]">
+                    <strong className="text-white">{p.monthly_credits.toLocaleString()}</strong> credits included
+                  </p>
+
+                  <ul className="space-y-2 pt-2 text-xs text-[#666]">
                     {p.features.map((feat, idx) => (
                       <li key={idx} className="flex items-center gap-2">
-                        <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                        <Check className="w-3.5 h-3.5 text-[#4ade80] shrink-0" />
                         <span>{feat}</span>
                       </li>
                     ))}
                   </ul>
                 </div>
 
-                <div className="pt-6 mt-6 border-t border-white/5">
+                <div className="pt-4 mt-4 border-t border-[#1a1a1a]">
                   <button
-                    className={`w-full py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                      isPro
-                        ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/25'
-                        : 'bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10'
-                    }`}
+                    className={`w-full py-2 rounded-lg text-xs font-medium transition-colors ${isPro
+                        ? 'bg-[#6366f1] hover:bg-[#5558dd] text-white'
+                        : 'bg-[#161616] hover:bg-[#1f1f1f] text-[#a1a1a1] border border-[#242424]'
+                      }`}
                   >
                     {isPro ? 'Current Plan' : 'Select Plan'}
                   </button>
@@ -227,18 +216,18 @@ export default function BillingPage() {
       </div>
 
       {/* Credit Transactions Ledger */}
-      <div className="p-6 rounded-2xl bg-slate-900/40 border border-white/5 space-y-4">
+      <div className="p-5 rounded-xl bg-[#111] border border-[#1a1a1a] space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <Clock className="w-4 h-4 text-purple-400" />
+          <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+            <Clock className="w-4 h-4 text-[#6366f1]" />
             <span>Credit Consumption Ledger</span>
-          </h3>
-          <span className="text-xs text-slate-500">Real-Time Usage Metering</span>
+          </h2>
+          <span className="text-xs text-[#555]">Real-Time Metering</span>
         </div>
 
-        <div className="border border-white/5 rounded-xl overflow-hidden bg-slate-950/60">
-          <table className="w-full text-left text-xs text-slate-300">
-            <thead className="bg-slate-900 text-slate-400 uppercase text-[10px] tracking-wider border-b border-white/5">
+        <div className="border border-[#1a1a1a] rounded-lg overflow-hidden bg-[#0a0a0a]">
+          <table className="w-full text-left text-xs text-[#f5f5f5]">
+            <thead className="bg-[#111] text-[#555] uppercase text-[10px] tracking-wider border-b border-[#1a1a1a]">
               <tr>
                 <th className="p-3">Date</th>
                 <th className="p-3">Action</th>
@@ -246,16 +235,16 @@ export default function BillingPage() {
                 <th className="p-3 text-right">Points</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-[#1a1a1a]">
               {transactions.map((tx) => (
-                <tr key={tx.id} className="hover:bg-white/[0.02] transition-colors">
-                  <td className="p-3 text-slate-500 font-mono text-[11px]">
+                <tr key={tx.id} className="hover:bg-[#111] transition-colors">
+                  <td className="p-3 text-[#555] font-mono text-[11px]">
                     {tx.created_at ? new Date(tx.created_at).toLocaleDateString() : '-'}
                   </td>
-                  <td className="p-3 font-semibold text-indigo-300 font-mono text-[11px]">{tx.action}</td>
-                  <td className="p-3 text-slate-300">{tx.description}</td>
-                  <td className="p-3 text-right font-mono font-semibold">
-                    <span className={tx.amount > 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                  <td className="p-3 font-semibold text-[#818cf8] font-mono text-[11px]">{tx.action}</td>
+                  <td className="p-3 text-[#a1a1a1]">{tx.description}</td>
+                  <td className="p-3 text-right font-mono font-semibold text-[11px]">
+                    <span className={tx.amount > 0 ? 'text-[#4ade80]' : 'text-[#f87171]'}>
                       {tx.amount > 0 ? `+${tx.amount}` : tx.amount}
                     </span>
                   </td>

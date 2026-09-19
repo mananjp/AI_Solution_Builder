@@ -12,84 +12,104 @@ import {
   LogOut,
   Rocket,
   Wrench,
+  ChevronLeft,
 } from 'lucide-react';
 import { authApi, billingApi } from '@/lib/api';
 import { BillingUsage, User } from '@/types';
+
+const navItems = [
+  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Custom Builder', href: '/chat', icon: Wrench, badge: 'AI' },
+  { name: 'BluePrints', href: '/dashboard#blueprints', icon: Layers },
+  { name: 'Billing', href: '/billing', icon: CreditCard },
+  { name: 'Deploy Keys', href: '/settings', icon: Rocket },
+  { name: 'Admin', href: '/admin', icon: Settings },
+];
 
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [usage, setUsage] = useState<BillingUsage | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
     billingApi.getUsage().then(setUsage).catch(() => undefined);
     authApi.me().then(setCurrentUser).catch(() => undefined);
   }, [pathname]);
 
-  const navItems = [
-    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Custom App Builder', href: '/chat', icon: Wrench, badge: 'Build' },
-    { name: 'Architecture Library', href: '/dashboard#blueprints', icon: Layers },
-    { name: 'Billing & Credits', href: '/billing', icon: CreditCard },
-    { name: 'Deploy Credentials', href: '/settings', icon: Rocket, badge: 'Deploy' },
-    { name: 'Admin Governance', href: '/admin', icon: Settings, badge: 'Gov' },
-  ];
-
   const handleLogout = () => {
     authApi.logout();
     router.push('/login');
   };
 
-  const isDemo =
-    currentUser?.is_anonymous ||
-    (currentUser?.email && (currentUser.email.includes('demo') || currentUser.email.includes('guest'))) ||
-    usage?.plan_name === 'Demo Unlimited';
-  const isUnlimited = isDemo || usage?.current_balance == null;
-  const creditDisplay = isUnlimited
-    ? 'Unlimited'
-    : `${(usage?.current_balance || 0).toLocaleString()} / ${(usage?.monthly_limit || 10000).toLocaleString()}`;
-  const fillPercent = isUnlimited
+  const isUnlimited = !usage?.current_balance;
+  const creditPct = isUnlimited
     ? 100
-    : Math.max(5, Math.min(100, Math.round(((usage?.current_balance || 0) / (usage?.monthly_limit || 10000)) * 100)));
+    : Math.max(4, Math.min(100, Math.round(((usage?.current_balance ?? 0) / (usage?.monthly_limit ?? 10000)) * 100)));
 
   return (
-    <aside className="w-64 h-screen bg-[#0b0f19] border-r border-white/5 flex flex-col justify-between p-4 fixed left-0 top-0 z-40">
-      <div>
-        {/* Brand Header */}
-        <Link href="/dashboard" className="flex items-center gap-3 px-2 py-3 mb-6 group">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30 group-hover:scale-105 transition-transform">
-            <Sparkles className="w-5 h-5" />
-          </div>
-          <div>
-            <h1 className="font-bold text-white text-base tracking-tight leading-tight">AI Solution</h1>
-            <span className="text-xs text-indigo-400 font-medium tracking-wide uppercase">Builder OS</span>
-          </div>
-        </Link>
+    <aside
+      className={`hidden lg:flex h-screen bg-[#0a0a0a] border-r border-[#1a1a1a] flex-col fixed left-0 top-0 z-40 transition-all duration-200 ${collapsed ? 'w-[56px] px-2 py-4' : 'w-[240px] px-3 py-4'
+        }`}
+    >
+      {/* Top */}
+      <div className="flex-1 flex flex-col min-h-0">
+        {/* Brand row */}
+        <div className={`flex items-center mb-6 ${collapsed ? 'justify-center' : 'justify-between px-1'}`}>
+          {!collapsed && (
+            <Link href="/dashboard" className="flex items-center gap-2 group">
+              <div className="w-7 h-7 rounded-md bg-[#6366f1] flex items-center justify-center text-white shrink-0">
+                <Sparkles className="w-3.5 h-3.5" />
+              </div>
+              <span className="text-sm font-semibold text-white tracking-tight">AI Builder</span>
+            </Link>
+          )}
+          {collapsed && (
+            <Link href="/dashboard">
+              <div className="w-7 h-7 rounded-md bg-[#6366f1] flex items-center justify-center text-white">
+                <Sparkles className="w-3.5 h-3.5" />
+              </div>
+            </Link>
+          )}
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className={`w-6 h-6 rounded-md flex items-center justify-center text-[#555] hover:text-white hover:bg-[#1a1a1a] transition-colors ${collapsed ? 'mt-1' : ''}`}
+            aria-label={collapsed ? 'Expand' : 'Collapse'}
+          >
+            <ChevronLeft className={`w-3.5 h-3.5 transition-transform ${collapsed ? 'rotate-180' : ''}`} />
+          </button>
+        </div>
 
-        {/* Navigation List */}
-        <nav className="space-y-1.5">
+        {/* Nav */}
+        <nav className="space-y-0.5 flex-1">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
+            const isActive =
+              pathname === item.href ||
+              (item.href !== '/dashboard' && pathname.startsWith(item.href.split('#')[0]));
+
             return (
               <Link
                 key={item.name}
                 href={item.href}
-                className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                  isActive
-                    ? 'bg-indigo-600/15 text-indigo-400 border border-indigo-500/30 shadow-inner'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
-                }`}
+                title={collapsed ? item.name : undefined}
+                className={`flex items-center gap-2.5 rounded-md text-[13px] transition-colors ${collapsed ? 'px-1.5 py-2 justify-center' : 'px-2.5 py-2'
+                  } ${isActive
+                    ? 'bg-[#161616] text-white'
+                    : 'text-[#666] hover:text-[#a1a1a1] hover:bg-[#111]'
+                  }`}
               >
-                <div className="flex items-center gap-3">
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-indigo-400' : 'text-slate-500'}`} />
-                  <span>{item.name}</span>
-                </div>
-                {item.badge && (
-                  <span className="px-2 py-0.5 text-[10px] uppercase tracking-wider rounded-full bg-indigo-500/20 text-indigo-300 font-semibold border border-indigo-500/30">
-                    {item.badge}
-                  </span>
+                <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#6366f1]' : ''}`} />
+                {!collapsed && (
+                  <>
+                    <span className="flex-1 truncate">{item.name}</span>
+                    {'badge' in item && item.badge && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-[#6366f11a] text-[#818cf8] border border-[#6366f122]">
+                        {item.badge}
+                      </span>
+                    )}
+                  </>
                 )}
               </Link>
             );
@@ -97,37 +117,52 @@ export default function Sidebar() {
         </nav>
       </div>
 
-      {/* Footer / Account / Credits */}
-      <div className="space-y-3 pt-4 border-t border-white/5">
-        <div className="p-3 rounded-xl bg-gradient-to-br from-indigo-950/40 to-slate-900/60 border border-indigo-500/20">
-          <div className="flex items-center justify-between text-xs mb-1.5">
-            <span className="text-slate-400">Monthly AI Credits</span>
-            <span className={isUnlimited ? "text-emerald-400 font-semibold" : "text-indigo-300 font-semibold"}>
-              {creditDisplay}
-            </span>
+      {/* Bottom */}
+      <div className={`space-y-3 pt-3 border-t border-[#1a1a1a] ${collapsed ? 'px-0' : ''}`}>
+        {/* Credit bar */}
+        {!collapsed && (
+          <div className="px-1">
+            <div className="flex items-center justify-between text-[11px] mb-1.5">
+              <span className="text-[#555]">Credits</span>
+              <span className="text-[#a1a1a1] font-medium">
+                {isUnlimited ? 'Unlimited' : `${usage?.current_balance?.toLocaleString()} left`}
+              </span>
+            </div>
+            <div className="w-full h-1 bg-[#1a1a1a] rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[#6366f1] rounded-full transition-all duration-500"
+                style={{ width: `${creditPct}%` }}
+              />
+            </div>
           </div>
-          <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-300 ${
-                isUnlimited
-                  ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
-                  : 'bg-gradient-to-r from-indigo-500 to-cyan-400'
-              }`}
-              style={{ width: `${fillPercent}%` }}
-            />
+        )}
+
+        {/* User */}
+        <div className={`flex items-center gap-2.5 px-1 ${collapsed ? 'justify-center' : ''}`}>
+          <div className="w-7 h-7 rounded-full bg-[#1c1c1c] border border-[#2e2e2e] flex items-center justify-center text-xs font-semibold text-white shrink-0">
+            {currentUser?.full_name ? currentUser.full_name.charAt(0).toUpperCase() : 'A'}
           </div>
-          <p className="text-[11px] text-slate-500 mt-2 flex items-center justify-between">
-            <span>Enterprise Engine</span>
-            <span className="text-emerald-400 font-medium">Groq 120B</span>
-          </p>
+          {!collapsed && (
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-white truncate leading-none">
+                {currentUser?.full_name || 'Guest User'}
+              </p>
+              <p className="text-[11px] text-[#555] truncate mt-0.5">
+                {currentUser?.email || 'demo mode'}
+              </p>
+            </div>
+          )}
         </div>
 
+        {/* Logout */}
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-colors"
+          title={collapsed ? 'Sign out' : undefined}
+          className={`w-full flex items-center gap-2 text-[13px] text-[#555] hover:text-[#f87171] hover:bg-[#ef444410] rounded-md transition-colors ${collapsed ? 'justify-center px-1.5 py-2' : 'px-2.5 py-2'
+            }`}
         >
-          <LogOut className="w-4 h-4" />
-          <span>Sign Out</span>
+          <LogOut className="w-4 h-4 shrink-0" />
+          {!collapsed && <span>Sign out</span>}
         </button>
       </div>
     </aside>

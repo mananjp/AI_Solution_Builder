@@ -24,22 +24,16 @@ import { mvpApi } from '@/lib/api';
 import { MVPBuild, MVPBuildStatus, MVPDeployResult } from '@/types';
 
 export const STATUS_STYLES: Record<MVPBuildStatus, string> = {
-  queued: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 animate-pulse',
-  pending: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
-  building: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30 animate-pulse',
-  complete: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-  failed: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
-  cancelled: 'bg-slate-500/10 text-slate-400 border-slate-500/30',
+  queued: 'badge-amber',
+  pending: 'badge-amber',
+  building: 'badge-blue animate-pulse',
+  complete: 'badge-green',
+  failed: 'badge-red',
+  cancelled: 'badge-gray',
 };
 
 export function StatusBadge({ status }: { status: MVPBuildStatus }) {
-  return (
-    <span
-      className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider border ${STATUS_STYLES[status]}`}
-    >
-      {status}
-    </span>
-  );
+  return <span className={`badge ${STATUS_STYLES[status]}`}>{status}</span>;
 }
 
 function FileTree({ build }: { build: MVPBuild }) {
@@ -47,25 +41,25 @@ function FileTree({ build }: { build: MVPBuild }) {
   const files = build.files || [];
 
   return (
-    <div className="pt-3 border-t border-white/5">
+    <div className="pt-3 border-t border-[#1a1a1a]">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 text-[11px] font-semibold text-slate-300 hover:text-white transition-colors"
+        className="flex items-center gap-2 text-[11px] font-medium text-[#a1a1a1] hover:text-white transition-colors"
       >
-        <FolderTree className="w-3.5 h-3.5 text-indigo-400" />
+        <FolderTree className="w-3.5 h-3.5 text-[#6366f1]" />
         <span>Generated Files ({build.file_count})</span>
-        <span className="text-slate-500 font-mono">{open ? '▾' : '▸'}</span>
+        <span className="text-[#555] font-mono">{open ? '▾' : '▸'}</span>
       </button>
       {open && (
-        <div className="mt-2 max-h-64 overflow-y-auto rounded-xl bg-slate-950/70 border border-white/5 p-3">
+        <div className="mt-2 max-h-64 overflow-y-auto rounded-lg bg-[#0a0a0a] border border-[#1a1a1a] p-3">
           {files.length === 0 ? (
-            <p className="text-[11px] text-slate-500 font-mono">No file tree returned yet.</p>
+            <p className="text-[11px] text-[#555] font-mono">No file tree returned yet.</p>
           ) : (
             <ul className="space-y-1">
               {files.map((f) => (
                 <li key={f.path} className="flex items-center gap-2 text-[11px] font-mono">
-                  <Box className="w-3 h-3 text-slate-600 flex-shrink-0" />
-                  <span className={f.is_dir ? 'font-bold text-indigo-300' : 'text-slate-400'}>{f.path}</span>
+                  <Box className="w-3 h-3 text-[#555] shrink-0" />
+                  <span className={f.is_dir ? 'font-semibold text-white' : 'text-[#a1a1a1]'}>{f.path}</span>
                 </li>
               ))}
             </ul>
@@ -113,23 +107,20 @@ export function DeployModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="w-full max-w-lg rounded-3xl bg-[#0e1424] border border-white/10 p-6 sm:p-8 space-y-5 shadow-2xl relative overflow-hidden">
-        {/* Glow backdrop */}
-        <div className="absolute -top-24 -right-24 w-48 h-48 bg-indigo-600/20 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="flex items-center justify-between relative z-10">
-          <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <Rocket className="w-4 h-4 text-indigo-400" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 animate-fade-in">
+      <div className="w-full max-w-lg rounded-xl bg-[#111] border border-[#242424] p-6 space-y-4 shadow-2xl relative">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+            <Rocket className="w-4 h-4 text-[#6366f1]" />
             <span>Deploy Build #{build.build_number}</span>
           </h3>
-          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors">
+          <button onClick={onClose} className="text-[#555] hover:text-white transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {error && (
-          <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-xl px-4 py-3 leading-relaxed">
+          <p className="text-[12px] text-[#f87171] bg-[#ef444410] border border-[#ef444420] rounded-lg p-3">
             {error}
           </p>
         )}
@@ -137,252 +128,129 @@ export function DeployModal({
         {!deployResult ? (
           <>
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300">Repository Name</label>
+              <label className="text-xs font-medium text-[#a1a1a1]">Repository Name</label>
               <input
                 value={repoName}
                 onChange={(e) => setRepoName(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-white/10 text-white text-xs font-mono focus:outline-none focus:border-indigo-500 transition-colors shadow-inner"
+                className="w-full px-3 py-2 rounded-lg bg-[#0a0a0a] border border-[#2e2e2e] text-white text-xs font-mono focus:outline-none focus:border-[#6366f1] transition-colors"
               />
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300">Description (optional)</label>
+              <label className="text-xs font-medium text-[#a1a1a1]">Description (optional)</label>
               <input
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Auto-generated MVP by AI Solution Builder"
-                className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-white/10 text-white text-xs focus:outline-none focus:border-indigo-500 transition-colors shadow-inner"
+                className="w-full px-3 py-2 rounded-lg bg-[#0a0a0a] border border-[#2e2e2e] text-white text-xs focus:outline-none focus:border-[#6366f1] transition-colors"
               />
             </div>
 
-            <div className="space-y-3 pt-1">
-              <label className="flex items-start gap-2.5 text-xs text-slate-300 cursor-pointer">
+            <div className="space-y-2.5 pt-1">
+              <label className="flex items-start gap-2 text-xs text-[#a1a1a1] cursor-pointer">
                 <input
                   type="checkbox"
                   checked={privateRepo}
                   onChange={(e) => setPrivateRepo(e.target.checked)}
-                  className="mt-0.5 accent-indigo-500 rounded"
+                  className="mt-0.5 accent-[#6366f1] rounded"
                 />
                 <div>
-                  <span className="font-medium text-slate-200">Make repository private</span>
-                  <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
-                    {privateRepo
-                      ? "⚠️ Private repos require authorizing Vercel to access private repos, or toggling repo to Public on GitHub."
-                      : "✅ Public repo (Recommended for 1-click Vercel & Render blueprint deployments without permission issues)."}
+                  <span className="font-medium text-white">Make repository private</span>
+                  <p className="text-[11px] text-[#555] mt-0.5">
+                    {privateRepo ? "Private repos require Vercel permissions." : "Public repo recommended for 1-click deployments."}
                   </p>
                 </div>
               </label>
-              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+              <label className="flex items-center gap-2 text-xs text-[#a1a1a1] cursor-pointer">
                 <input
                   type="checkbox"
                   checked={force}
                   onChange={(e) => setForce(e.target.checked)}
-                  className="accent-indigo-500 rounded"
+                  className="accent-[#6366f1] rounded"
                 />
                 Force redeploy if already pushed
               </label>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-slate-300 text-xs space-y-1">
-              <div className="flex items-center gap-1.5 font-semibold text-indigo-300">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+            <div className="p-3 rounded-lg bg-[#161616] border border-[#242424] text-xs space-y-1">
+              <div className="flex items-center gap-1.5 font-medium text-white">
+                <Sparkles className="w-3.5 h-3.5 text-[#6366f1]" />
                 <span>1-Click Deploy to GitHub &amp; Render</span>
               </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                Pushes your code to GitHub and auto-provisions on Render using your saved Render API key. You will receive
-                your live application link immediately.
+              <p className="text-[11px] text-[#666]">
+                Pushes code to GitHub and auto-provisions on Render.
               </p>
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
               <button
                 onClick={onClose}
-                className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 transition-colors"
+                className="px-3.5 py-2 rounded-lg bg-[#161616] hover:bg-[#1f1f1f] text-xs font-medium text-[#a1a1a1] border border-[#242424] transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDeploy}
                 disabled={loading || !repoName.trim()}
-                className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-semibold shadow-lg shadow-indigo-600/25 transition-all hover:scale-105 disabled:opacity-40"
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-white text-xs font-medium transition-colors disabled:opacity-40"
               >
                 {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Rocket className="w-3.5 h-3.5" />}
-                <span>{loading ? 'Deploying to GitHub & Render…' : 'Deploy Now'}</span>
+                <span>{loading ? 'Deploying…' : 'Deploy Now'}</span>
               </button>
             </div>
           </>
         ) : (
-          /* Success Result View */
-          <div className="space-y-4 py-2">
-            <div className="flex items-center gap-3 p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300">
-              <div className="w-8 h-8 rounded-xl bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
-                <Check className="w-4 h-4 text-emerald-400" />
-              </div>
+          <div className="space-y-3 py-1">
+            <div className="flex items-center gap-3 p-3.5 rounded-lg bg-[#22c55e10] border border-[#22c55e20] text-[#4ade80]">
+              <Check className="w-4 h-4 shrink-0" />
               <div>
-                <h4 className="text-sm font-bold text-white">Deployment Successful!</h4>
-                <p className="text-xs text-slate-300 mt-0.5">
-                  Your code has been pushed to GitHub and configured for Render.
-                </p>
+                <h4 className="text-xs font-semibold text-white">Deployment Successful</h4>
+                <p className="text-[11px] text-[#a1a1a1] mt-0.5">Pushed to GitHub and configured for Render.</p>
               </div>
             </div>
 
-            <div className="space-y-2.5">
-              {/* Live Render Frontend App Link */}
+            <div className="space-y-2">
               {(deployResult.frontend_url || deployResult.render_service_url) && (
                 <a
                   href={(deployResult.frontend_url || deployResult.render_service_url)!}
                   target="_blank"
                   rel="noreferrer"
-                  className={`flex items-center justify-between p-3.5 rounded-2xl border shadow-lg group transition-all hover:scale-[1.01] ${
-                    deployResult.render_deploy_status === 'live'
-                      ? 'bg-gradient-to-r from-emerald-950/60 to-slate-900 border-emerald-500/30 hover:border-emerald-500/60 text-emerald-200'
-                      : 'bg-gradient-to-r from-amber-950/40 to-slate-900 border-amber-500/30 hover:border-amber-500/60 text-amber-200'
-                  }`}
+                  className="flex items-center justify-between p-3 rounded-lg bg-[#161616] border border-[#242424] hover:border-[#2e2e2e] text-white transition-colors"
                 >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform ${
-                      deployResult.render_deploy_status === 'live'
-                        ? 'bg-emerald-500/20 text-emerald-400'
-                        : 'bg-amber-500/20 text-amber-400'
-                    }`}>
-                      {deployResult.render_deploy_status === 'live'
-                        ? <Globe className="w-4 h-4" />
-                        : <Loader2 className="w-4 h-4 animate-spin" />}
-                    </div>
+                  <div className="flex items-center gap-2.5">
+                    <Globe className="w-4 h-4 text-[#4ade80]" />
                     <div>
-                      <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                        <span>{deployResult.render_deploy_status === 'live' ? 'Live Frontend Application' : 'Frontend Application'}</span>
-                        {deployResult.render_deploy_status === 'live' ? (
-                          <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-emerald-500/20 text-emerald-300 uppercase tracking-wider">
-                            Live
-                          </span>
-                        ) : (
-                          <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-amber-500/20 text-amber-300 uppercase tracking-wider animate-pulse">
-                            Deploying
-                          </span>
-                        )}
-                      </div>
-                      <p className={`text-[11px] font-mono mt-0.5 truncate max-w-xs ${
-                        deployResult.render_deploy_status === 'live' ? 'text-emerald-400/80' : 'text-amber-400/80'
-                      }`}>
+                      <span className="text-xs font-medium block">Frontend Application</span>
+                      <span className="text-[11px] text-[#666] font-mono truncate max-w-xs block">
                         {deployResult.frontend_url || deployResult.render_service_url}
-                      </p>
-                      {deployResult.render_deploy_status !== 'live' && (
-                        <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
-                          First-time Render builds take 3–5 min. The link will work once the build finishes.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <ExternalLink className={`w-4 h-4 opacity-80 group-hover:opacity-100 ${
-                    deployResult.render_deploy_status === 'live' ? 'text-emerald-400' : 'text-amber-400'
-                  }`} />
-                </a>
-              )}
-
-              {/* Backend API Swagger Docs */}
-              {deployResult.backend_url && (
-                <a
-                  href={`${deployResult.backend_url}/docs`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-teal-500/20 hover:border-teal-500/50 text-slate-200 transition-all hover:scale-[1.01]"
-                >
-                  <div className="flex items-center gap-2.5 text-xs font-medium">
-                    <Server className="w-3.5 h-3.5 text-teal-400" />
-                    <span>Backend API (FastAPI Swagger Docs):</span>
-                    <span className="font-mono text-teal-300 truncate max-w-[200px]">
-                      {deployResult.backend_url}/docs
-                    </span>
-                  </div>
-                  <ExternalLink className="w-3.5 h-3.5 text-teal-400" />
-                </a>
-              )}
-
-              {/* GitHub Repo */}
-              <a
-                href={deployResult.repo_url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-white/10 hover:border-indigo-500/40 text-slate-200 transition-all hover:scale-[1.01]"
-              >
-                <div className="flex items-center gap-2.5 text-xs font-medium">
-                  <Rocket className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>GitHub Repository:</span>
-                  <span className="font-mono text-indigo-300 truncate max-w-[200px]">{deployResult.repo_url}</span>
-                </div>
-                <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-              </a>
-
-              {/* 1-Click Vercel Deploy option */}
-              {deployResult.repo_url && (
-                <div className="space-y-2">
-                  <a
-                    href={`https://vercel.com/new/clone?repository-url=${encodeURIComponent(deployResult.repo_url)}&root-directory=frontend&env=NEXT_PUBLIC_API_URL`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center justify-between p-3 rounded-xl bg-slate-900/90 border border-white/20 hover:border-white/40 text-white transition-all hover:scale-[1.01] shadow-md group"
-                  >
-                    <div className="flex items-center gap-2.5 text-xs font-semibold">
-                      <Triangle className="w-3.5 h-3.5 fill-white text-white" />
-                      <span>Deploy Frontend on Vercel</span>
-                      <span className="px-1.5 py-0.2 rounded text-[9px] bg-white/10 text-slate-300 font-normal">
-                        Recommended for UI
                       </span>
                     </div>
-                    <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-white" />
-                  </a>
-
-                  {/* Vercel private repo import helper */}
-                  <div className="px-3 py-2 rounded-xl bg-slate-900/40 border border-white/5 text-[11px] text-slate-400 flex items-center justify-between">
-                    <span>If private, import via Vercel:</span>
-                    <a
-                      href={`https://vercel.com/new/import?s=${encodeURIComponent(deployResult.repo_url)}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-indigo-400 hover:text-indigo-300 font-medium underline ml-2 shrink-0"
-                    >
-                      Import Git Project →
-                    </a>
                   </div>
-                </div>
+                  <ExternalLink className="w-3.5 h-3.5 text-[#555]" />
+                </a>
               )}
 
-              {/* 1-Click Render Deploy Blueprint fallback */}
-              {deployResult.render_deploy_url && (
-                <div className="space-y-2">
-                  <a
-                    href={deployResult.render_deploy_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center justify-between p-3 rounded-xl bg-gradient-to-r from-indigo-950/40 to-cyan-950/30 border border-indigo-500/30 hover:border-cyan-400/50 text-indigo-200 transition-all hover:scale-[1.01]"
-                  >
-                    <div className="flex items-center gap-2.5 text-xs font-medium">
-                      <LayoutDashboard className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>Deploy Full Blueprint on Render (DB + Backend)</span>
-                    </div>
-                    <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
-                  </a>
-                  {!deployResult.render_service_url && (
-                    <div className="p-3 rounded-xl bg-slate-900/60 border border-white/5 text-[11px] text-slate-300 space-y-1">
-                      <div className="font-semibold text-cyan-300 flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                        Next Steps:
-                      </div>
-                      <p className="text-slate-400 leading-relaxed">
-                        • <strong>Vercel (Frontend)</strong>: 1-click deploys Next.js with fast builds & zero memory limits.<br />
-                        • <strong>Render (Full Blueprint)</strong>: Provisions PostgreSQL and FastAPI backend via <code className="text-indigo-300 font-mono">render.yaml</code>.
-                      </p>
-                    </div>
-                  )}
-                </div>
+              {deployResult.repo_url && (
+                <a
+                  href={deployResult.repo_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-between p-3 rounded-lg bg-[#161616] border border-[#242424] hover:border-[#2e2e2e] text-white transition-colors"
+                >
+                  <div className="flex items-center gap-2.5 text-xs font-medium">
+                    <Rocket className="w-3.5 h-3.5 text-[#6366f1]" />
+                    <span>GitHub Repository:</span>
+                    <span className="font-mono text-[#818cf8] truncate max-w-[200px]">{deployResult.repo_url}</span>
+                  </div>
+                  <ExternalLink className="w-3.5 h-3.5 text-[#555]" />
+                </a>
               )}
             </div>
 
             <div className="flex justify-end pt-2">
               <button
                 onClick={onClose}
-                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-semibold shadow-lg shadow-indigo-600/25 transition-all hover:scale-105"
+                className="px-4 py-2 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-white text-xs font-medium transition-colors"
               >
                 Done
               </button>
@@ -438,58 +306,58 @@ export function ConfigureModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="w-full max-w-md rounded-2xl bg-[#0e1424] border border-white/10 p-6 space-y-4 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 animate-fade-in">
+      <div className="w-full max-w-md rounded-xl bg-[#111] border border-[#242424] p-6 space-y-4 shadow-2xl">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <Settings2 className="w-4 h-4 text-indigo-400" />
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+            <Settings2 className="w-4 h-4 text-[#6366f1]" />
             Tune Build #{build.build_number}
           </h3>
-          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors">
+          <button onClick={onClose} className="text-[#555] hover:text-white transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {error && (
-          <p className="text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2">{error}</p>
+          <p className="text-[11px] text-[#f87171] bg-[#ef444410] border border-[#ef444420] rounded-lg p-3">{error}</p>
         )}
 
         <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-slate-300">App Name (optional)</label>
+          <label className="text-xs font-medium text-[#a1a1a1]">App Name (optional)</label>
           <input
             value={appName}
             onChange={(e) => setAppName(e.target.value)}
             placeholder="my-production-app"
-            className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-white/10 text-white text-xs font-mono focus:outline-none focus:border-indigo-500 transition-colors"
+            className="w-full px-3 py-2 rounded-lg bg-[#0a0a0a] border border-[#2e2e2e] text-white text-xs font-mono focus:outline-none focus:border-[#6366f1] transition-colors"
           />
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-slate-300">Environment Overrides</label>
+          <label className="text-xs font-medium text-[#a1a1a1]">Environment Overrides</label>
           <textarea
             value={envText}
             onChange={(e) => setEnvText(e.target.value)}
-            rows={6}
+            rows={5}
             placeholder={'SECRET_KEY=change-me\nDATABASE_URL=...'}
-            className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-white/10 text-white text-xs font-mono focus:outline-none focus:border-indigo-500 transition-colors resize-none"
+            className="w-full px-3 py-2 rounded-lg bg-[#0a0a0a] border border-[#2e2e2e] text-white text-xs font-mono focus:outline-none focus:border-[#6366f1] transition-colors resize-none"
           />
-          <p className="text-[11px] text-slate-500">One KEY=VALUE per line. Written to .env.local.</p>
+          <p className="text-[11px] text-[#555]">One KEY=VALUE per line. Written to .env.local.</p>
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 transition-colors"
+            className="px-3.5 py-2 rounded-lg bg-[#161616] hover:bg-[#1f1f1f] text-xs font-medium text-[#a1a1a1] border border-[#242424] transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleConfigure}
             disabled={loading}
-            className="flex items-center gap-2 px-5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-semibold shadow-lg shadow-indigo-600/25 transition-all hover:scale-105 disabled:opacity-40"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-white text-xs font-medium transition-colors disabled:opacity-40"
           >
             {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-            <span>Apply Overlay</span>
+            <span>Apply</span>
           </button>
         </div>
       </div>
@@ -515,18 +383,18 @@ export function BuildCard({
   onDestroyPreview?: () => void;
 }) {
   return (
-    <div className="p-5 rounded-2xl bg-slate-900/40 border border-white/5 space-y-4 transition-all hover:border-white/10 shadow-lg">
+    <div className="p-4 rounded-xl bg-[#0a0a0a] border border-[#1a1a1a] space-y-3 transition-colors hover:border-[#242424]">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-indigo-500/15 border border-indigo-500/20 text-indigo-300 flex items-center justify-center text-xs font-bold">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg bg-[#161616] border border-[#242424] text-[#818cf8] flex items-center justify-center text-xs font-semibold">
             v{build.build_number}
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h4 className="text-sm font-bold text-white">Build #{build.build_number}</h4>
+              <h4 className="text-xs font-semibold text-white">Build #{build.build_number}</h4>
               <StatusBadge status={build.status} />
             </div>
-            <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+            <p className="text-[11px] text-[#555] font-mono mt-0.5">
               {build.file_count} files · {build.build_id.slice(0, 8)}
             </p>
           </div>
@@ -538,28 +406,10 @@ export function BuildCard({
               href={(build.frontend_url || build.render_service_url)!}
               target="_blank"
               rel="noreferrer"
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-[11px] font-semibold transition-all shadow-sm ${
-                build.render_deploy_status === 'live'
-                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/25 shadow-emerald-500/10'
-                  : build.render_deploy_status === 'failed'
-                    ? 'bg-rose-500/15 border-rose-500/30 text-rose-400 hover:text-rose-300 hover:bg-rose-500/25 shadow-rose-500/10'
-                    : 'bg-amber-500/15 border-amber-500/30 text-amber-400 hover:text-amber-300 hover:bg-amber-500/25 shadow-amber-500/10 animate-pulse'
-              }`}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full badge badge-green text-[11px]"
             >
-              {build.render_deploy_status === 'live' ? (
-                <Globe className="w-3 h-3" />
-              ) : build.render_deploy_status === 'failed' ? (
-                <X className="w-3 h-3" />
-              ) : (
-                <Clock className="w-3 h-3" />
-              )}
-              <span>
-                {build.render_deploy_status === 'live'
-                  ? 'Live App'
-                  : build.render_deploy_status === 'failed'
-                    ? 'Deploy Failed'
-                    : 'Deploying…'}
-              </span>
+              <Globe className="w-3 h-3" />
+              <span>Live App</span>
             </a>
           )}
           {build.repo_url && (
@@ -567,17 +417,17 @@ export function BuildCard({
               href={build.repo_url}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 hover:text-white transition-colors"
+              className="flex items-center gap-1 text-[11px] font-medium text-[#666] hover:text-white transition-colors"
             >
               <ExternalLink className="w-3 h-3" />
-              <span>GitHub Repo</span>
+              <span>GitHub</span>
             </a>
           )}
         </div>
       </div>
 
       {build.error_message && (
-        <p className="text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2 font-mono">
+        <p className="text-[11px] text-[#f87171] bg-[#ef444410] border border-[#ef444420] rounded-lg p-2 font-mono">
           {build.error_message}
         </p>
       )}
@@ -585,116 +435,61 @@ export function BuildCard({
       <div className="flex items-center gap-2 flex-wrap pt-1">
         {build.status === 'complete' && (
           <>
-            {/* Direct link to live frontend app */}
             {(build.frontend_url || build.render_service_url) && (
               <a
                 href={(build.frontend_url || build.render_service_url)!}
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white text-xs font-semibold shadow-md shadow-emerald-600/20 transition-all hover:scale-105"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#22c55e10] hover:bg-[#22c55e20] text-[#4ade80] border border-[#22c55e20] text-xs font-medium transition-colors"
               >
                 <Globe className="w-3.5 h-3.5" />
-                <span>Open Live Frontend</span>
+                <span>Open App</span>
               </a>
             )}
 
-            {/* Direct link to backend API Swagger docs if available */}
             {build.backend_url && (
               <a
                 href={`${build.backend_url}/docs`}
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-500/10 hover:bg-teal-500/20 text-xs font-semibold text-teal-300 border border-teal-500/20 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#161616] hover:bg-[#1f1f1f] text-xs font-medium text-[#a1a1a1] border border-[#242424] transition-colors"
               >
-                <Server className="w-3.5 h-3.5" />
+                <Server className="w-3.5 h-3.5 text-[#6366f1]" />
                 <span>API Docs</span>
-              </a>
-            )}
-
-            {/* Direct link to Render Dashboard if service created */}
-            {build.render_dashboard_url && (
-              <a
-                href={build.render_dashboard_url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-xs font-semibold text-cyan-300 border border-cyan-500/20 transition-colors"
-              >
-                <LayoutDashboard className="w-3.5 h-3.5" />
-                <span>Render Dashboard</span>
-              </a>
-            )}
-
-            {/* 1-Click Vercel Deploy button */}
-            {build.repo_url && isDeployed && (
-              <div className="flex items-center gap-1">
-                <a
-                  href={`https://vercel.com/new/clone?repository-url=${encodeURIComponent(build.repo_url)}&root-directory=frontend&env=NEXT_PUBLIC_API_URL`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-semibold border border-white/20 shadow-md transition-all hover:scale-105"
-                  title="1-Click deploy frontend on Vercel"
-                >
-                  <Triangle className="w-3 h-3 fill-white text-white" />
-                  <span>Deploy on Vercel</span>
-                </a>
-                <a
-                  href={`https://vercel.com/new/import?s=${encodeURIComponent(build.repo_url)}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-2.5 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-white text-[11px] font-medium border border-white/10 transition-colors"
-                  title="Import project on Vercel (use if repo is private)"
-                >
-                  Import
-                </a>
-              </div>
-            )}
-
-            {/* 1-Click Render Deploy button if deployed on GitHub but no direct live service URL */}
-            {build.render_deploy_url && !build.render_service_url && isDeployed && (
-              <a
-                href={build.render_deploy_url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-semibold shadow-md shadow-indigo-600/20 transition-all hover:scale-105"
-              >
-                <Rocket className="w-3.5 h-3.5" />
-                <span>Deploy on Render (1-Click)</span>
               </a>
             )}
 
             <button
               onClick={onDownload}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-200 border border-white/10 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#161616] hover:bg-[#1f1f1f] text-xs font-medium text-[#a1a1a1] border border-[#242424] transition-colors"
             >
-              <Download className="w-3.5 h-3.5 text-indigo-400" />
+              <Download className="w-3.5 h-3.5 text-[#6366f1]" />
               <span>Download ZIP</span>
             </button>
             <button
               onClick={onConfigure}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-200 border border-white/10 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#161616] hover:bg-[#1f1f1f] text-xs font-medium text-[#a1a1a1] border border-[#242424] transition-colors"
             >
-              <Settings2 className="w-3.5 h-3.5 text-cyan-400" />
+              <Settings2 className="w-3.5 h-3.5 text-[#6366f1]" />
               <span>Tune</span>
             </button>
             {!isDeployed && (
               <button
                 onClick={onDeploy}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-semibold shadow-md shadow-indigo-600/20 transition-all hover:scale-105"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-white text-xs font-medium transition-colors"
               >
                 <Rocket className="w-3.5 h-3.5" />
-                <span>Deploy to GitHub &amp; Render</span>
+                <span>Deploy</span>
               </button>
             )}
 
-            {/* Destroy Preview button if live service URL is active */}
             {build.render_service_url && onDestroyPreview && (
               <button
                 onClick={onDestroyPreview}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-xs font-semibold text-rose-400 border border-rose-500/20 transition-colors"
-                title="Teardown Render preview service to stop compute charges"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#ef444410] hover:bg-[#ef444420] text-xs font-medium text-[#f87171] border border-[#ef444420] transition-colors"
               >
                 <PowerOff className="w-3.5 h-3.5" />
-                <span>Tear Down Live App</span>
+                <span>Teardown</span>
               </button>
             )}
           </>
@@ -702,7 +497,7 @@ export function BuildCard({
         {(build.status === 'failed' || build.status === 'cancelled') && (
           <button
             onClick={onDestroy}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-xs font-semibold text-rose-400 border border-rose-500/20 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#ef444410] hover:bg-[#ef444420] text-xs font-medium text-[#f87171] border border-[#ef444420] transition-colors"
           >
             <Trash2 className="w-3.5 h-3.5" />
             <span>Destroy</span>

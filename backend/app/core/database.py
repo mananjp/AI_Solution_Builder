@@ -5,7 +5,9 @@ Async SQLAlchemy 2.0 with asyncpg driver for PostgreSQL.
 Provides session factory and dependency injection for FastAPI routes.
 """
 
+import uuid
 from collections.abc import AsyncGenerator
+from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy.ext.asyncio import (
@@ -16,6 +18,51 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
+
+# ── SQLite compatibility: render PostgreSQL-specific types on SQLite ──
+# Models use `from sqlalchemy.dialects.postgresql import JSONB, UUID` which
+# has no native SQLite DDL. Without this, `Base.metadata.create_all()` fails
+# on `sqlite+aiosqlite` with "can't render element of type JSONB".
+try:
+    from sqlalchemy.dialects.postgresql import JSONB as _PG_JSONB
+    from sqlalchemy.dialects.postgresql import UUID as _PG_UUID
+    from sqlalchemy.ext.compiler import compiles
+
+    @compiles(_PG_JSONB, "sqlite")
+    def _compile_jsonb_sqlite(type_: Any, compiler: Any, **kw: Any) -> str:
+        return "JSON"
+
+    @compiles(_PG_UUID, "sqlite")
+    def _compile_uuid_sqlite(type_: Any, compiler: Any, **kw: Any) -> str:
+        return "CHAR(36)"
+
+    # SQLite stores UUIDs as plain 32-char hex strings, but the PostgreSQL
+    # UUID bind processor calls `.hex` on every non-NULL value. That breaks
+    # lookups that pass a string id (e.g. the JWT `sub` claim → `User.id == sub`),
+    # raising `'str' object has no attribute 'hex'`. Normalize strings to hex
+    # first so they bind identically to stored values.
+    _orig_uuid_bind = _PG_UUID.bind_processor
+
+    def _sqlite_uuid_bind_processor(self: Any, dialect: Any) -> Any:
+        process = _orig_uuid_bind(self, dialect)  # type: ignore[no-untyped-call]
+        if process is None or dialect.name != "sqlite":
+            return process
+
+        def wrapped(value: Any) -> Any:
+            if value is None:
+                return None
+            if isinstance(value, str):
+                try:
+                    return uuid.UUID(value).hex
+                except (ValueError, AttributeError, TypeError):
+                    return value
+            return process(value)
+
+        return wrapped
+
+    _PG_UUID.bind_processor = _sqlite_uuid_bind_processor  # type: ignore[method-assign]
+except Exception:
+    pass
 
 
 def normalize_database_url(url: str) -> str:
