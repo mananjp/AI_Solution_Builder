@@ -49,7 +49,7 @@ async def health() -> dict[str, Any]:
     """Report whether the AI build engine is reachable and ready."""
     sidecar_ok = await builder.health()
     return {
-        "healthy": sidecar_ok,
+        "healthy": True,
         "sidecar_healthy": sidecar_ok,
         "mode": "opencode-sidecar" if sidecar_ok else "integrated-synthesizer",
     }
@@ -145,31 +145,26 @@ async def chat(
                     await stream_db.flush()
 
                 sidecar_ok = await builder.health()
-                if not sidecar_ok:
-                    yield {
-                        "event": "error",
-                        "data": json.dumps(
-                            {
-                                "message": "OpenCode sidecar is unreachable. Ensure the opencode service is running."
-                            }
-                        ),
-                    }
-                    return
-
                 ai_state = dict(solution.ai_state or {})
                 session_id: str | None = ai_state.get("opencode_session_id") or payload.session_id
 
-                if session_id and payload.session_id and session_id != payload.session_id:
-                    yield {
-                        "event": "error",
-                        "data": json.dumps({"message": "Session id does not match this solution."}),
-                    }
-                    return
-                if not session_id:
-                    session_id = await builder.create_session(f"Custom Build - {solution.title}")
+                if sidecar_ok:
+                    if session_id and payload.session_id and session_id != payload.session_id:
+                        yield {
+                            "event": "error",
+                            "data": json.dumps({"message": "Session id does not match this solution."}),
+                        }
+                        return
+                    if not session_id:
+                        session_id = await builder.create_session(f"Custom Build - {solution.title}")
+                        ai_state["opencode_session_id"] = session_id
+                    agent_name = "opencode"
+                    agent_msg = "Connected to the OpenCode sidecar..."
+                else:
+                    session_id = session_id or f"synthesizer-{solution.id}"
                     ai_state["opencode_session_id"] = session_id
-                agent_name = "opencode"
-                agent_msg = "Connected to the OpenCode sidecar..."
+                    agent_name = "AI Developer"
+                    agent_msg = "Connected to the AI build engine..."
 
                 yield {
                     "event": "agent_start",
