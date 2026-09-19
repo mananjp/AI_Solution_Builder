@@ -695,6 +695,13 @@ async def run_build(
                 check_npm=check_npm,
             )
         except Exception as exc:
+            # Let verification failures propagate so the build is marked failed
+            # honestly rather than shipping broken code as "complete".
+            from app.services.mvp_verifier import VerificationError
+
+            if isinstance(exc, VerificationError):
+                raise MVPBuilderError(f"Build verification failed: {exc}") from exc
+
             logger.warning(
                 "OpenCode refinement failed or timed out (%s); relying on auto-synthesized scaffold for solution=%s",
                 exc,
@@ -708,6 +715,16 @@ async def run_build(
             "OpenCode sidecar offline; build synthesized instantly from blueprint for solution=%s",
             solution_id,
         )
+        # Even in offline mode, verify the synthesized output so broken
+        # scaffolds are never silently shipped as "complete".
+        from app.services.mvp_verifier import verify_workspace
+
+        errors = verify_workspace(local_dir, check_npm=False)
+        if errors:
+            error_summary = "; ".join(errors[:5])
+            raise MVPBuilderError(
+                f"Synthesized build failed verification ({len(errors)} error(s)): {error_summary}"
+            )
 
     files = list_build_files(local_dir)
     return {
