@@ -52,35 +52,35 @@ export default function SolutionViewerPage() {
   }, [solutionId]);
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto animate-fade-up">
+    <div className="space-y-6 max-w-[1400px] mx-auto animate-fade-up">
       {/* Navigation & Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <Link
           href="/dashboard"
-          className="inline-flex items-center gap-2 text-xs font-medium text-[#666] hover:text-white transition-colors"
+          className="inline-flex items-center gap-2 text-[11px] uppercase tracking-widest font-semibold text-[var(--text-2)] hover:text-[var(--sutra-charcoal)] transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Back to Dashboard</span>
         </Link>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <Link
             href={`/solution/${solutionId}/mvp`}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-white text-xs font-medium transition-colors"
+            className="btn btn-secondary"
           >
             <Rocket className="w-3.5 h-3.5" />
             <span>Build &amp; Deploy MVP</span>
           </Link>
           <Link
             href="/chat"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#161616] hover:bg-[#1f1f1f] text-xs font-medium text-[#a1a1a1] border border-[#242424] transition-colors"
+            className="btn btn-ghost border border-[var(--border)] bg-[var(--bg)]"
           >
-            <MessageSquare className="w-3.5 h-3.5 text-[#6366f1]" />
+            <MessageSquare className="w-3.5 h-3.5" />
             <span>Iterate</span>
           </Link>
           <button
             onClick={() => setShowExportModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#161616] hover:bg-[#1f1f1f] text-xs font-medium text-[#a1a1a1] border border-[#242424] transition-colors"
+            className="btn btn-ghost border border-[var(--border)] bg-[var(--bg)]"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Export Package</span>
@@ -89,25 +89,27 @@ export default function SolutionViewerPage() {
       </div>
 
       {/* Solution Header Card */}
-      <div className="p-5 rounded-xl bg-[#111] border border-[#1a1a1a] space-y-2">
-        <div className="flex items-center gap-2 text-xs">
-          <span className="badge badge-green">
-            <CheckCircle2 className="w-3 h-3 mr-1" />
-            Complete
-          </span>
-          <span className="text-[#333]">•</span>
-          <span className="text-[#555] text-[11px] flex items-center gap-1 font-mono">
-            <Clock className="w-3 h-3" />
-            {solution?.created_at ? new Date(solution.created_at).toLocaleDateString() : 'Today'}
-          </span>
-        </div>
+      <div className="sutra-card p-6 bg-[var(--bg-2)] flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="space-y-3">
+          <div className="flex items-center gap-3 text-[10px] uppercase tracking-widest font-semibold">
+            <span className="badge badge-green flex items-center gap-1.5">
+              <CheckCircle2 className="w-3 h-3" />
+              Complete
+            </span>
+            <span className="text-[var(--text-3)]">|</span>
+            <span className="text-[var(--text-2)] flex items-center gap-1.5">
+              <Clock className="w-3 h-3" />
+              {solution?.created_at ? new Date(solution.created_at).toLocaleDateString() : 'Today'}
+            </span>
+          </div>
 
-        <h1 className="text-xl font-semibold text-white">{solution?.title}</h1>
-        <p className="text-xs text-[#a1a1a1] max-w-3xl leading-relaxed">{solution?.description}</p>
+          <h1 className="text-2xl font-serif text-[var(--sutra-charcoal)]">{solution?.title}</h1>
+          <p className="text-[13px] text-[var(--text-2)] max-w-4xl leading-relaxed font-light">{solution?.description}</p>
+        </div>
       </div>
 
       {/* Deep Artifact Viewer */}
-      <div className="h-[750px]">
+      <div className="h-[750px] sutra-card shadow-lg bg-[var(--bg-2)] p-2">
         <ArtifactViewer
           artifacts={artifacts}
           solutionId={solutionId}

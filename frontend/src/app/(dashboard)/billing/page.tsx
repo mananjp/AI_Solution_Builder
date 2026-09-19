@@ -92,121 +92,123 @@ export default function BillingPage() {
     }
   };
 
-  const percentUsed =
+  const percentRemaining =
     usage && usage.current_balance != null && usage.monthly_limit
-      ? Math.min(100, Math.round(((usage.credits_used ?? 0) / usage.monthly_limit) * 100))
-      : 0;
+      ? Math.max(0, Math.min(100, Math.round((usage.current_balance / usage.monthly_limit) * 100)))
+      : 100;
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto animate-fade-up">
+    <div className="space-y-8 max-w-5xl mx-auto animate-fade-up py-4">
+      
+      <div className="border-b border-[var(--border)] pb-4">
+        <h1 className="text-2xl font-serif text-[var(--sutra-charcoal)]">AI Credits & Subscription</h1>
+        <p className="text-[13px] text-[var(--text-2)] mt-1 font-light">Manage your billing, plan features, and computational consumption.</p>
+      </div>
+
       {/* Top Banner: Credit Meter */}
-      <div className="p-6 rounded-xl bg-[#111] border border-[#1a1a1a] flex flex-wrap items-center justify-between gap-6">
-        <div className="space-y-2 flex-1 min-w-[280px]">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#161616] border border-[#242424] text-[#818cf8] text-xs font-medium">
-            <Zap className="w-3.5 h-3.5 text-[#6366f1]" />
+      <div className="sutra-card p-8 flex flex-wrap items-center justify-between gap-8 bg-[var(--bg-2)]">
+        <div className="space-y-4 flex-1 min-w-[280px]">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] text-[10px] uppercase tracking-widest font-bold">
+            <Zap className="w-3.5 h-3.5" />
             <span>Plan: {usage?.plan_name || 'Professional'}</span>
           </div>
-          <h1 className="text-xl font-semibold text-white">AI Credits &amp; Subscription</h1>
-          <p className="text-xs text-[#555] leading-relaxed">
-            Credits power autonomous swarm synthesis, workable application provisioning, and component regenerations.
-          </p>
-
-          <div className="pt-2 space-y-1.5">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-[#555]">Monthly Usage</span>
-              <span className="text-white font-medium">
+          <h2 className="text-xl font-serif text-[var(--sutra-charcoal)]">Current Cycle Usage</h2>
+          
+          <div className="pt-2 space-y-2">
+            <div className="flex items-center justify-between text-[11px] uppercase tracking-widest font-bold">
+              <span className="text-[var(--text-3)]">Consumption</span>
+              <span className="text-[var(--sutra-charcoal)]">
                 {usage?.current_balance == null
                   ? 'Unlimited Credits'
                   : `${usage.current_balance.toLocaleString()} / ${(usage.monthly_limit || 0).toLocaleString()} Credits Remaining`}
               </span>
             </div>
-            <div className="w-full h-1.5 bg-[#0a0a0a] rounded-full overflow-hidden border border-[#1a1a1a]">
+            <div className="w-full h-2 bg-[var(--bg)] rounded-sm overflow-hidden border border-[var(--border)]">
               <div
-                className="h-full bg-[#6366f1] rounded-full transition-all duration-500"
-                style={{ width: `${100 - percentUsed}%` }}
+                className="h-full bg-[var(--sutra-muted-gold)] transition-all duration-500"
+                style={{ width: `${percentRemaining}%` }}
               />
             </div>
           </div>
         </div>
 
         {/* Quick Top-Up Action */}
-        <div className="p-4 rounded-lg bg-[#0a0a0a] border border-[#1a1a1a] space-y-2 min-w-[220px]">
-          <span className="text-xs font-semibold text-white block">Top Up Credits</span>
-          <div className="flex flex-col gap-1.5">
+        <div className="p-5 border border-[var(--border)] bg-[var(--bg)] space-y-4 min-w-[260px] shadow-sm">
+          <span className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] block border-b border-[var(--border)] pb-2">Top Up Credits</span>
+          <div className="flex flex-col gap-2">
             <button
               onClick={() => handleTopup(5000)}
               disabled={topupLoading}
-              className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-[#161616] hover:bg-[#1f1f1f] text-xs font-medium text-white border border-[#242424] transition-colors"
+              className="btn btn-secondary w-full justify-between"
             >
               <span>+5,000 Credits</span>
-              <span className="text-[#818cf8] font-mono">$25</span>
+              <span className="text-[var(--sutra-muted-gold)] font-serif italic text-sm">$25</span>
             </button>
             <button
               onClick={() => handleTopup(15000)}
               disabled={topupLoading}
-              className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-xs font-medium text-white transition-colors"
+              className="btn btn-primary w-full justify-between"
             >
               <span>+15,000 Credits</span>
-              <span className="text-white font-mono">$60</span>
+              <span className="text-[var(--sutra-warm-ivory)] font-serif italic text-sm opacity-80">$60</span>
             </button>
           </div>
           {topupSuccess && (
-            <p className="text-[11px] text-[#4ade80] font-medium">{topupSuccess}</p>
+            <p className="text-[11px] uppercase tracking-widest font-bold text-[var(--green)] mt-2">{topupSuccess}</p>
           )}
         </div>
       </div>
 
       {/* Subscription Plans */}
-      <div className="space-y-3">
+      <div className="space-y-4">
         <div>
-          <h2 className="text-sm font-semibold text-white">Subscription Plans</h2>
-          <p className="text-xs text-[#555] mt-0.5">Scale your architecture capability as your team grows</p>
+          <h2 className="text-lg font-serif text-[var(--sutra-charcoal)]">Scale Architecture</h2>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {plans.map((p) => {
             const isPro = p.id === 'pro';
             return (
               <div
                 key={p.id}
-                className={`p-5 rounded-xl border flex flex-col justify-between transition-colors ${isPro
-                    ? 'bg-[#111] border-[#6366f150]'
-                    : 'bg-[#111] border-[#1a1a1a]'
+                className={`sutra-card p-6 flex flex-col justify-between transition-colors ${isPro
+                    ? 'border-[var(--sutra-muted-gold)] shadow-md relative'
+                    : 'bg-[var(--bg-2)] hover:border-[var(--text-3)]'
                   }`}
               >
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-semibold text-sm text-white">{p.name}</h3>
-                    {isPro && <span className="badge badge-blue">Popular</span>}
+                {isPro && (
+                  <div className="absolute top-0 right-6 -translate-y-1/2 px-3 py-1 bg-[var(--sutra-muted-gold)] text-[var(--bg)] text-[9px] uppercase tracking-widest font-bold shadow-sm">
+                    Current Plan
+                  </div>
+                )}
+                
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-[13px] uppercase tracking-widest text-[var(--sutra-charcoal)]">{p.name}</h3>
+
+                  <div className="flex items-baseline gap-1 border-b border-[var(--border)] pb-4">
+                    <span className="text-3xl font-serif text-[var(--sutra-charcoal)]">${p.price_usd}</span>
+                    <span className="text-[11px] text-[var(--text-3)] font-bold uppercase tracking-widest">/mo</span>
                   </div>
 
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-2xl font-semibold text-white">${p.price_usd}</span>
-                    <span className="text-xs text-[#555]">/month</span>
-                  </div>
-
-                  <p className="text-xs text-[#a1a1a1]">
-                    <strong className="text-white">{p.monthly_credits.toLocaleString()}</strong> credits included
+                  <p className="text-[11px] text-[var(--text-2)] font-medium bg-[var(--bg)] p-2 text-center border border-[var(--border)]">
+                    <strong className="text-[var(--sutra-charcoal)]">{p.monthly_credits.toLocaleString()}</strong> credits included
                   </p>
 
-                  <ul className="space-y-2 pt-2 text-xs text-[#666]">
+                  <ul className="space-y-3 pt-2 text-[12px] text-[var(--sutra-charcoal)] font-light">
                     {p.features.map((feat, idx) => (
-                      <li key={idx} className="flex items-center gap-2">
-                        <Check className="w-3.5 h-3.5 text-[#4ade80] shrink-0" />
+                      <li key={idx} className="flex items-start gap-2">
+                        <Check className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)] shrink-0 mt-0.5" />
                         <span>{feat}</span>
                       </li>
                     ))}
                   </ul>
                 </div>
 
-                <div className="pt-4 mt-4 border-t border-[#1a1a1a]">
+                <div className="pt-6 mt-4">
                   <button
-                    className={`w-full py-2 rounded-lg text-xs font-medium transition-colors ${isPro
-                        ? 'bg-[#6366f1] hover:bg-[#5558dd] text-white'
-                        : 'bg-[#161616] hover:bg-[#1f1f1f] text-[#a1a1a1] border border-[#242424]'
-                      }`}
+                    className={`w-full ${isPro ? 'btn btn-primary' : 'btn btn-secondary'}`}
                   >
-                    {isPro ? 'Current Plan' : 'Select Plan'}
+                    {isPro ? 'Manage Plan' : 'Upgrade'}
                   </button>
                 </div>
               </div>
@@ -216,35 +218,35 @@ export default function BillingPage() {
       </div>
 
       {/* Credit Transactions Ledger */}
-      <div className="p-5 rounded-xl bg-[#111] border border-[#1a1a1a] space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-            <Clock className="w-4 h-4 text-[#6366f1]" />
-            <span>Credit Consumption Ledger</span>
+      <div className="sutra-card p-6 bg-[var(--bg-2)] space-y-4">
+        <div className="flex items-center justify-between border-b border-[var(--border)] pb-4">
+          <h2 className="text-sm font-serif text-[var(--sutra-charcoal)] flex items-center gap-2">
+            <Clock className="w-4 h-4 text-[var(--sutra-muted-gold)]" />
+            <span>Consumption Ledger</span>
           </h2>
-          <span className="text-xs text-[#555]">Real-Time Metering</span>
+          <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)]">Real-Time Metering</span>
         </div>
 
-        <div className="border border-[#1a1a1a] rounded-lg overflow-hidden bg-[#0a0a0a]">
-          <table className="w-full text-left text-xs text-[#f5f5f5]">
-            <thead className="bg-[#111] text-[#555] uppercase text-[10px] tracking-wider border-b border-[#1a1a1a]">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-[12px] text-[var(--sutra-charcoal)]">
+            <thead className="bg-[var(--bg)] text-[10px] uppercase tracking-widest text-[var(--text-3)] border-b border-[var(--border)]">
               <tr>
-                <th className="p-3">Date</th>
-                <th className="p-3">Action</th>
-                <th className="p-3">Description</th>
-                <th className="p-3 text-right">Points</th>
+                <th className="p-3 font-semibold">Date</th>
+                <th className="p-3 font-semibold">Action</th>
+                <th className="p-3 font-semibold">Description</th>
+                <th className="p-3 text-right font-semibold">Amount</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#1a1a1a]">
+            <tbody className="divide-y divide-[var(--border)]">
               {transactions.map((tx) => (
-                <tr key={tx.id} className="hover:bg-[#111] transition-colors">
-                  <td className="p-3 text-[#555] font-mono text-[11px]">
+                <tr key={tx.id} className="hover:bg-[var(--bg)] transition-colors group">
+                  <td className="p-3 text-[var(--text-2)] font-mono text-[11px]">
                     {tx.created_at ? new Date(tx.created_at).toLocaleDateString() : '-'}
                   </td>
-                  <td className="p-3 font-semibold text-[#818cf8] font-mono text-[11px]">{tx.action}</td>
-                  <td className="p-3 text-[#a1a1a1]">{tx.description}</td>
-                  <td className="p-3 text-right font-mono font-semibold text-[11px]">
-                    <span className={tx.amount > 0 ? 'text-[#4ade80]' : 'text-[#f87171]'}>
+                  <td className="p-3 font-semibold text-[var(--sutra-charcoal)] font-mono text-[11px] group-hover:text-[var(--sutra-muted-gold)] transition-colors">{tx.action}</td>
+                  <td className="p-3 text-[var(--text-2)] font-light">{tx.description}</td>
+                  <td className="p-3 text-right font-mono font-semibold text-[12px]">
+                    <span className={tx.amount > 0 ? 'text-[var(--green)]' : 'text-[var(--sutra-charcoal)]'}>
                       {tx.amount > 0 ? `+${tx.amount}` : tx.amount}
                     </span>
                   </td>

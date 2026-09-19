@@ -1,10 +1,21 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, Playfair_Display, Noto_Serif_Devanagari, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
+});
+
+const playfair = Playfair_Display({
+  variable: "--font-playfair",
+  subsets: ["latin"],
+});
+
+const sanskrit = Noto_Serif_Devanagari({
+  variable: "--font-sanskrit",
+  weight: ["400", "700"],
+  subsets: ["devanagari"],
 });
 
 const geistMono = Geist_Mono({
@@ -13,13 +24,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Solution Builder — Autonomous Architecture & Workable Systems",
+  title: "Sutra OS — Autonomous Architecture",
   description: "Turn business logic into production software blueprints, PostgreSQL schemas, and mounted live applications in minutes.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "AI Solution Builder",
+    title: "Sutra OS",
   },
   icons: {
     icon: "/icon.svg",
@@ -43,7 +54,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
+      className={`${inter.variable} ${playfair.variable} ${sanskrit.variable} ${geistMono.variable} h-full antialiased dark`}
     >
       <head>
         <link rel="manifest" href="/manifest.json" />

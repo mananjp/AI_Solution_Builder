@@ -9,6 +9,7 @@ import {
   Search,
   Terminal,
   Loader2,
+  LayoutTemplate
 } from 'lucide-react';
 import { workableApi, type RawWorkableModule } from '@/lib/api';
 import { WorkableModule, type WorkableRecord } from '@/types';
@@ -229,51 +230,63 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
   );
 
   return (
-    <div className="flex flex-col h-full bg-slate-950 border border-white/5 rounded-2xl overflow-hidden shadow-2xl">
+    <div className="flex flex-col h-full bg-[var(--bg-2)] border border-[var(--border)] sutra-card overflow-hidden relative">
+      {/* Browser Frame Decoration */}
+      <div className="h-8 border-b border-[var(--border)] bg-[var(--bg-3)] flex items-center px-4 gap-2">
+        <div className="w-2.5 h-2.5 rounded-full border border-[#DCD5C5] bg-[#E5DED1]"></div>
+        <div className="w-2.5 h-2.5 rounded-full border border-[#DCD5C5] bg-[#E5DED1]"></div>
+        <div className="w-2.5 h-2.5 rounded-full border border-[#DCD5C5] bg-[#E5DED1]"></div>
+        <div className="mx-auto flex items-center gap-2 px-6 py-0.5 rounded-sm bg-[var(--bg)] border border-[var(--border)] text-[10px] uppercase tracking-widest text-[var(--text-3)] font-mono">
+          <LayoutTemplate size={10} /> {solutionId}.sutra.dev
+        </div>
+      </div>
+
       {/* Top Banner: Workable System Status */}
-      <div className="p-4 border-b border-white/5 bg-slate-900/80 backdrop-blur-md flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
-            <Database className="w-4 h-4" />
+      <div className="p-5 border-b border-[var(--border)] bg-[var(--bg)] flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 border border-[var(--sutra-muted-gold)] text-[var(--sutra-muted-gold)] flex items-center justify-center">
+            <Database className="w-5 h-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h3 className="font-bold text-white text-sm">Mounted Live Application Runtime</h3>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-[10px] text-emerald-400 font-mono">Live PostgreSQL Schema</span>
+            <div className="flex items-center gap-3">
+              <h3 className="font-serif text-lg text-[var(--sutra-charcoal)]">Application Runtime</h3>
+              <div className="flex items-center gap-1.5 badge badge-green">
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--green)] animate-pulse" />
+                Live Schema
+              </div>
             </div>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              Interact with real operational tables and REST APIs provisioned from your blueprint.
+            <p className="text-[11px] text-[var(--text-2)] mt-1 max-w-md font-light">
+              Interact with real operational tables and REST APIs provisioned directly from the SUTRA blueprint.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-3">
           <button
             onClick={handleSeedSynthetic}
             disabled={seeding}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-indigo-300 border border-indigo-500/30 transition-all disabled:opacity-40"
+            className="flex items-center gap-2 btn btn-secondary"
           >
-            {seeding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-indigo-400" />}
+            {seeding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-[var(--sutra-muted-gold)]" />}
             <span>Seed Synthetic Records</span>
           </button>
 
           <button
             onClick={() => setShowApiDrawer(!showApiDrawer)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition-colors"
+            className="flex items-center gap-2 btn btn-ghost border border-[var(--border)] hover:bg-[var(--bg-3)]"
           >
-            <Terminal className="w-3.5 h-3.5 text-cyan-400" />
+            <Terminal className="w-4 h-4" />
             <span>API Docs</span>
           </button>
         </div>
       </div>
 
       {/* Module and Entity Tabs */}
-      <div className="flex flex-wrap items-center justify-between px-4 pt-3 pb-2 border-b border-white/5 bg-slate-900/40 gap-3">
+      <div className="flex flex-wrap items-center justify-between px-5 pt-4 pb-3 border-b border-[var(--border)] bg-[var(--bg-3)] gap-4">
         {/* Module switcher */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500 font-medium">Subsystem:</span>
-          <div className="flex gap-1">
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] uppercase tracking-widest text-[var(--text-3)] font-semibold">Subsystem</span>
+          <div className="flex gap-2">
             {modules.map(mod => (
               <button
                 key={mod.name}
@@ -284,10 +297,10 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
                     loadRecords(mod.name, mod.entities[0].name);
                   }
                 }}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                className={`px-4 py-1.5 text-[11px] uppercase tracking-widest font-semibold transition-colors border ${
                   selectedModule === mod.name
-                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                    ? 'bg-[var(--bg)] text-[var(--sutra-charcoal)] border-[var(--border)] shadow-sm'
+                    : 'bg-transparent text-[var(--text-2)] border-transparent hover:text-[var(--text)]'
                 }`}
               >
                 {mod.label}
@@ -298,7 +311,7 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
 
         {/* Entity switcher */}
         {getActiveModule() && (
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             {getActiveModule()?.entities.map(ent => (
               <button
                 key={ent.name}
@@ -306,10 +319,10 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
                   setSelectedEntity(ent.name);
                   loadRecords(selectedModule, ent.name);
                 }}
-                className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                className={`px-3 py-1.5 text-[12px] font-medium transition-colors border-b-2 ${
                   selectedEntity === ent.name
-                    ? 'bg-white/10 text-indigo-300 font-medium border border-indigo-500/30'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? 'border-[var(--sutra-muted-gold)] text-[var(--sutra-charcoal)]'
+                    : 'border-transparent text-[var(--text-2)] hover:text-[var(--sutra-charcoal)]'
                 }`}
               >
                 {ent.label}
@@ -320,64 +333,64 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
       </div>
 
       {/* Action Toolbar */}
-      <div className="p-4 flex items-center justify-between gap-4">
-        <div className="relative flex-1 max-w-xs">
-          <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+      <div className="px-5 py-4 flex items-center justify-between gap-4 bg-[var(--bg)] border-b border-[var(--border)]">
+        <div className="relative flex-1 max-w-sm group">
+          <Search className="w-4 h-4 text-[var(--text-3)] absolute left-3 top-1/2 -translate-y-1/2 group-focus-within:text-[var(--sutra-muted-gold)] transition-colors" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={`Search ${activeEntity?.label || 'records'}...`}
-            className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-900 border border-white/10 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
+            className="w-full pl-10 pr-4 py-2 bg-[var(--bg-2)] border border-[var(--border)] text-[13px] text-[var(--text)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors"
           />
         </div>
 
         <button
           onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-semibold shadow-md shadow-indigo-500/20 transition-all hover:scale-105"
+          className="flex items-center gap-2 btn btn-primary"
         >
-          <Plus className="w-3.5 h-3.5" />
+          <Plus className="w-4 h-4" />
           <span>Add {activeEntity?.label || 'Record'}</span>
         </button>
       </div>
 
       {/* Live Data Grid */}
-      <div className="flex-1 overflow-auto px-4 pb-4">
+      <div className="flex-1 overflow-auto bg-[var(--bg-2)] p-5">
         {filteredRecords.length > 0 ? (
-          <div className="border border-white/5 rounded-xl overflow-hidden bg-slate-900/40">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-900 text-slate-400 uppercase text-[10px] tracking-wider border-b border-white/5">
+          <div className="border border-[var(--border)] bg-[var(--bg)] shadow-sm">
+            <table className="w-full text-left text-[13px] text-[var(--text)]">
+              <thead className="bg-[var(--bg-3)] text-[var(--text-2)] uppercase text-[10px] tracking-widest border-b border-[var(--border)]">
                 <tr>
-                  <th className="p-3">#</th>
+                  <th className="px-4 py-3 font-semibold">#</th>
                   {fields.map(f => (
-                    <th key={f.name} className="p-3 font-semibold">{f.name}</th>
+                    <th key={f.name} className="px-4 py-3 font-semibold">{f.name}</th>
                   ))}
-                  <th className="p-3 text-right">Actions</th>
+                  <th className="px-4 py-3 text-right font-semibold">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5">
+              <tbody className="divide-y divide-[var(--border)]">
                 {filteredRecords.map((row, idx) => (
-                  <tr key={row.id || idx} className="hover:bg-white/[0.02] transition-colors">
-                    <td className="p-3 text-slate-500 font-mono text-[11px]">{idx + 1}</td>
+                  <tr key={row.id || idx} className="hover:bg-[var(--bg-3)] transition-colors">
+                    <td className="px-4 py-3 text-[var(--text-3)] font-mono text-[11px]">{idx + 1}</td>
                     {fields.map(f => (
-                      <td key={f.name} className="p-3">
+                      <td key={f.name} className="px-4 py-3">
                         {typeof row[f.name] === 'boolean' ? (
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] ${row[f.name] ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                          <span className={`badge ${row[f.name] ? 'badge-green' : 'badge-red'}`}>
                             {row[f.name] ? 'True' : 'False'}
                           </span>
                         ) : (
-                          <span>{row[f.name] !== undefined ? String(row[f.name]) : '-'}</span>
+                          <span className="font-medium text-[var(--sutra-charcoal)]">{row[f.name] !== undefined ? String(row[f.name]) : '-'}</span>
                         )}
                       </td>
                     ))}
-                    <td className="p-3 text-right">
+                    <td className="px-4 py-3 text-right">
                       <button
-                        onClick={() => handleDeleteRecord(row.id)}
-                        className="text-slate-500 hover:text-rose-400 transition-colors p-1"
-                        title="Delete record"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                         onClick={() => handleDeleteRecord(row.id)}
+                         className="text-[var(--text-3)] hover:text-[var(--red)] transition-colors p-1"
+                         title="Delete record"
+                       >
+                         <Trash2 className="w-4 h-4" />
+                       </button>
                     </td>
                   </tr>
                 ))}
@@ -385,12 +398,12 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
             </table>
           </div>
         ) : (
-          <div className="h-64 flex flex-col items-center justify-center text-center space-y-3 text-slate-500 border border-dashed border-white/10 rounded-xl">
-            <Database className="w-8 h-8 text-slate-600" />
-            <p className="text-xs text-slate-400">No records found in this operational table.</p>
+          <div className="h-64 flex flex-col items-center justify-center text-center space-y-4 text-[var(--text-2)] border border-[var(--border)] border-dashed bg-[var(--bg)] m-4">
+            <Database className="w-8 h-8 text-[var(--text-3)]" />
+            <p className="text-[13px] font-medium text-[var(--sutra-charcoal)]">No records found in this operational table.</p>
             <button
               onClick={handleSeedSynthetic}
-              className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-500 transition-colors"
+              className="btn btn-secondary text-xs mt-2"
             >
               Seed 5 Sample Records
             </button>
@@ -400,12 +413,12 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
 
       {/* Live API Drawer */}
       {showApiDrawer && (
-        <div className="p-4 border-t border-white/5 bg-slate-900/90 text-xs font-mono space-y-2">
-          <div className="flex items-center justify-between text-slate-400">
-            <span className="font-bold text-slate-200">Headless REST Endpoint for this table:</span>
-            <button onClick={() => setShowApiDrawer(false)} className="hover:text-white">Close</button>
+        <div className="absolute bottom-0 left-0 w-full p-6 border-t border-[var(--border)] bg-[var(--bg-2)] shadow-[0_-10px_40px_rgba(23,26,28,0.1)] z-20 transform transition-transform animate-fade-up">
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-[11px] uppercase tracking-widest font-semibold text-[var(--sutra-charcoal)]">REST API Endpoint (Live)</span>
+            <button onClick={() => setShowApiDrawer(false)} className="text-[var(--text-2)] hover:text-[var(--sutra-charcoal)] text-[10px] uppercase tracking-widest font-semibold">Close</button>
           </div>
-          <div className="p-2.5 rounded-lg bg-black/60 border border-white/10 text-cyan-300 select-all">
+          <div className="p-4 bg-[var(--sutra-charcoal)] border border-[var(--border)] text-[var(--sutra-muted-gold)] font-mono text-xs select-all overflow-x-auto">
             GET /api/v1/workable/{solutionId}/{selectedModule}/{selectedEntity}
           </div>
         </div>
@@ -413,15 +426,17 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
 
       {/* Add Record Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-slate-900 border border-white/10 rounded-2xl p-6 shadow-2xl space-y-4">
-            <h4 className="text-base font-bold text-white">Create New {activeEntity?.label}</h4>
+        <div className="fixed inset-0 bg-[var(--sutra-charcoal)]/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="w-full max-w-md bg-[var(--bg)] border border-[var(--border)] p-8 shadow-2xl space-y-6">
+            <h4 className="text-xl font-serif text-[var(--sutra-charcoal)] border-b border-[var(--border)] pb-4">
+              Create New {activeEntity?.label}
+            </h4>
 
-            <form onSubmit={handleCreateRecord} className="space-y-3">
+            <form onSubmit={handleCreateRecord} className="space-y-4">
               {fields.map(f => (
                 <div key={f.name}>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    {f.name} {f.required && <span className="text-rose-400">*</span>}
+                  <label className="block text-[10px] uppercase tracking-widest font-semibold text-[var(--text-2)] mb-2">
+                    {f.name} {f.required && <span className="text-[var(--red)]">*</span>}
                   </label>
                   <input
                     type={f.type === 'number' ? 'number' : 'text'}
@@ -429,25 +444,25 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
                     value={formData[f.name] || ''}
                     onChange={(e) => setFormData({ ...formData, [f.name]: f.type === 'number' ? Number(e.target.value) : e.target.value })}
                     placeholder={`Enter ${f.name}...`}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-xs text-white focus:outline-none focus:border-indigo-500"
+                    className="w-full px-4 py-2.5 bg-[var(--bg-2)] border border-[var(--border)] text-[13px] text-[var(--text)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors"
                   />
                 </div>
               ))}
 
-              <div className="pt-2 flex justify-end gap-2">
+              <div className="pt-6 flex justify-end gap-3">
                 <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/25 transition-all"
-                >
-                  Insert Record
-                </button>
+                   type="button"
+                   onClick={() => setShowAddModal(false)}
+                   className="btn btn-ghost"
+                 >
+                   Cancel
+                 </button>
+                 <button
+                   type="submit"
+                   className="btn btn-primary"
+                 >
+                   Insert Record
+                 </button>
               </div>
             </form>
           </div>

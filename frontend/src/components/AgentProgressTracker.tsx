@@ -77,60 +77,53 @@ export default function AgentProgressTracker({ currentAgent, status }: AgentProg
   };
 
   return (
-    <div className="p-4 rounded-xl bg-[#111] border border-[#1a1a1a]">
-      <div className="flex items-center justify-between mb-3">
-        <h4 className="text-xs font-semibold text-white flex items-center gap-1.5">
-          <Sparkles className="w-3.5 h-3.5 text-[#6366f1]" />
-          <span>Multi-Agent Swarm Pipeline</span>
+    <div className="sutra-card p-6">
+      <div className="flex items-center justify-between mb-8 pb-4 border-b border-[var(--border)]">
+        <h4 className="text-sm font-semibold text-[var(--sutra-charcoal)] flex items-center gap-2 uppercase tracking-widest">
+          <span className="w-1.5 h-1.5 bg-[var(--sutra-muted-gold)]"></span>
+          Orchestration Timeline
         </h4>
-        <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${status === 'complete'
-            ? 'badge-green'
-            : status === 'generating' || status === 'analyzing'
-              ? 'badge-blue animate-pulse'
-              : 'badge-gray'
-          }`}>
+        <span className="sutra-label text-[10px]">
           {status === 'complete' ? 'Synthesized' : status === 'idle' ? 'Ready' : 'Executing Swarm'}
         </span>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+      <div className="flex flex-col gap-0 relative">
+        {/* Continuous timeline line */}
+        <div className="absolute left-[19px] top-4 bottom-4 w-px bg-[var(--border)]"></div>
+        
         {steps.map((step, idx) => {
           const state = getStepState(idx, step.id);
           const Icon = step.icon;
+          const isLast = idx === steps.length - 1;
 
           return (
-            <div
-              key={step.id}
-              className={`p-3 rounded-lg border transition-colors text-left flex flex-col justify-between min-h-[85px] ${state === 'running'
-                  ? 'bg-[#161616] border-[#6366f1]'
-                  : state === 'completed'
-                    ? 'bg-[#0a0a0a] border-[#22c55e40]'
-                    : 'bg-[#0a0a0a] border-[#1a1a1a] opacity-50'
-                }`}
-            >
-              <div className="flex items-center justify-between mb-1.5">
-                <div className={`p-1 rounded ${state === 'running'
-                    ? 'text-[#818cf8]'
+            <div key={step.id} className={`flex gap-6 relative ${isLast ? '' : 'pb-6'}`}>
+              {/* Timeline Node */}
+              <div className="relative z-10 flex flex-col items-center">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors duration-500 border ${
+                  state === 'running'
+                    ? 'bg-[var(--bg)] border-[var(--sutra-muted-gold)] text-[var(--sutra-muted-gold)]'
                     : state === 'completed'
-                      ? 'text-[#4ade80]'
-                      : 'text-[#555]'
-                  }`}>
-                  <Icon className="w-3.5 h-3.5" />
+                    ? 'bg-[var(--sutra-soft-cream)] border-[var(--sutra-muted-gold)] text-[var(--sutra-deep-gold)]'
+                    : 'bg-[var(--bg-2)] border-[var(--border)] text-[var(--text-3)]'
+                }`}>
+                  {state === 'completed' ? (
+                    <CheckCircle2 className="w-4 h-4" />
+                  ) : state === 'running' ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Icon className="w-4 h-4 opacity-50" />
+                  )}
                 </div>
-                {state === 'running' && (
-                  <Loader2 className="w-3.5 h-3.5 text-[#818cf8] animate-spin" />
-                )}
-                {state === 'completed' && (
-                  <CheckCircle2 className="w-3.5 h-3.5 text-[#4ade80]" />
-                )}
               </div>
 
-              <div>
-                <p className={`text-[11px] font-medium leading-tight ${state === 'running' ? 'text-white font-semibold' : state === 'completed' ? 'text-[#a1a1a1]' : 'text-[#555]'
-                  }`}>
+              {/* Content */}
+              <div className={`flex-1 pt-2 ${state === 'pending' ? 'opacity-50' : 'opacity-100'} transition-opacity duration-500`}>
+                <h5 className="text-xs font-semibold text-[var(--sutra-charcoal)] tracking-wide uppercase">
                   {step.name}
-                </p>
-                <p className="text-[10px] text-[#555] leading-tight mt-0.5 line-clamp-1">
+                </h5>
+                <p className="text-[13px] text-[var(--text-2)] mt-1 font-light">
                   {step.desc}
                 </p>
               </div>

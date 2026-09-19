@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   Plus, Layers, FolderKanban, Clock, ArrowUpRight, Trash2,
-  Compass, Rocket, Zap, Wrench, Loader2, RefreshCw, Circle,
+  Compass, Rocket, Zap, Loader2, RefreshCw, Circle,
 } from 'lucide-react';
 import { workspaceApi, solutionApi, mvpApi, opencodeApi } from '@/lib/api';
 import { Solution, Workspace, MVPBuild, MVPTemplate, MVPDeployResult } from '@/types';
@@ -167,60 +167,100 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="space-y-8 animate-fade-up">
+    <div className="space-y-10 animate-fade-up max-w-[1200px] mx-auto py-4">
 
       {/* Page header */}
-      <div>
-        <h1 className="text-lg font-semibold text-white">Dashboard</h1>
-        <p className="text-sm text-[#666] mt-0.5">Build and manage your architecture blueprints and apps.</p>
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-serif text-[var(--sutra-charcoal)]">Overview</h1>
+          <p className="text-[13px] text-[var(--text-2)] mt-2 max-w-lg leading-relaxed font-light">
+            Manage your intelligent solution blueprints, orchestrate AI swarm builds, and view your workspaces.
+          </p>
+        </div>
+        
+        {engineOnline !== null && (
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-widest font-semibold text-[var(--text-3)]">Engine Status</span>
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-sm border text-[11px] uppercase tracking-widest font-bold shadow-sm ${
+                engineOnline
+                  ? 'bg-[var(--bg-2)] border-[var(--border)] text-[var(--green)]'
+                  : 'bg-[var(--bg-2)] border-[var(--border)] text-[var(--red)]'
+              }`}>
+              <Circle className={`w-2 h-2 fill-current ${engineOnline ? 'animate-pulse-dot' : ''}`} />
+              {engineOnline ? 'Online' : 'Offline'}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Engine status bar */}
-      {engineOnline !== null && (
-        <div className={`flex items-center gap-2.5 px-4 py-2.5 rounded-lg border text-[13px] ${engineOnline
-            ? 'bg-[#22c55e0a] border-[#22c55e20] text-[#4ade80]'
-            : 'bg-[#f59e0b0a] border-[#f59e0b20] text-[#fbbf24]'
-          }`}>
-          <Circle className={`w-2 h-2 fill-current ${engineOnline ? 'animate-pulse-dot' : ''}`} />
-          {engineOnline
-            ? 'AI build engine is online — custom and premade app builds are ready.'
-            : 'AI build engine is offline. Blueprint generation still works; app builds may be delayed.'}
-        </div>
-      )}
-
       {/* Stat row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Solutions', value: solutions.length, icon: Layers },
+          { label: 'Total Solutions', value: solutions.length, icon: Layers },
           { label: 'Workspaces', value: workspaces.length, icon: FolderKanban },
-          { label: 'Quick Builds', value: builds.length, icon: Rocket },
-          { label: 'Engine', value: engineOnline === null ? '—' : engineOnline ? 'Online' : 'Offline', icon: Circle },
+          { label: 'Active Builds', value: builds.length, icon: Rocket },
+          { label: 'Credits', value: '1,450', icon: Zap },
         ].map((m) => {
           const Icon = m.icon;
           return (
-            <div key={m.label} className="p-4 rounded-xl bg-[#111] border border-[#1a1a1a]">
-              <div className="flex items-center gap-2 text-[#555] mb-2">
-                <Icon className="w-3.5 h-3.5" />
-                <span className="text-[11px] font-medium uppercase tracking-wider">{m.label}</span>
+            <div key={m.label} className="sutra-card p-6 flex flex-col justify-between h-[120px] group hover:border-[var(--sutra-muted-gold)] transition-colors">
+              <div className="flex items-center justify-between text-[var(--text-2)]">
+                <span className="text-[10px] font-bold uppercase tracking-widest group-hover:text-[var(--sutra-charcoal)] transition-colors">{m.label}</span>
+                <Icon className="w-4 h-4 opacity-50 group-hover:opacity-100 group-hover:text-[var(--sutra-muted-gold)] transition-all" />
               </div>
-              <p className="text-2xl font-semibold text-white">{m.value}</p>
+              <p className="text-3xl font-serif text-[var(--sutra-charcoal)]">{m.value}</p>
             </div>
           );
         })}
       </div>
 
       {/* Two paths */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" id="premade">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" id="premade">
+
+        {/* Custom builder */}
+        <div className="sutra-card p-8 flex flex-col justify-between gap-8 bg-gradient-to-br from-[var(--bg)] to-[var(--bg-2)]">
+          <div className="space-y-4">
+            <h2 className="text-xl font-serif text-[var(--sutra-charcoal)] flex items-center gap-3 border-b border-[var(--border)] pb-4">
+              <div className="w-8 h-8 flex items-center justify-center border border-[var(--sutra-muted-gold)] bg-[var(--bg-2)]">
+                <span className="text-[var(--sutra-muted-gold)] font-serif italic text-lg leading-none">S</span>
+              </div>
+              AI Solution Builder
+            </h2>
+            <p className="text-[13px] text-[var(--text-2)] leading-relaxed">
+              Design complex application architectures from a single natural language prompt. SUTRA will synthesize the domain, create the database schema, write APIs, and scaffold a complete frontend.
+            </p>
+            <ul className="space-y-3 pt-2">
+              {[
+                'Contextual Chat & Orchestration',
+                'Live Architecture & HLD/LLD Generation',
+                'Document parsing & PRD understanding',
+                'Instant Full-stack Next.js scaffolding',
+              ].map((item) => (
+                <li key={item} className="flex items-center gap-3 text-[12px] font-medium text-[var(--sutra-charcoal)]">
+                  <span className="w-1.5 h-1.5 bg-[var(--sutra-muted-gold)]" />
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <Link
+            href="/chat"
+            className="btn btn-primary flex justify-center w-full shadow-md hover:shadow-lg"
+          >
+            Start a New Build Session
+            <ArrowUpRight className="w-4 h-4 ml-2 opacity-70" />
+          </Link>
+        </div>
 
         {/* Premade apps */}
-        <div className="bg-[#111] border border-[#1a1a1a] rounded-xl p-5 space-y-4">
-          <div className="flex items-center justify-between">
+        <div className="sutra-card p-8 space-y-6">
+          <div className="flex items-end justify-between border-b border-[var(--border)] pb-4">
             <div>
-              <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-                <Zap className="w-4 h-4 text-[#6366f1]" />
-                Premade Apps
+              <h2 className="text-xl font-serif text-[var(--sutra-charcoal)] flex items-center gap-3">
+                <Zap className="w-5 h-5 text-[var(--text-3)]" />
+                Templates & Pre-builds
               </h2>
-              <p className="text-[12px] text-[#555] mt-0.5">One-click builds from verified templates.</p>
+              <p className="text-[12px] text-[var(--text-2)] mt-1">Instant scaffolding from verified industry patterns.</p>
             </div>
             <button
               onClick={async () => {
@@ -231,43 +271,42 @@ export default function DashboardPage() {
                 }
                 if (refreshed.length > 0) setBuilds(refreshed);
               }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-transparent hover:bg-[#161616] border border-[#242424] text-[12px] text-[#666] hover:text-[#a1a1a1] transition-colors"
+              className="btn btn-ghost border border-[var(--border)] bg-[var(--bg)]"
             >
-              <RefreshCw className="w-3 h-3" />
-              Refresh
+              <RefreshCw className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 gap-3 max-h-[300px] overflow-y-auto pr-2">
             {templates.map((tpl) => (
-              <div key={tpl.slug} className="flex flex-col gap-3 p-3.5 rounded-lg bg-[#0a0a0a] border border-[#1a1a1a] hover:border-[#242424] transition-colors">
-                <div>
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="text-[12px] font-semibold text-white">{tpl.title}</span>
+              <div key={tpl.slug} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--sutra-muted-gold)] transition-colors group">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[13px] font-semibold text-[var(--sutra-charcoal)]">{tpl.title}</span>
+                    <span className="text-[9px] uppercase tracking-widest font-bold text-[var(--sutra-muted-gold)] bg-[var(--accent-dim)] px-2 py-0.5 rounded-sm">{tpl.industry}</span>
                   </div>
-                  <span className="text-[11px] text-[#444]">{tpl.industry}</span>
-                  <p className="text-[11px] text-[#555] mt-1.5 leading-relaxed">{tpl.description}</p>
+                  <p className="text-[11px] text-[var(--text-2)] truncate">{tpl.description}</p>
                 </div>
                 <button
                   onClick={() => handleQuickBuild(tpl)}
                   disabled={buildingSlug !== null}
-                  className="mt-auto flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-white text-[12px] font-medium transition-colors disabled:opacity-40"
+                  className="btn btn-secondary shrink-0"
                 >
                   {buildingSlug === tpl.slug ? (
-                    <><Loader2 className="w-3 h-3 animate-spin" />Building…</>
+                    <><Loader2 className="w-3.5 h-3.5 animate-spin" />Building</>
                   ) : (
-                    <><Rocket className="w-3 h-3" />Build</>
+                    <><Rocket className="w-3.5 h-3.5" />Build App</>
                   )}
                 </button>
               </div>
             ))}
           </div>
 
-          {actionErr && <p className="text-[12px] text-[#f87171] bg-[#ef444410] border border-[#ef444420] rounded-lg px-3 py-2">{actionErr}</p>}
+          {actionErr && <p className="text-[11px] font-semibold text-[var(--red)] bg-[var(--bg-2)] border border-[var(--red)] p-3 shadow-sm">{actionErr}</p>}
 
           {builds.length > 0 && (
-            <div className="space-y-3 pt-3 border-t border-[#1a1a1a]">
-              <h3 className="text-[12px] font-semibold text-white">Your Builds</h3>
+            <div className="space-y-4 pt-4 border-t border-[var(--border)]">
+              <h3 className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)]">Active Build Pipelines</h3>
               {builds.map((build) => (
                 <BuildCard
                   key={build.build_id}
@@ -282,100 +321,65 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
-
-        {/* Custom builder */}
-        <div className="bg-[#111] border border-[#1a1a1a] rounded-xl p-5 flex flex-col justify-between gap-6">
-          <div className="space-y-3">
-            <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-              <Wrench className="w-4 h-4 text-[#6366f1]" />
-              Custom App Builder
-            </h2>
-            <p className="text-[13px] text-[#666] leading-relaxed">
-              Skip the templates. Chat with the AI developer — describe your idea, iterate on scaffolded FastAPI + Next.js workspace, and finalize a build.
-            </p>
-            <ul className="space-y-2">
-              {[
-                'Persistent conversational session per build',
-                'Live editing of FastAPI + Next.js workspace',
-                'Upload a spec or PRD for context',
-                'Finalize, download, or deploy to GitHub',
-              ].map((item) => (
-                <li key={item} className="flex items-center gap-2 text-[12px] text-[#777]">
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#6366f1] shrink-0" />
-                  {item}
-                </li>
-              ))}
-            </ul>
-            <p className="text-[12px] text-[#555]">⏱ Custom apps take 2–5 min: AI code generation + fresh cloud deploy.</p>
-          </div>
-          <Link
-            href="/chat"
-            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-white text-[13px] font-medium transition-colors"
-          >
-            <Wrench className="w-4 h-4" />
-            Open Custom Builder
-            <ArrowUpRight className="w-4 h-4 ml-1" />
-          </Link>
-        </div>
       </div>
 
       {/* Solutions */}
-      <div className="space-y-3" id="blueprints">
-        <div className="flex items-center justify-between">
+      <div className="space-y-6" id="blueprints">
+        <div className="flex items-end justify-between border-b border-[var(--border)] pb-4">
           <div>
-            <h2 className="text-sm font-semibold text-white">Solution Blueprints</h2>
-            <p className="text-[12px] text-[#555] mt-0.5">Architecture specs, database schemas, and roadmaps</p>
+            <h2 className="text-xl font-serif text-[var(--sutra-charcoal)]">Solution Blueprints</h2>
+            <p className="text-[12px] text-[var(--text-2)] mt-1">Orchestrated architecture specs, database schemas, and roadmaps</p>
           </div>
           <Link
             href="/chat"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-transparent hover:bg-[#111] border border-[#1a1a1a] text-[12px] text-[#666] hover:text-[#a1a1a1] transition-colors"
+            className="btn btn-secondary bg-[var(--bg)] border border-[var(--border)]"
           >
             <Plus className="w-3.5 h-3.5" />
-            Generate New
+            New Solution
           </Link>
         </div>
 
         {solutions.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {solutions.map((sol) => (
-              <div key={sol.id} className="p-4 rounded-xl bg-[#111] border border-[#1a1a1a] hover:border-[#242424] transition-colors flex flex-col justify-between gap-4">
+              <div key={sol.id} className="sutra-card p-6 flex flex-col justify-between gap-6 hover:shadow-md transition-shadow group cursor-pointer border-[var(--border)] hover:border-[var(--sutra-muted-gold)]">
                 <div>
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <span className="badge badge-green">{sol.status.toUpperCase()}</span>
+                  <div className="flex items-start justify-between gap-3 mb-4">
+                    <span className="badge badge-amber">{sol.status}</span>
                     <button
-                      onClick={() => handleDeleteSol(sol.id)}
-                      className="text-[#444] hover:text-[#f87171] transition-colors p-0.5"
+                      onClick={(e) => { e.preventDefault(); handleDeleteSol(sol.id); }}
+                      className="text-[var(--text-3)] hover:text-[var(--red)] transition-colors p-1"
                       title="Delete solution"
-                    ><Trash2 className="w-3.5 h-3.5" /></button>
+                    ><Trash2 className="w-4 h-4" /></button>
                   </div>
-                  <h3 className="text-sm font-semibold text-white">{sol.title}</h3>
-                  <p className="text-[12px] text-[#555] mt-1.5 leading-relaxed line-clamp-2">
+                  <h3 className="text-[15px] font-semibold text-[var(--sutra-charcoal)] leading-tight">{sol.title}</h3>
+                  <p className="text-[12px] text-[var(--text-2)] mt-2 leading-relaxed line-clamp-2">
                     {sol.description || 'Enterprise solution blueprint with architecture, schemas, and roadmap.'}
                   </p>
                 </div>
-                <div className="flex items-center justify-between pt-3 border-t border-[#1a1a1a]">
-                  <div className="flex items-center gap-1.5 text-[11px] text-[#444]">
+                <div className="flex items-center justify-between pt-4 border-t border-[var(--border)]">
+                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest font-semibold text-[var(--text-3)]">
                     <Clock className="w-3 h-3" />
                     {new Date(sol.created_at).toLocaleDateString()}
                   </div>
                   <Link
                     href={`/solution/${sol.id}`}
-                    className="flex items-center gap-1 text-[12px] font-medium text-[#6366f1] hover:text-[#818cf8] transition-colors"
+                    className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-[var(--sutra-muted-gold)] hover:text-[var(--sutra-deep-gold)] transition-colors"
                   >
-                    View Blueprints <ArrowUpRight className="w-3.5 h-3.5" />
+                    View Specs <ArrowUpRight className="w-3.5 h-3.5" />
                   </Link>
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <div className="py-14 text-center rounded-xl bg-[#111] border border-dashed border-[#1a1a1a]">
-            <Layers className="w-8 h-8 text-[#333] mx-auto mb-3" />
-            <p className="text-sm font-medium text-[#555]">No solutions yet</p>
-            <p className="text-[12px] text-[#444] mt-1 mb-4">Build a premade app or start a custom session.</p>
+          <div className="py-20 text-center sutra-card bg-[var(--bg-2)] border-dashed">
+            <Layers className="w-10 h-10 text-[var(--text-3)] mx-auto mb-4 opacity-50" />
+            <p className="text-[15px] font-serif text-[var(--sutra-charcoal)]">No solutions generated</p>
+            <p className="text-[13px] text-[var(--text-2)] mt-2 mb-6 font-light max-w-sm mx-auto">Start a custom AI builder session to generate your first architecture blueprint.</p>
             <Link
               href="/chat"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-white text-[13px] font-medium transition-colors"
+              className="btn btn-primary shadow-sm"
             >
               Start Building
             </Link>
@@ -384,64 +388,70 @@ export default function DashboardPage() {
       </div>
 
       {/* Bottom row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pb-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pb-12">
+        
+        {/* Industry templates */}
+        <div className="lg:col-span-2 sutra-card p-8 space-y-6" id="templates">
+          <div className="border-b border-[var(--border)] pb-4">
+            <h2 className="text-xl font-serif text-[var(--sutra-charcoal)] flex items-center gap-3">
+              <Compass className="w-5 h-5 text-[var(--text-3)]" /> Domain Templates
+            </h2>
+            <p className="text-[12px] text-[var(--text-2)] mt-1">Pre-seeded vertical prompts to kick off a custom architecture session.</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {INDUSTRY_PROMPTS.map((t) => (
+              <Link
+                key={t.title}
+                href={`/chat?prompt=${encodeURIComponent(t.prompt)}`}
+                className="p-5 bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--sutra-muted-gold)] transition-colors group h-full flex flex-col"
+              >
+                <p className="text-[13px] font-semibold text-[var(--sutra-charcoal)] group-hover:text-[var(--sutra-muted-gold)] transition-colors mb-2">{t.title}</p>
+                <p className="text-[11px] text-[var(--text-2)] leading-relaxed font-light mt-auto">{t.desc}</p>
+              </Link>
+            ))}
+          </div>
+        </div>
+
         {/* Workspaces */}
-        <div className="p-5 rounded-xl bg-[#111] border border-[#1a1a1a] space-y-3" id="workspaces">
-          <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-            <FolderKanban className="w-4 h-4 text-[#6366f1]" /> Workspaces
-          </h2>
-          <p className="text-[12px] text-[#555]">Organize solutions by product line or client.</p>
+        <div className="sutra-card p-8 space-y-6" id="workspaces">
+          <div className="border-b border-[var(--border)] pb-4">
+            <h2 className="text-xl font-serif text-[var(--sutra-charcoal)] flex items-center gap-3">
+              <FolderKanban className="w-5 h-5 text-[var(--text-3)]" /> Workspaces
+            </h2>
+            <p className="text-[12px] text-[var(--text-2)] mt-1">Organize solutions by product line.</p>
+          </div>
 
           <form onSubmit={handleCreateWs} className="flex gap-2">
             <input
               type="text"
               value={newWsName}
               onChange={(e) => setNewWsName(e.target.value)}
-              placeholder="New workspace name…"
-              className="flex-1 px-3 py-2 rounded-lg bg-[#0a0a0a] border border-[#1a1a1a] text-[13px] text-white placeholder:text-[#444] focus:outline-none focus:border-[#3a3a3a] transition-colors"
+              placeholder="New workspace..."
+              className="flex-1 px-4 py-2 bg-[var(--bg-2)] border border-[var(--border)] text-[12px] text-[var(--text)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors"
             />
             <button
               type="submit"
               disabled={creatingWs || !newWsName.trim()}
-              className="px-3 py-2 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-white text-[13px] font-medium disabled:opacity-40 transition-colors"
+              className="btn btn-secondary shrink-0"
             >
               Add
             </button>
           </form>
 
-          <div className="space-y-1.5">
+          <div className="space-y-2 max-h-[300px] overflow-y-auto">
             {workspaces.map((ws) => (
               <div
                 key={ws.id}
                 onClick={() => setSelectedWorkspace(ws.id)}
-                className={`px-3 py-2.5 rounded-lg text-[13px] cursor-pointer border transition-colors ${selectedWorkspace === ws.id
-                    ? 'bg-[#6366f10a] border-[#6366f130] text-white'
-                    : 'bg-transparent border-[#1a1a1a] text-[#666] hover:text-[#a1a1a1] hover:border-[#242424]'
-                  }`}
+                className={`p-4 cursor-pointer border transition-colors ${
+                  selectedWorkspace === ws.id
+                    ? 'bg-[var(--bg)] border-[var(--sutra-muted-gold)] shadow-sm'
+                    : 'bg-[var(--bg-2)] border-[var(--border)] hover:border-[var(--text-3)]'
+                }`}
               >
-                <p className="font-medium">{ws.name}</p>
-                {ws.description && <p className="text-[11px] text-[#444] mt-0.5">{ws.description}</p>}
+                <p className="text-[13px] font-semibold text-[var(--sutra-charcoal)]">{ws.name}</p>
+                {ws.description && <p className="text-[11px] text-[var(--text-2)] mt-1">{ws.description}</p>}
               </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Industry templates */}
-        <div className="lg:col-span-2 p-5 rounded-xl bg-[#111] border border-[#1a1a1a] space-y-3" id="templates">
-          <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-            <Compass className="w-4 h-4 text-[#6366f1]" /> Blueprints by Industry
-          </h2>
-          <p className="text-[12px] text-[#555]">Pre-seeded vertical prompts to kick off a custom architecture session.</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {INDUSTRY_PROMPTS.map((t) => (
-              <Link
-                key={t.title}
-                href={`/chat?prompt=${encodeURIComponent(t.prompt)}`}
-                className="p-3.5 rounded-lg bg-[#0a0a0a] border border-[#1a1a1a] hover:border-[#242424] transition-colors group"
-              >
-                <p className="text-[13px] font-semibold text-white group-hover:text-[#818cf8] transition-colors">{t.title}</p>
-                <p className="text-[11px] text-[#555] mt-1 leading-relaxed">{t.desc}</p>
-              </Link>
             ))}
           </div>
         </div>

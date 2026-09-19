@@ -73,9 +73,9 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl overflow-hidden shadow-xl">
-      {/* Top Tab Bar */}
-      <div className="flex items-center justify-between border-b border-[#1a1a1a] bg-[#111] px-3 pt-2 overflow-x-auto gap-2">
+    <div className="flex flex-col h-full bg-[var(--bg-2)] border border-[var(--border)] shadow-sm">
+      {/* Top Tab Bar (IDE style) */}
+      <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-3)] px-2 pt-2 overflow-x-auto gap-2">
         <div className="flex space-x-1">
           {tabs.map((tab) => {
             const Icon = tab.icon;
@@ -83,35 +83,36 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
             const isActive = activeType === tab.type;
 
             return (
-              <button
-                key={tab.type}
-                onClick={() => setActiveType(tab.type)}
-                className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-t-lg transition-colors border-b-2 whitespace-nowrap -mb-px ${isActive
-                    ? 'border-[#6366f1] bg-[#0a0a0a] text-white'
-                    : 'border-transparent text-[#666] hover:text-[#a1a1a1] hover:bg-[#161616]'
-                  }`}
-              >
-                <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-[#818cf8]' : 'text-[#555]'}`} />
-                <span>{tab.label}</span>
-                {tab.badge && (
-                  <span className="badge badge-green text-[9px]">
-                    {tab.badge}
-                  </span>
-                )}
-                {hasData && !tab.badge && <span className="w-1.5 h-1.5 rounded-full bg-[#4ade80] ml-0.5" />}
-              </button>
+               <button
+                 key={tab.type}
+                 onClick={() => setActiveType(tab.type)}
+                 className={`flex items-center gap-2 px-4 py-2.5 text-[11px] font-medium uppercase tracking-widest transition-colors border-b-2 whitespace-nowrap -mb-px ${
+                   isActive
+                     ? 'border-[var(--sutra-muted-gold)] bg-[var(--bg-2)] text-[var(--sutra-charcoal)]'
+                     : 'border-transparent text-[var(--text-2)] hover:text-[var(--text)] hover:bg-[var(--bg-2)]'
+                 }`}
+               >
+                 <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-[var(--sutra-muted-gold)]' : 'text-[var(--text-3)]'}`} />
+                 <span>{tab.label}</span>
+                 {tab.badge && (
+                   <span className="badge badge-amber ml-1">
+                     {tab.badge}
+                   </span>
+                 )}
+                 {hasData && !tab.badge && <span className="w-1.5 h-1.5 rounded-full bg-[var(--green)] ml-1" />}
+               </button>
             );
           })}
         </div>
 
         {/* Action buttons */}
-        <div className="flex items-center gap-2 pb-2">
+        <div className="flex items-center gap-3 pb-2 pr-2">
           {activeType !== 'workable' && activeType !== 'bpmn' && (
             <button
               onClick={() => setShowRegenModal(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#161616] hover:bg-[#1f1f1f] text-[#818cf8] text-xs font-medium border border-[#242424] transition-colors whitespace-nowrap"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-[var(--bg)] hover:bg-[var(--bg-3)] text-[var(--sutra-charcoal)] text-[10px] uppercase tracking-widest font-semibold border border-[var(--border)] transition-colors whitespace-nowrap shadow-sm"
             >
-              <RotateCw className="w-3.5 h-3.5" />
+              <RotateCw className="w-3 h-3" />
               <span>Regenerate</span>
             </button>
           )}
@@ -120,16 +121,16 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
             <>
               <button
                 onClick={() => handleCopy(getRawContentString(activeArtifact))}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#161616] hover:bg-[#1f1f1f] text-[#a1a1a1] text-xs border border-[#242424] transition-colors whitespace-nowrap"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-[var(--bg)] hover:bg-[var(--bg-3)] text-[var(--text-2)] hover:text-[var(--text)] text-[10px] uppercase tracking-widest font-semibold border border-[var(--border)] transition-colors whitespace-nowrap shadow-sm"
               >
-                {copied ? <Check className="w-3.5 h-3.5 text-[#4ade80]" /> : <Copy className="w-3.5 h-3.5" />}
+                {copied ? <Check className="w-3 h-3 text-[var(--green)]" /> : <Copy className="w-3 h-3" />}
                 <span>{copied ? 'Copied' : 'Copy'}</span>
               </button>
               <button
                 onClick={() => handleDownload(`${activeType}-spec.txt`, getRawContentString(activeArtifact))}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#161616] hover:bg-[#1f1f1f] text-[#a1a1a1] text-xs border border-[#242424] transition-colors whitespace-nowrap"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-[var(--bg)] hover:bg-[var(--bg-3)] text-[var(--text-2)] hover:text-[var(--text)] text-[10px] uppercase tracking-widest font-semibold border border-[var(--border)] transition-colors whitespace-nowrap shadow-sm"
               >
-                <Download className="w-3.5 h-3.5" />
+                <Download className="w-3 h-3" />
                 <span>Export</span>
               </button>
             </>
@@ -138,87 +139,95 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
       </div>
 
       {/* Artifact View Body */}
-      <div className="flex-1 overflow-y-auto font-sans p-4">
+      <div className="flex-1 overflow-y-auto font-sans p-6 bg-[var(--bg)]">
         {activeType === 'workable' ? (
           <div className="h-full">
             <WorkablePreview solutionId={solutionId} />
           </div>
         ) : activeType === 'bpmn' ? (
-          <div className="h-full">
+          <div className="h-full border border-[var(--border)] bg-[var(--bg-2)] p-2 shadow-sm">
             <BpmnViewer />
           </div>
         ) : activeArtifact ? (
-          <div className="max-w-4xl mx-auto space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-[#1a1a1a]">
+          <div className="max-w-5xl mx-auto space-y-6">
+            <div className="flex items-center justify-between pb-4 border-b border-[var(--border)]">
               <div>
-                <h3 className="text-base font-semibold text-white">{activeArtifact.title}</h3>
-                <p className="text-xs text-[#555] mt-0.5 font-mono">
-                  v{activeArtifact.version} · Synthesized by Swarm Agent
-                </p>
+                <h3 className="text-xl font-serif text-[var(--sutra-charcoal)]">{activeArtifact.title}</h3>
+                <div className="flex items-center gap-3 mt-2 text-[10px] uppercase tracking-widest text-[var(--text-2)] font-semibold">
+                  <span>v{activeArtifact.version}</span>
+                  <span className="w-1 h-1 rounded-full bg-[var(--border-2)]"></span>
+                  <span>Synthesized by Swarm Agent</span>
+                </div>
               </div>
-              <span className="badge badge-blue">
+              <span className="badge badge-gray text-[10px] uppercase tracking-widest">
                 Production Spec
               </span>
             </div>
 
             {/* Wireframe vs Markdown Spec */}
             {activeType === 'wireframe' ? (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1 p-1 rounded-lg bg-[#111] border border-[#1a1a1a]">
+              <div className="space-y-6">
+                <div className="flex items-center justify-between bg-[var(--bg-2)] p-2 border border-[var(--border)] shadow-sm">
+                  <div className="flex items-center gap-2">
                     <button
                       onClick={() => setWireframeView('canvas')}
-                      className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${wireframeView === 'canvas'
-                          ? 'bg-[#161616] text-white border border-[#2e2e2e]'
-                          : 'text-[#666] hover:text-white'
-                        }`}
+                      className={`px-4 py-1.5 rounded-sm text-[11px] uppercase tracking-widest font-semibold transition-colors ${
+                        wireframeView === 'canvas'
+                          ? 'bg-[var(--bg)] text-[var(--sutra-charcoal)] border border-[var(--border)] shadow-sm'
+                          : 'text-[var(--text-2)] hover:text-[var(--sutra-charcoal)]'
+                      }`}
                     >
                       Canvas Editor
                     </button>
                     <button
                       onClick={() => setWireframeView('details')}
-                      className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${wireframeView === 'details'
-                          ? 'bg-[#161616] text-white border border-[#2e2e2e]'
-                          : 'text-[#666] hover:text-white'
-                        }`}
+                      className={`px-4 py-1.5 rounded-sm text-[11px] uppercase tracking-widest font-semibold transition-colors ${
+                        wireframeView === 'details'
+                          ? 'bg-[var(--bg)] text-[var(--sutra-charcoal)] border border-[var(--border)] shadow-sm'
+                          : 'text-[var(--text-2)] hover:text-[var(--sutra-charcoal)]'
+                      }`}
                     >
                       Details
                     </button>
                   </div>
-                  <span className="flex items-center gap-1.5 text-[11px] text-[#555]">
+                  <span className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-[var(--text-2)] pr-4">
                     <PenLine className="w-3.5 h-3.5" />
                     Drag &amp; connect components
                   </span>
                 </div>
 
                 {wireframeView === 'canvas' && currentArtifacts.length > 0 ? (
-                  <WireframeCanvas wireframes={currentArtifacts} onUpdate={onArtifactUpdated} />
+                  <div className="border border-[var(--border)] shadow-sm bg-[var(--bg-2)] p-1">
+                    <WireframeCanvas wireframes={currentArtifacts} onUpdate={onArtifactUpdated} />
+                  </div>
                 ) : (
                   currentArtifacts.map((wf, idx) => (
-                    <div key={idx} className="p-4 rounded-xl bg-[#111] border border-[#1a1a1a] space-y-2">
-                      <h4 className="font-semibold text-xs text-white">{wf.title}</h4>
+                    <div key={idx} className="sutra-card p-8">
+                      <h4 className="font-serif text-lg text-[var(--sutra-charcoal)] mb-6 border-b border-[var(--border)] pb-3">{wf.title}</h4>
                       <MarkdownRenderer content={getRawContentString(wf)} />
                     </div>
                   ))
                 )}
               </div>
             ) : (
-              <div className="rounded-xl bg-[#111] border border-[#1a1a1a] p-5">
+              <div className="sutra-card p-10 bg-[var(--bg-2)]">
                 <MarkdownRenderer content={getRawContentString(activeArtifact)} />
               </div>
             )}
           </div>
         ) : (
-          <div className="h-64 flex flex-col items-center justify-center text-center space-y-2 text-[#555] p-8">
-            <div className="p-3 rounded-lg bg-[#111] border border-[#1a1a1a]">
-              <Layers className="w-6 h-6 text-[#555]" />
+          <div className="h-[60vh] flex flex-col items-center justify-center text-center space-y-4 text-[var(--text-2)] p-8">
+            <div className="p-4 border border-[var(--border)] bg-[var(--bg-2)] shadow-sm">
+              <Layers className="w-8 h-8 text-[var(--sutra-muted-gold)] opacity-80" />
             </div>
-            <p className="text-xs font-medium text-[#a1a1a1]">
-              No artifact generated yet for this category.
-            </p>
-            <p className="text-[11px] text-[#555] max-w-sm">
-              Use the AI Architect Chat to describe your business problem to trigger synthesis.
-            </p>
+            <div>
+              <p className="text-[13px] font-medium text-[var(--sutra-charcoal)]">
+                No artifact generated yet.
+              </p>
+              <p className="text-[11px] text-[var(--text-2)] max-w-sm mx-auto mt-2 font-light">
+                Use the AI Architect Chat to describe your business problem to trigger synthesis.
+              </p>
+            </div>
           </div>
         )}
       </div>
