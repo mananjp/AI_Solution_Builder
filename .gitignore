@@ -49,6 +49,9 @@ coverage.xml
 builds/
 backend/builds/
 *.log
+*.db
+*.sqlite
+*.sqlite3
 
 # Node & Frontend
 node_modules/
