@@ -4,12 +4,10 @@ import React, { useState } from 'react';
 import {
   Box,
   Check,
-  Clock,
   Download,
   ExternalLink,
   FolderTree,
   Globe,
-  LayoutDashboard,
   Loader2,
   PowerOff,
   Rocket,
@@ -17,7 +15,6 @@ import {
   Settings2,
   Sparkles,
   Trash2,
-  Triangle,
   X,
 } from 'lucide-react';
 import { mvpApi } from '@/lib/api';

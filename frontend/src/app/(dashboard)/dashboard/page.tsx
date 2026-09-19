@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   Plus, Layers, FolderKanban, Clock, ArrowUpRight, Trash2,
-  Compass, Rocket, Zap, Wrench, Loader2, RefreshCw, Circle,
+  Compass, Rocket, Zap, Loader2, RefreshCw, Circle,
 } from 'lucide-react';
 import { workspaceApi, solutionApi, mvpApi, opencodeApi } from '@/lib/api';
 import { Solution, Workspace, MVPBuild, MVPTemplate, MVPDeployResult } from '@/types';

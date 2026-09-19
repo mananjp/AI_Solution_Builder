@@ -4,8 +4,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Check,
   Clock,
-  Zap,
-  ArrowUpRight
+  Zap
 } from 'lucide-react';
 import { billingApi } from '@/lib/api';
 import { PlanTier, BillingUsage, CreditTransaction } from '@/types';

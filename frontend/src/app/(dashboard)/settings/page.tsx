@@ -162,7 +162,7 @@ export default function SettingsPage() {
               <h3 className="text-[11px] font-bold text-[var(--sutra-charcoal)] mb-2 flex items-center gap-1.5"><GitBranch className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" /> GitHub PAT</h3>
               <ol className="space-y-2 text-[12px] text-[var(--text-2)] list-decimal list-inside font-light">
                 <li>Go to <a href="https://github.com/settings/tokens/new" target="_blank" rel="noreferrer" className="text-[var(--sutra-muted-gold)] hover:underline font-medium">GitHub Developer Settings &rarr;</a></li>
-                <li>Enter a descriptive note (e.g., "Sutra AI Builder").</li>
+                <li>Enter a descriptive note (e.g., &quot;Sutra AI Builder&quot;).</li>
                 <li>Check the <code className="text-[var(--sutra-charcoal)] bg-[var(--bg)] px-1 border border-[var(--border)] rounded-sm font-mono text-[10px]">repo</code> scope to allow code pushes.</li>
                 <li>Click <strong>Generate token</strong> and copy it here.</li>
               </ol>

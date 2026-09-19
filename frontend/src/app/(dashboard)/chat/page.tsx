@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Send, Paperclip, Loader2, Wrench, CheckCircle2, Circle, FileText, Layout, Layers, Settings2, Play } from 'lucide-react';
+import { Send, Paperclip, Loader2, CheckCircle2, Circle, FileText, Layout, Layers, Settings2, Play } from 'lucide-react';
 import ChatMessage from '@/components/ChatMessage';
 import FileUploader from '@/components/FileUploader';
 import { opencodeApi, sendOpenCodeChatStream, mvpApi } from '@/lib/api';

@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { motion, useScroll, useTransform, useSpring, useMotionValue } from 'framer-motion';
+import React, { useRef } from 'react';
+import { motion, useScroll, useTransform, useSpring } from 'framer-motion';
 import Link from 'next/link';
-import { ArrowRight, Brain, Compass, Code, CheckSquare, Maximize, MousePointer2, Lightbulb, Network, Rocket, Settings, Truck, Layout, CheckCircle2, FileText, Database, ArrowDown, Files } from 'lucide-react';
+import { ArrowRight, Brain, Compass, Code, CheckSquare, Lightbulb, Network, Rocket, Settings, Layout, CheckCircle2, FileText, Database, ArrowDown, Files } from 'lucide-react';
 
 // Interactive "Alive" Pipeline Card
-const PipelineCard = ({ stage, index }: { stage: any, index: number }) => {
+const PipelineCard = ({ stage, index }: { stage: { step: string; title: string; desc: string; icon: React.ElementType }, index: number }) => {
   const Icon = stage.icon;
   
   return (
