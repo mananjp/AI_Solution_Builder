@@ -83,43 +83,41 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#070a13] flex items-center justify-center p-6 relative overflow-hidden">
-      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-indigo-600/15 rounded-full blur-[140px] pointer-events-none" />
-
-      <div className="w-full max-w-md relative z-10">
+    <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center p-6 relative overflow-hidden">
+      <div className="w-full max-w-md relative z-10 animate-fade-up">
+        
         <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2.5 mb-3 group">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30 group-hover:scale-105 transition-transform">
-              <Sparkles className="w-5 h-5" />
+          <Link href="/" className="inline-flex items-center justify-center mb-6 group w-full">
+            <div className="flex items-center justify-center shrink-0">
+              <span className="text-[var(--sutra-muted-gold)] font-sanskrit font-bold text-5xl leading-none drop-shadow-sm">सूत्र</span>
             </div>
-            <span className="font-extrabold text-white text-xl tracking-tight">AI Solution Builder</span>
           </Link>
-          <h2 className="text-xl font-bold text-white">Create your workspace</h2>
-          <p className="text-xs text-slate-400 mt-1">Get 200 credits to generate and build MVPs</p>
+          <h2 className="text-2xl font-serif text-[var(--sutra-charcoal)]">Create your workspace</h2>
+          <p className="text-[13px] text-[var(--text-2)] mt-2 font-light">Get 200 credits to generate and build MVPs</p>
         </div>
 
-        <div className="p-8 rounded-2xl bg-slate-900/60 border border-white/5 backdrop-blur-xl shadow-2xl space-y-5">
+        <div className="sutra-card p-8 space-y-6 bg-[var(--bg-2)]">
           {error && (
-            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <div className="flex items-start gap-2 p-3 bg-[var(--bg)] border border-[var(--red)] text-[var(--red)] text-[12px] shadow-sm">
+              <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
           {/* Social OAuth options if configured */}
           {configuredProviders.length > 0 && (
-            <div className="space-y-2.5">
+            <div className="space-y-3">
               {configuredProviders.includes('github') && (
                 <button
                   type="button"
                   onClick={() => handleOAuthClick('github')}
                   disabled={loading || oauthLoading !== null}
-                  className="w-full py-2.5 px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 text-xs font-semibold flex items-center justify-center gap-2.5 transition-all disabled:opacity-50"
+                  className="btn btn-secondary w-full justify-center py-2.5"
                 >
                   {oauthLoading === 'github' ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+                    <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
-                    <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 fill-current text-[var(--sutra-charcoal)]" viewBox="0 0 24 24">
                       <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
                     </svg>
                   )}
@@ -132,10 +130,10 @@ export default function RegisterPage() {
                   type="button"
                   onClick={() => handleOAuthClick('google')}
                   disabled={loading || oauthLoading !== null}
-                  className="w-full py-2.5 px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 text-xs font-semibold flex items-center justify-center gap-2.5 transition-all disabled:opacity-50"
+                  className="btn btn-secondary w-full justify-center py-2.5"
                 >
                   {oauthLoading === 'google' ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+                    <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     <svg className="w-4 h-4" viewBox="0 0 24 24">
                       <path
@@ -160,74 +158,71 @@ export default function RegisterPage() {
                 </button>
               )}
 
-              <div className="relative my-4 text-center">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-white/5" />
-                </div>
-                <span className="relative px-3 bg-slate-900/60 text-[10px] text-slate-500 uppercase tracking-wider">
-                  or email
-                </span>
+              <div className="flex items-center gap-4 pt-2 pb-2">
+                <div className="flex-1 border-t border-[var(--border)]" />
+                <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)]">or email</span>
+                <div className="flex-1 border-t border-[var(--border)]" />
               </div>
             </div>
           )}
 
           <form onSubmit={handleRegister} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Organization / Company</label>
+              <label className="block text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] mb-2">Organization / Company</label>
               <div className="relative">
-                <Building className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <Building className="w-4 h-4 text-[var(--text-3)] absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   required
                   value={orgName}
                   onChange={(e) => setOrgName(e.target.value)}
                   placeholder="Acme Technologies"
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-white/10 text-white text-xs placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 transition-colors"
+                  className="w-full pl-10 pr-4 py-3 bg-[var(--bg)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[13px] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Your Full Name</label>
+              <label className="block text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] mb-2">Your Full Name</label>
               <div className="relative">
-                <User className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <User className="w-4 h-4 text-[var(--text-3)] absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   required
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   placeholder="Sarah Chen"
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-white/10 text-white text-xs placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 transition-colors"
+                  className="w-full pl-10 pr-4 py-3 bg-[var(--bg)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[13px] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Work Email</label>
+              <label className="block text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] mb-2">Work Email</label>
               <div className="relative">
-                <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <Mail className="w-4 h-4 text-[var(--text-3)] absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="name@company.com"
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-white/10 text-white text-xs placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 transition-colors"
+                  className="w-full pl-10 pr-4 py-3 bg-[var(--bg)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[13px] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Password</label>
+              <label className="block text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] mb-2">Password</label>
               <div className="relative">
-                <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <Lock className="w-4 h-4 text-[var(--text-3)] absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Minimum 8 characters"
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-white/10 text-white text-xs placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 transition-colors"
+                  className="w-full pl-10 pr-4 py-3 bg-[var(--bg)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[13px] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm"
                 />
               </div>
             </div>
@@ -235,41 +230,38 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={loading || oauthLoading !== null}
-              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-semibold shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              className="btn btn-primary w-full justify-center py-3 mt-2"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Create Account</span>}
             </button>
           </form>
 
           {allowAnonymous && (
-            <>
-              <div className="relative my-4 text-center">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-white/5" />
-                </div>
-                <span className="relative px-3 bg-slate-900/60 text-[10px] text-slate-500 uppercase tracking-wider">
-                  No Registration Needed
-                </span>
+            <div className="pt-2 border-t border-[var(--border)] mt-4">
+              <div className="flex items-center gap-4 pb-4">
+                <div className="flex-1 border-t border-[var(--border)]" />
+                <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)]">No Registration Needed</span>
+                <div className="flex-1 border-t border-[var(--border)]" />
               </div>
 
               <button
                 type="button"
                 onClick={handleDemoLogin}
                 disabled={loading || oauthLoading !== null}
-                className="w-full py-2.5 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 text-indigo-300 text-xs font-semibold flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                className="btn btn-secondary w-full justify-center py-3"
               >
-                <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                <Sparkles className="w-4 h-4" />
                 <span>Try Demo As Guest (Unlimited Credits)</span>
               </button>
-            </>
+            </div>
           )}
+        </div>
 
-          <div className="pt-2 text-center text-xs text-slate-400">
-            Already have an account?{' '}
-            <Link href="/login" className="text-indigo-400 hover:text-indigo-300 font-medium">
-              Sign In
-            </Link>
-          </div>
+        <div className="mt-6 text-center text-[12px] text-[var(--text-2)]">
+          Already have an account?{' '}
+          <Link href="/login" className="text-[var(--sutra-charcoal)] hover:text-[var(--sutra-muted-gold)] transition-colors font-semibold border-b border-[var(--sutra-charcoal)] hover:border-[var(--sutra-muted-gold)] pb-0.5">
+            Sign In
+          </Link>
         </div>
       </div>
     </div>

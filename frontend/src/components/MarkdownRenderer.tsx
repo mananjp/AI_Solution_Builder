@@ -15,7 +15,7 @@ export default function MarkdownRenderer({ content, className = '' }: MarkdownRe
     const blocks = parseMarkdownBlocks(content);
 
     return (
-        <div className={`space-y-3 text-[13px] leading-relaxed text-[#d1d1d1] ${className}`}>
+        <div className={`space-y-4 text-[13px] leading-relaxed text-[var(--sutra-charcoal)] font-light ${className}`}>
             {blocks.map((block, i) => {
                 if (block.type === 'code') {
                     return <CodeBlock key={i} language={block.language} code={block.content} />;
@@ -39,18 +39,18 @@ function CodeBlock({ language, code }: { language: string; code: string }) {
     };
 
     return (
-        <div className="my-3 rounded-lg bg-[#0a0a0a] border border-[#242424] overflow-hidden font-mono text-xs">
-            <div className="flex items-center justify-between px-3 py-1.5 bg-[#141414] border-b border-[#242424] text-[11px] text-[#666]">
-                <span className="font-semibold uppercase text-[#818cf8] tracking-wider">{language || 'code'}</span>
+        <div className="my-4 rounded-sm bg-[var(--bg-2)] border border-[var(--border)] overflow-hidden font-mono text-[12px] shadow-sm">
+            <div className="flex items-center justify-between px-4 py-2 bg-[var(--bg)] border-b border-[var(--border)] text-[10px] text-[var(--text-3)]">
+                <span className="font-bold uppercase tracking-widest text-[var(--sutra-charcoal)]">{language || 'code'}</span>
                 <button
                     onClick={handleCopy}
-                    className="flex items-center gap-1 text-[#666] hover:text-white transition-colors"
+                    className="flex items-center gap-1.5 text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] transition-colors uppercase tracking-widest font-bold"
                 >
-                    {copied ? <Check className="w-3 h-3 text-[#4ade80]" /> : <Copy className="w-3 h-3" />}
+                    {copied ? <Check className="w-3 h-3 text-[var(--green)]" /> : <Copy className="w-3 h-3" />}
                     <span>{copied ? 'Copied' : 'Copy'}</span>
                 </button>
             </div>
-            <pre className="p-3.5 overflow-x-auto text-[#e2e8f0] leading-relaxed select-text font-mono text-[12px]">
+            <pre className="p-4 overflow-x-auto text-[var(--sutra-charcoal)] leading-relaxed select-text font-mono text-[12px]">
                 {code}
             </pre>
         </div>
@@ -59,21 +59,21 @@ function CodeBlock({ language, code }: { language: string; code: string }) {
 
 function TableBlock({ headers, rows }: { headers: string[]; rows: string[][] }) {
     return (
-        <div className="my-3 border border-[#242424] rounded-lg overflow-hidden bg-[#0a0a0a]">
+        <div className="my-4 border border-[var(--border)] rounded-sm overflow-hidden bg-[var(--bg)] shadow-sm">
             <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-[#d1d1d1]">
-                    <thead className="bg-[#141414] text-[#818cf8] font-semibold text-[11px] uppercase tracking-wider border-b border-[#242424]">
+                <table className="w-full text-left text-[12px] text-[var(--sutra-charcoal)]">
+                    <thead className="bg-[var(--bg-2)] text-[var(--sutra-charcoal)] font-bold text-[10px] uppercase tracking-widest border-b border-[var(--border)]">
                         <tr>
                             {headers.map((h, idx) => (
-                                <th key={idx} className="p-2.5">{renderInline(h.trim())}</th>
+                                <th key={idx} className="p-3">{renderInline(h.trim())}</th>
                             ))}
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-[#1e1e1e]">
+                    <tbody className="divide-y divide-[var(--border)]">
                         {rows.map((row, rIdx) => (
-                            <tr key={rIdx} className="hover:bg-[#111] transition-colors">
+                            <tr key={rIdx} className="hover:bg-[var(--bg-2)] transition-colors">
                                 {row.map((cell, cIdx) => (
-                                    <td key={cIdx} className="p-2.5 text-[#a1a1a1]">{renderInline(cell.trim())}</td>
+                                    <td key={cIdx} className="p-3 text-[var(--text-2)] font-light">{renderInline(cell.trim())}</td>
                                 ))}
                             </tr>
                         ))}
@@ -92,33 +92,33 @@ function TextGroup({ text }: { text: string }) {
                 const trimmed = line.trim();
 
                 if (!trimmed) {
-                    return <div key={i} className="h-1" />;
+                    return <div key={i} className="h-2" />;
                 }
 
                 if (trimmed.startsWith('#### ')) {
                     return (
-                        <h4 key={i} className="text-xs font-semibold text-[#818cf8] uppercase tracking-wider mt-4 mb-1">
+                        <h4 key={i} className="text-[11px] font-bold text-[var(--sutra-charcoal)] uppercase tracking-widest mt-5 mb-2">
                             {renderInline(trimmed.slice(5))}
                         </h4>
                     );
                 }
                 if (trimmed.startsWith('### ')) {
                     return (
-                        <h3 key={i} className="text-sm font-semibold text-white mt-4 mb-1">
+                        <h3 key={i} className="text-sm font-semibold text-[var(--sutra-charcoal)] mt-5 mb-2 uppercase tracking-wide">
                             {renderInline(trimmed.slice(4))}
                         </h3>
                     );
                 }
                 if (trimmed.startsWith('## ')) {
                     return (
-                        <h2 key={i} className="text-base font-bold text-white mt-5 mb-2 pb-1 border-b border-[#242424]">
+                        <h2 key={i} className="text-lg font-serif text-[var(--sutra-charcoal)] mt-6 mb-3 pb-2 border-b border-[var(--border)]">
                             {renderInline(trimmed.slice(3))}
                         </h2>
                     );
                 }
                 if (trimmed.startsWith('# ')) {
                     return (
-                        <h1 key={i} className="text-lg font-extrabold text-white mt-6 mb-2">
+                        <h1 key={i} className="text-xl font-serif text-[var(--sutra-charcoal)] mt-8 mb-4">
                             {renderInline(trimmed.slice(2))}
                         </h1>
                     );
@@ -126,7 +126,7 @@ function TextGroup({ text }: { text: string }) {
 
                 if (trimmed.startsWith('> ')) {
                     return (
-                        <blockquote key={i} className="pl-3 py-1 my-2 border-l-2 border-[#6366f1] text-[#a1a1a1] bg-[#111] rounded-r-lg text-xs italic">
+                        <blockquote key={i} className="pl-4 py-2 my-3 border-l-2 border-[var(--sutra-muted-gold)] text-[var(--text-2)] bg-[var(--bg-2)] text-[12px] italic">
                             {renderInline(trimmed.slice(2))}
                         </blockquote>
                     );
@@ -134,7 +134,7 @@ function TextGroup({ text }: { text: string }) {
 
                 if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
                     return (
-                        <li key={i} className="ml-4 list-disc text-[#d1d1d1] my-1">
+                        <li key={i} className="ml-5 list-disc text-[var(--sutra-charcoal)] my-1.5 pl-1 marker:text-[var(--sutra-muted-gold)]">
                             {renderInline(trimmed.slice(2))}
                         </li>
                     );
@@ -143,14 +143,14 @@ function TextGroup({ text }: { text: string }) {
                 const numMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
                 if (numMatch) {
                     return (
-                        <li key={i} className="ml-4 list-decimal text-[#d1d1d1] my-1">
+                        <li key={i} className="ml-5 list-decimal text-[var(--sutra-charcoal)] my-1.5 pl-1 marker:text-[var(--sutra-muted-gold)]">
                             {renderInline(numMatch[2])}
                         </li>
                     );
                 }
 
                 return (
-                    <p key={i} className="my-1 text-[#d1d1d1]">
+                    <p key={i} className="my-2 text-[var(--sutra-charcoal)] leading-relaxed">
                         {renderInline(line)}
                     </p>
                 );
@@ -165,7 +165,7 @@ function renderInline(text: string) {
     return codeParts.map((part, idx) => {
         if (part.startsWith('`') && part.endsWith('`')) {
             return (
-                <code key={idx} className="px-1.5 py-0.5 rounded bg-[#181818] border border-[#2a2a2a] text-[#818cf8] font-mono text-[11px]">
+                <code key={idx} className="px-1.5 py-0.5 mx-0.5 rounded-sm bg-[var(--bg-2)] border border-[var(--border)] text-[var(--sutra-charcoal)] font-mono text-[12px]">
                     {part.slice(1, -1)}
                 </code>
             );
@@ -175,7 +175,7 @@ function renderInline(text: string) {
         return boldParts.map((p, j) => {
             if (p.startsWith('**') && p.endsWith('**')) {
                 return (
-                    <strong key={`${idx}-${j}`} className="text-white font-semibold">
+                    <strong key={`${idx}-${j}`} className="text-[var(--sutra-charcoal)] font-semibold">
                         {p.slice(2, -2)}
                     </strong>
                 );

@@ -67,27 +67,26 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-4">
-      <div className="w-full max-w-[380px] animate-fade-up">
+    <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center p-4">
+      <div className="w-full max-w-[400px] animate-fade-up">
 
         {/* Brand mark */}
-        <div className="mb-8 text-center">
-          <Link href="/" className="inline-flex items-center gap-2 mb-5 group">
-            <div className="w-8 h-8 rounded-lg bg-[#6366f1] flex items-center justify-center text-white">
-              <Sparkles className="w-4 h-4" />
+        <div className="mb-10 text-center">
+          <Link href="/" className="inline-flex items-center justify-center mb-6 group w-full">
+            <div className="flex items-center justify-center shrink-0">
+              <span className="text-[var(--sutra-muted-gold)] font-sanskrit font-bold text-5xl leading-none drop-shadow-sm">सूत्र</span>
             </div>
-            <span className="font-semibold text-white text-sm tracking-tight">AI Solution Builder</span>
           </Link>
-          <h1 className="text-xl font-semibold text-white">Sign in</h1>
-          <p className="text-sm text-[#666] mt-1">to your architecture workspace</p>
+          <h1 className="text-2xl font-serif text-[var(--sutra-charcoal)]">Sign in</h1>
+          <p className="text-[13px] text-[var(--text-2)] mt-2 font-light">to your architecture workspace</p>
         </div>
 
         {/* Card */}
-        <div className="bg-[#111] border border-[#242424] rounded-xl p-6 space-y-4">
+        <div className="sutra-card p-8 space-y-6 bg-[var(--bg-2)]">
 
           {/* Error */}
           {error && (
-            <div className="flex items-start gap-2 p-3 rounded-lg bg-[#ef444412] border border-[#ef444430] text-[#f87171] text-xs">
+            <div className="flex items-start gap-2 p-3 bg-[var(--bg)] border border-[var(--red)] text-[var(--red)] text-[12px] shadow-sm">
               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
               <span>{error}</span>
             </div>
@@ -99,33 +98,33 @@ export default function LoginPage() {
             id="demo-login-btn"
             onClick={handleDemoLogin}
             disabled={loading || oauthLoading !== null}
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-white text-sm font-medium transition-colors disabled:opacity-50"
+            className="btn btn-primary w-full justify-center shadow-md py-3"
           >
             {loading && !oauthLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
             Continue as Guest
           </button>
 
-          <p className="text-center text-[11px] text-[#555]">No account needed. Full demo access.</p>
+          <p className="text-center text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)]">No account needed. Full demo access.</p>
 
           {/* Divider */}
-          <div className="flex items-center gap-3">
-            <div className="flex-1 border-t border-[#242424]" />
-            <span className="text-[11px] text-[#555]">or</span>
-            <div className="flex-1 border-t border-[#242424]" />
+          <div className="flex items-center gap-4">
+            <div className="flex-1 border-t border-[var(--border)]" />
+            <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)]">or</span>
+            <div className="flex-1 border-t border-[var(--border)]" />
           </div>
 
           {/* OAuth */}
           {configuredProviders.length > 0 && (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {configuredProviders.includes('github') && (
                 <button
                   type="button"
                   onClick={() => handleOAuthClick('github')}
                   disabled={loading || oauthLoading !== null}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-[#161616] hover:bg-[#1c1c1c] border border-[#2e2e2e] text-white text-sm font-medium transition-colors disabled:opacity-50"
+                  className="btn btn-secondary w-full justify-center py-2.5"
                 >
                   {oauthLoading === 'github' ? <Loader2 className="w-4 h-4 animate-spin" /> : (
-                    <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 fill-current text-[var(--sutra-charcoal)]" viewBox="0 0 24 24">
                       <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
                     </svg>
                   )}
@@ -137,7 +136,7 @@ export default function LoginPage() {
                   type="button"
                   onClick={() => handleOAuthClick('google')}
                   disabled={loading || oauthLoading !== null}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-[#161616] hover:bg-[#1c1c1c] border border-[#2e2e2e] text-white text-sm font-medium transition-colors disabled:opacity-50"
+                  className="btn btn-secondary w-full justify-center py-2.5"
                 >
                   {oauthLoading === 'google' ? <Loader2 className="w-4 h-4 animate-spin" /> : (
                     <svg className="w-4 h-4" viewBox="0 0 24 24">
@@ -150,42 +149,42 @@ export default function LoginPage() {
                   Continue with Google
                 </button>
               )}
-              <div className="flex items-center gap-3">
-                <div className="flex-1 border-t border-[#242424]" />
-                <span className="text-[11px] text-[#555]">or email</span>
-                <div className="flex-1 border-t border-[#242424]" />
+              <div className="flex items-center gap-4 pt-2">
+                <div className="flex-1 border-t border-[var(--border)]" />
+                <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)]">or email</span>
+                <div className="flex-1 border-t border-[var(--border)]" />
               </div>
             </div>
           )}
 
           {/* Email form */}
-          <form onSubmit={handleLogin} className="space-y-3">
+          <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-[#a1a1a1] mb-1.5">Email</label>
+              <label className="block text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] mb-2">Email</label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]" />
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-3)]" />
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="name@company.com"
-                  className="w-full pl-9 pr-3 py-2.5 rounded-lg bg-[#0a0a0a] border border-[#2e2e2e] text-white text-sm placeholder:text-[#444] focus:outline-none focus:border-[#6366f1] transition-colors"
+                  className="w-full pl-10 pr-4 py-3 bg-[var(--bg)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[13px] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-[#a1a1a1] mb-1.5">Password</label>
+              <label className="block text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] mb-2">Password</label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]" />
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-3)]" />
                 <input
                   type="password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full pl-9 pr-3 py-2.5 rounded-lg bg-[#0a0a0a] border border-[#2e2e2e] text-white text-sm placeholder:text-[#444] focus:outline-none focus:border-[#6366f1] transition-colors"
+                  className="w-full pl-10 pr-4 py-3 bg-[var(--bg)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[13px] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm"
                 />
               </div>
             </div>
@@ -193,20 +192,20 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading || oauthLoading !== null}
-              className="w-full py-2.5 rounded-lg bg-[#161616] hover:bg-[#1c1c1c] border border-[#2e2e2e] text-white text-sm font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+              className="btn btn-secondary w-full justify-center py-3 mt-2"
             >
               {loading && !oauthLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Sign in with email'}
             </button>
           </form>
 
-          <p className="text-[11px] text-[#444] text-center">
-            Demo: <span className="text-[#666] font-mono">demo@demo.com</span> / <span className="text-[#666] font-mono">demo</span>
+          <p className="text-[11px] text-[var(--text-2)] text-center font-light pt-2 border-t border-[var(--border)]">
+            Demo: <span className="text-[var(--sutra-charcoal)] font-mono">demo@demo.com</span> / <span className="text-[var(--sutra-charcoal)] font-mono">demo</span>
           </p>
         </div>
 
-        <p className="mt-4 text-center text-xs text-[#555]">
+        <p className="mt-6 text-center text-[12px] text-[var(--text-2)]">
           No account?{' '}
-          <Link href="/register" className="text-[#a1a1a1] hover:text-white transition-colors">
+          <Link href="/register" className="text-[var(--sutra-charcoal)] hover:text-[var(--sutra-muted-gold)] transition-colors font-semibold border-b border-[var(--sutra-charcoal)] hover:border-[var(--sutra-muted-gold)] pb-0.5">
             Create one
           </Link>
         </p>

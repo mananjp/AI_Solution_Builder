@@ -46,31 +46,34 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto animate-fade-up">
+    <div className="space-y-8 max-w-4xl mx-auto animate-fade-up py-4">
       {/* Header */}
-      <div className="p-6 rounded-xl bg-[#111] border border-[#1a1a1a] flex items-start justify-between gap-4 flex-wrap">
-        <div className="space-y-1.5 max-w-xl">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#161616] border border-[#242424] text-[#818cf8] text-xs font-medium">
-            <ShieldCheck className="w-3.5 h-3.5 text-[#6366f1]" />
+      <div className="border-b border-[var(--border)] pb-4">
+        <h1 className="text-2xl font-serif text-[var(--sutra-charcoal)]">Deployment Credentials</h1>
+        <p className="text-[13px] text-[var(--text-2)] mt-1 font-light">Securely manage your deployment tokens for one-click MVP provisioning.</p>
+      </div>
+
+      <div className="sutra-card p-8 bg-[var(--bg-2)] flex items-start justify-between gap-6 flex-wrap relative overflow-hidden">
+        <div className="space-y-4 max-w-xl relative z-10">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] text-[10px] uppercase tracking-widest font-bold">
+            <ShieldCheck className="w-3.5 h-3.5" />
             <span>One-Click Deployer</span>
           </div>
-          <h1 className="text-xl font-semibold text-white">Deployment Credentials</h1>
-          <p className="text-xs text-[#555] leading-relaxed">
-            Save your GitHub Personal Access Token and Render API key to enable one-click deployment of generated MVP
-            code. Credentials are encrypted at rest.
+          <p className="text-[13px] text-[var(--text-2)] leading-relaxed font-light">
+            Save your GitHub Personal Access Token and Render API key to enable one-click deployment of generated MVP code. Credentials are encrypted at rest.
           </p>
         </div>
-        <Rocket className="w-8 h-8 text-[#6366f1] opacity-80" />
+        <Rocket className="w-16 h-16 text-[var(--border)] absolute right-6 top-1/2 -translate-y-1/2 opacity-50 z-0" />
       </div>
 
       {/* Credentials Form */}
       <form
         onSubmit={handleSave}
-        className="p-5 rounded-xl bg-[#111] border border-[#1a1a1a] space-y-4"
+        className="sutra-card p-8 space-y-6 bg-[var(--bg)]"
       >
-        <div className="space-y-1.5">
-          <label className="flex items-center gap-2 text-xs font-medium text-[#a1a1a1]">
-            <GitBranch className="w-3.5 h-3.5 text-[#666]" />
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">
+            <GitBranch className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
             GitHub Personal Access Token (PAT)
           </label>
           <div className="relative">
@@ -79,27 +82,27 @@ export default function SettingsPage() {
               value={githubToken}
               onChange={(e) => setGithubToken(e.target.value)}
               placeholder="ghp_••••••••••••••••••••••••••"
-              className="w-full px-3 py-2 pl-8 pr-10 rounded-lg bg-[#0a0a0a] border border-[#2e2e2e] text-white text-xs font-mono focus:outline-none focus:border-[#6366f1] transition-colors"
+              className="w-full px-4 py-3 pl-10 pr-12 bg-[var(--bg-2)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[13px] font-mono focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm"
               autoComplete="off"
             />
-            <Lock className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#555]" />
+            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-3)]" />
             <button
               type="button"
               onClick={() => setShowTokens(!showTokens)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#555] hover:text-white transition-colors"
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] transition-colors"
               title={showTokens ? 'Hide secrets' : 'Reveal secrets'}
             >
               {showTokens ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
-          <p className="text-[11px] text-[#555]">
-            Scopes needed: <code className="text-[#818cf8] font-mono">repo</code>
+          <p className="text-[11px] text-[var(--text-2)] font-light mt-1">
+            Scopes needed: <code className="text-[var(--sutra-charcoal)] bg-[var(--bg-2)] px-1.5 border border-[var(--border)] rounded-sm font-mono">repo</code>
           </p>
         </div>
 
-        <div className="space-y-1.5">
-          <label className="flex items-center gap-2 text-xs font-medium text-[#a1a1a1]">
-            <Rocket className="w-3.5 h-3.5 text-[#666]" />
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">
+            <Rocket className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
             Render API Key
           </label>
           <div className="relative">
@@ -108,55 +111,83 @@ export default function SettingsPage() {
               value={renderApiKey}
               onChange={(e) => setRenderApiKey(e.target.value)}
               placeholder="rnd_••••••••••••••••••••••"
-              className="w-full px-3 py-2 pl-8 pr-10 rounded-lg bg-[#0a0a0a] border border-[#2e2e2e] text-white text-xs font-mono focus:outline-none focus:border-[#6366f1] transition-colors"
+              className="w-full px-4 py-3 pl-10 pr-12 bg-[var(--bg-2)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[13px] font-mono focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm"
               autoComplete="off"
             />
-            <Lock className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#555]" />
+            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-3)]" />
             <button
               type="button"
               onClick={() => setShowTokens(!showTokens)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#555] hover:text-white transition-colors"
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] transition-colors"
               title={showTokens ? 'Hide secrets' : 'Reveal secrets'}
             >
               {showTokens ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
-          <p className="text-[11px] text-[#555]">
+          <p className="text-[11px] text-[var(--text-2)] font-light mt-1">
             Optional — used to trigger an automatic Render deploy after push.
           </p>
         </div>
 
         {message && (
           <div
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium ${status === 'saved'
-                ? 'bg-[#22c55e10] border border-[#22c55e20] text-[#4ade80]'
-                : 'bg-[#ef444410] border border-[#ef444420] text-[#f87171]'
+            className={`flex items-center gap-2 px-4 py-3 rounded-sm text-[12px] font-medium border shadow-sm ${status === 'saved'
+                ? 'bg-[var(--bg-2)] border-[var(--green)] text-[var(--green)]'
+                : 'bg-[var(--bg-2)] border-[var(--red)] text-[var(--red)]'
               }`}
           >
-            {status === 'saved' && <Check className="w-3.5 h-3.5 shrink-0" />}
+            {status === 'saved' && <Check className="w-4 h-4 shrink-0" />}
             {message}
           </div>
         )}
 
-        <div className="pt-2 flex justify-end">
+        <div className="pt-4 flex justify-end border-t border-[var(--border)]">
           <button
             type="submit"
             disabled={saving}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-white text-xs font-medium transition-colors disabled:opacity-40"
+            className="btn btn-primary min-w-[160px] justify-center shadow-md"
           >
-            {saving ? <span>Saving…</span> : <span>Save Credentials</span>}
+            {saving ? <span>Encrypting...</span> : <span>Save Credentials</span>}
           </button>
         </div>
       </form>
 
-      {/* Usage hint */}
-      <div className="p-5 rounded-xl bg-[#111] border border-[#1a1a1a]">
-        <h2 className="text-xs font-semibold text-white mb-2">How the deployer works</h2>
-        <ol className="space-y-1.5 text-xs text-[#a1a1a1] list-decimal list-inside">
-          <li>Finish an MVP build for a solution (chat → blueprints → Build &amp; Deploy).</li>
-          <li>On the MVP page, click <strong className="text-white">Deploy to GitHub</strong> and enter a repo name.</li>
-          <li>The deployer pushes the project with <code className="text-[#818cf8] font-mono">render.yaml</code> and CI workflow.</li>
-        </ol>
+      {/* Guides */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Token Generation Guide */}
+        <div className="sutra-card p-6 bg-[var(--bg-2)]">
+          <h2 className="text-[12px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] mb-4">How to generate tokens</h2>
+          <div className="space-y-5">
+            <div>
+              <h3 className="text-[11px] font-bold text-[var(--sutra-charcoal)] mb-2 flex items-center gap-1.5"><GitBranch className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" /> GitHub PAT</h3>
+              <ol className="space-y-2 text-[12px] text-[var(--text-2)] list-decimal list-inside font-light">
+                <li>Go to <a href="https://github.com/settings/tokens/new" target="_blank" rel="noreferrer" className="text-[var(--sutra-muted-gold)] hover:underline font-medium">GitHub Developer Settings &rarr;</a></li>
+                <li>Enter a descriptive note (e.g., "Sutra AI Builder").</li>
+                <li>Check the <code className="text-[var(--sutra-charcoal)] bg-[var(--bg)] px-1 border border-[var(--border)] rounded-sm font-mono text-[10px]">repo</code> scope to allow code pushes.</li>
+                <li>Click <strong>Generate token</strong> and copy it here.</li>
+              </ol>
+            </div>
+            <div className="border-t border-[var(--border)] pt-4">
+              <h3 className="text-[11px] font-bold text-[var(--sutra-charcoal)] mb-2 flex items-center gap-1.5"><Rocket className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" /> Render API Key</h3>
+              <ol className="space-y-2 text-[12px] text-[var(--text-2)] list-decimal list-inside font-light">
+                <li>Go to your <a href="https://dashboard.render.com/user/settings#api-keys" target="_blank" rel="noreferrer" className="text-[var(--sutra-muted-gold)] hover:underline font-medium">Render Account Settings &rarr;</a></li>
+                <li>Scroll down to the <strong>API Keys</strong> section.</li>
+                <li>Click <strong>Create API Key</strong>.</li>
+                <li>Copy the generated key and paste it here.</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+
+        {/* Usage hint */}
+        <div className="sutra-card p-6 bg-[var(--bg-2)]">
+          <h2 className="text-[12px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] mb-4">How the deployer works</h2>
+          <ol className="space-y-3 text-[13px] text-[var(--text-2)] list-decimal list-inside font-light">
+            <li>Finish an MVP build for a solution (chat → blueprints → Build &amp; Deploy).</li>
+            <li>On the MVP page, click <strong className="text-[var(--sutra-charcoal)] font-semibold">Deploy to GitHub</strong> and enter a repo name.</li>
+            <li>The deployer pushes the project with <code className="text-[var(--sutra-charcoal)] bg-[var(--bg)] px-1.5 border border-[var(--border)] rounded-sm font-mono">render.yaml</code> and CI workflow.</li>
+          </ol>
+        </div>
       </div>
     </div>
   );

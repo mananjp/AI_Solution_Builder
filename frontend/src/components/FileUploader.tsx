@@ -76,7 +76,7 @@ export default function FileUploader({ onParsedContext, onClear }: FileUploaderP
   };
 
   return (
-    <div className="w-full space-y-2">
+    <div className="w-full space-y-3">
       <input
         ref={fileInputRef}
         type="file"
@@ -90,16 +90,16 @@ export default function FileUploader({ onParsedContext, onClear }: FileUploaderP
       />
 
       {uploadedFile ? (
-        <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#0a0a0a] border border-[#242424]">
-          <div className="flex items-center gap-2.5">
-            <div className="p-1.5 rounded bg-[#161616] text-[#6366f1]">
+        <div className="flex items-center justify-between p-3 rounded-sm bg-[var(--bg)] border border-[var(--sutra-muted-gold)] shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-[var(--bg-2)] text-[var(--sutra-charcoal)] border border-[var(--border)] rounded-sm">
               <FileText className="w-4 h-4" />
             </div>
             <div>
-              <p className="text-xs font-medium text-white truncate max-w-[260px]">
+              <p className="text-[12px] font-semibold text-[var(--sutra-charcoal)] truncate max-w-[260px]">
                 {uploadedFile.name}
               </p>
-              <p className="text-[10px] text-[#555]">
+              <p className="text-[10px] text-[var(--text-3)] font-mono uppercase tracking-widest mt-0.5">
                 {uploadedFile.isUrl
                   ? `${uploadedFile.size.toLocaleString()} chars · Context loaded`
                   : `${(uploadedFile.size / 1024).toFixed(1)} KB · Context loaded`}
@@ -108,13 +108,13 @@ export default function FileUploader({ onParsedContext, onClear }: FileUploaderP
           </div>
           <button
             onClick={handleClear}
-            className="p-1 rounded hover:bg-[#161616] text-[#555] hover:text-white transition-colors"
+            className="p-1.5 rounded-sm hover:bg-[var(--bg-2)] text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] transition-colors border border-transparent hover:border-[var(--border)]"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
       ) : (
-        <div>
+        <div className="space-y-3">
           <div
             onDragOver={(e) => {
               e.preventDefault();
@@ -123,26 +123,29 @@ export default function FileUploader({ onParsedContext, onClear }: FileUploaderP
             onDragLeave={() => setIsDragging(false)}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
-            className={`border border-dashed rounded-lg p-3 text-center cursor-pointer transition-colors ${isDragging
-                ? 'border-[#6366f1] bg-[#6366f10a]'
-                : 'border-[#242424] hover:border-[#3a3a3a] bg-[#0a0a0a]'
+            className={`border border-dashed rounded-sm p-5 text-center cursor-pointer transition-colors ${isDragging
+                ? 'border-[var(--sutra-muted-gold)] bg-[var(--bg)]'
+                : 'border-[var(--border)] hover:border-[var(--sutra-charcoal)] bg-[var(--bg-2)]'
               }`}
           >
             {loading ? (
-              <div className="flex items-center justify-center gap-2 py-0.5 text-[#6366f1] text-xs font-medium">
+              <div className="flex items-center justify-center gap-2 py-1 text-[var(--sutra-charcoal)] text-[12px] font-medium">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span>Parsing document…</span>
               </div>
             ) : (
-              <div className="flex items-center justify-center gap-2 text-[#666] hover:text-[#a1a1a1] text-xs">
-                <Upload className="w-3.5 h-3.5 text-[#6366f1]" />
-                <span>Upload PRD, spec, schema (PDF, DOCX, CSV, TXT)</span>
+              <div className="flex flex-col items-center justify-center gap-3 text-[var(--text-2)] hover:text-[var(--sutra-charcoal)]">
+                <div className="p-2.5 bg-[var(--bg)] border border-[var(--border)] rounded-sm shadow-sm">
+                  <Upload className="w-4 h-4 text-[var(--sutra-charcoal)]" />
+                </div>
+                <span className="text-[11px] font-bold uppercase tracking-widest">Upload PRD, spec, schema</span>
+                <span className="text-[10px] text-[var(--text-3)]">(PDF, DOCX, CSV, TXT)</span>
               </div>
             )}
           </div>
 
-          <div className="mt-2 flex items-center gap-2">
-            <Link2 className="w-3.5 h-3.5 text-[#555] shrink-0" />
+          <div className="flex items-center gap-2">
+            <Link2 className="w-4 h-4 text-[var(--text-3)] shrink-0 ml-1" />
             <input
               type="url"
               value={url}
@@ -151,12 +154,12 @@ export default function FileUploader({ onParsedContext, onClear }: FileUploaderP
                 if (e.key === 'Enter') handleParseUrl();
               }}
               placeholder="Or paste website / API docs URL…"
-              className="flex-1 bg-[#0a0a0a] border border-[#242424] rounded-lg px-2.5 py-1 text-xs text-white placeholder:text-[#444] outline-none focus:border-[#6366f1]"
+              className="flex-1 min-w-0 bg-[var(--bg)] border border-[var(--border)] rounded-sm px-3 py-2 text-[12px] text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] outline-none focus:border-[var(--sutra-muted-gold)] shadow-sm transition-colors"
             />
             <button
               onClick={handleParseUrl}
               disabled={urlLoading}
-              className="px-2.5 py-1 rounded-lg bg-[#161616] hover:bg-[#1f1f1f] text-white text-xs font-medium border border-[#2a2a2a] transition-colors disabled:opacity-40 shrink-0"
+              className="btn btn-secondary px-4 py-2 shrink-0 min-w-[70px] justify-center"
             >
               {urlLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Fetch'}
             </button>
@@ -165,8 +168,8 @@ export default function FileUploader({ onParsedContext, onClear }: FileUploaderP
       )}
 
       {error && (
-        <div className="flex items-center gap-1.5 text-[#f87171] text-xs">
-          <AlertCircle className="w-3.5 h-3.5" />
+        <div className="flex items-center gap-2 p-2 bg-[var(--bg)] border border-[var(--red)] text-[var(--red)] text-[11px] rounded-sm shadow-sm mt-2">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
           <span>{error}</span>
         </div>
       )}

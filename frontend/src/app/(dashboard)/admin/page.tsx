@@ -67,117 +67,121 @@ export default function AdminGovernancePage() {
   );
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto animate-fade-up">
+    <div className="space-y-8 max-w-5xl mx-auto animate-fade-up py-4">
+      
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 p-5 rounded-xl bg-[#111] border border-[#1a1a1a]">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-[#161616] border border-[#242424] text-[#6366f1] flex items-center justify-center">
+      <div className="border-b border-[var(--border)] pb-4">
+        <h1 className="text-2xl font-serif text-[var(--sutra-charcoal)]">Governance & Admin</h1>
+        <p className="text-[13px] text-[var(--text-2)] mt-1 font-light">Platform telemetry, tenant organizations, user roles, and security audit logs.</p>
+      </div>
+
+      <div className="sutra-card p-6 bg-[var(--bg-2)] flex flex-wrap items-center justify-between gap-6">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] flex items-center justify-center">
             <ShieldCheck className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-base font-semibold text-white">Governance &amp; Admin</h1>
-              <span className="badge badge-green">Superadmin</span>
+              <h2 className="text-[14px] font-semibold text-[var(--sutra-charcoal)] uppercase tracking-widest">Sutra Core</h2>
+              <span className="badge badge-amber text-[9px]">Superadmin</span>
             </div>
-            <p className="text-xs text-[#555] mt-0.5">
-              Platform telemetry, tenant organizations, user roles, and security audit logs.
-            </p>
+            <p className="text-[11px] text-[var(--text-2)] mt-1 font-mono uppercase tracking-widest">Intelligence Layer Control</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0a0a0a] border border-[#1a1a1a] text-xs text-[#a1a1a1] font-mono">
-            <Cpu className="w-3.5 h-3.5 text-[#6366f1]" />
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--bg)] border border-[var(--border)] text-[10px] text-[var(--sutra-charcoal)] font-mono uppercase tracking-widest shadow-sm">
+            <Cpu className="w-3 h-3 text-[var(--sutra-muted-gold)]" />
             <span>{stats?.active_llm_model || 'Groq 120B'}</span>
           </div>
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0a0a0a] border border-[#1a1a1a] text-xs text-[#4ade80] font-mono">
-            <CheckCircle2 className="w-3.5 h-3.5" />
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--bg)] border border-[var(--border)] text-[10px] text-[var(--green)] font-mono uppercase tracking-widest shadow-sm">
+            <CheckCircle2 className="w-3 h-3" />
             <span>{stats?.system_status || 'SLO 99.98%'}</span>
           </div>
         </div>
       </div>
 
       {/* KPI Metrics */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="p-4 rounded-xl bg-[#111] border border-[#1a1a1a]">
-          <div className="flex items-center justify-between text-[#555] text-xs font-medium">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="sutra-card p-5 bg-[var(--bg-2)] border-t-2 border-t-[var(--sutra-muted-gold)]">
+          <div className="flex items-center justify-between text-[var(--text-3)] text-[10px] font-bold uppercase tracking-widest">
             <span>Total Users</span>
-            <Users className="w-4 h-4 text-[#6366f1]" />
+            <Users className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
           </div>
-          <p className="text-xl font-semibold text-white mt-1.5">{stats?.total_users || 0}</p>
+          <p className="text-3xl font-serif text-[var(--sutra-charcoal)] mt-3">{stats?.total_users || 0}</p>
         </div>
 
-        <div className="p-4 rounded-xl bg-[#111] border border-[#1a1a1a]">
-          <div className="flex items-center justify-between text-[#555] text-xs font-medium">
-            <span>Tenant Organizations</span>
-            <Building className="w-4 h-4 text-[#6366f1]" />
+        <div className="sutra-card p-5 bg-[var(--bg-2)] border-t-2 border-t-[var(--sutra-charcoal)]">
+          <div className="flex items-center justify-between text-[var(--text-3)] text-[10px] font-bold uppercase tracking-widest">
+            <span>Organizations</span>
+            <Building className="w-3.5 h-3.5 text-[var(--sutra-charcoal)]" />
           </div>
-          <p className="text-xl font-semibold text-white mt-1.5">{stats?.total_organizations || 0}</p>
+          <p className="text-3xl font-serif text-[var(--sutra-charcoal)] mt-3">{stats?.total_organizations || 0}</p>
         </div>
 
-        <div className="p-4 rounded-xl bg-[#111] border border-[#1a1a1a]">
-          <div className="flex items-center justify-between text-[#555] text-xs font-medium">
+        <div className="sutra-card p-5 bg-[var(--bg-2)] border-t-2 border-t-[var(--sutra-charcoal)]">
+          <div className="flex items-center justify-between text-[var(--text-3)] text-[10px] font-bold uppercase tracking-widest">
             <span>Solutions</span>
-            <Layers className="w-4 h-4 text-[#6366f1]" />
+            <Layers className="w-3.5 h-3.5 text-[var(--sutra-charcoal)]" />
           </div>
-          <p className="text-xl font-semibold text-white mt-1.5">{stats?.total_solutions || 0}</p>
+          <p className="text-3xl font-serif text-[var(--sutra-charcoal)] mt-3">{stats?.total_solutions || 0}</p>
         </div>
 
-        <div className="p-4 rounded-xl bg-[#111] border border-[#1a1a1a]">
-          <div className="flex items-center justify-between text-[#555] text-xs font-medium">
-            <span>Credits Consumed</span>
-            <Sparkles className="w-4 h-4 text-[#4ade80]" />
+        <div className="sutra-card p-5 bg-[var(--bg-2)] border-t-2 border-t-[var(--green)]">
+          <div className="flex items-center justify-between text-[var(--text-3)] text-[10px] font-bold uppercase tracking-widest">
+            <span>Credits Used</span>
+            <Sparkles className="w-3.5 h-3.5 text-[var(--green)]" />
           </div>
-          <p className="text-xl font-semibold text-white mt-1.5 font-mono">
+          <p className="text-3xl font-serif text-[var(--sutra-charcoal)] mt-3">
             {(stats?.total_ai_credits_consumed || 0).toLocaleString()}
           </p>
         </div>
       </div>
 
       {/* User Directory */}
-      <div className="p-5 rounded-xl bg-[#111] border border-[#1a1a1a] space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="sutra-card p-6 space-y-4 bg-[var(--bg-2)]">
+        <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--border)] pb-4">
           <div>
-            <h2 className="text-sm font-semibold text-white">Registered Users &amp; Organizations</h2>
-            <p className="text-xs text-[#555] mt-0.5">Manage permissions and view organizational hierarchy</p>
+            <h2 className="text-lg font-serif text-[var(--sutra-charcoal)]">Directory & Hierarchy</h2>
+            <p className="text-[12px] text-[var(--text-2)] mt-1 font-light">Manage permissions and organizational access.</p>
           </div>
 
           <div className="relative w-64">
-            <Search className="w-3.5 h-3.5 text-[#555] absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-[var(--text-3)] absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchUser}
               onChange={(e) => setSearchUser(e.target.value)}
               placeholder="Search user or email..."
-              className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-[#0a0a0a] border border-[#2e2e2e] text-xs text-white placeholder:text-[#444] focus:outline-none focus:border-[#6366f1]"
+              className="w-full pl-9 pr-3 py-2 bg-[var(--bg)] border border-[var(--border)] text-[12px] text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors shadow-sm"
             />
           </div>
         </div>
 
-        <div className="border border-[#1a1a1a] rounded-lg overflow-hidden bg-[#0a0a0a]">
-          <table className="w-full text-left text-xs text-[#f5f5f5]">
-            <thead className="bg-[#111] text-[#555] uppercase text-[10px] tracking-wider border-b border-[#1a1a1a]">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-[12px] text-[var(--sutra-charcoal)]">
+            <thead className="bg-[var(--bg)] text-[10px] uppercase tracking-widest text-[var(--text-3)] border-b border-[var(--border)]">
               <tr>
-                <th className="p-3">User</th>
-                <th className="p-3">Organization</th>
-                <th className="p-3">Role</th>
-                <th className="p-3">Registered</th>
+                <th className="p-3 font-semibold">User</th>
+                <th className="p-3 font-semibold">Organization</th>
+                <th className="p-3 font-semibold">Role</th>
+                <th className="p-3 font-semibold">Registered</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#1a1a1a]">
+            <tbody className="divide-y divide-[var(--border)]">
               {filteredUsers.map((u) => (
-                <tr key={u.id} className="hover:bg-[#111] transition-colors">
+                <tr key={u.id} className="hover:bg-[var(--bg)] transition-colors">
                   <td className="p-3">
-                    <div className="font-semibold text-white">{u.full_name || 'Architect'}</div>
-                    <div className="text-[11px] text-[#555] font-mono">{u.email}</div>
+                    <div className="font-semibold text-[var(--sutra-charcoal)]">{u.full_name || 'Architect'}</div>
+                    <div className="text-[11px] text-[var(--text-2)] font-mono">{u.email}</div>
                   </td>
-                  <td className="p-3 text-[#a1a1a1]">{u.org_name || 'Enterprise'}</td>
+                  <td className="p-3 text-[var(--text-2)] font-light">{u.org_name || 'Enterprise'}</td>
                   <td className="p-3">
-                    <span className={`badge ${u.role === 'admin' ? 'badge-blue' : 'badge-gray'}`}>
+                    <span className={`badge ${u.role === 'admin' ? 'badge-amber' : 'badge-gray'}`}>
                       {u.role}
                     </span>
                   </td>
-                  <td className="p-3 text-[#555] text-[11px] font-mono">
+                  <td className="p-3 text-[var(--text-2)] text-[11px] font-mono">
                     {u.created_at ? new Date(u.created_at).toLocaleDateString() : '-'}
                   </td>
                 </tr>
@@ -188,44 +192,44 @@ export default function AdminGovernancePage() {
       </div>
 
       {/* Audit Log Trail */}
-      <div className="p-5 rounded-xl bg-[#111] border border-[#1a1a1a] space-y-3">
-        <div className="flex items-center justify-between">
+      <div className="sutra-card p-6 space-y-4 bg-[var(--bg-2)]">
+        <div className="flex items-end justify-between border-b border-[var(--border)] pb-4">
           <div>
-            <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-              <Clock className="w-4 h-4 text-[#6366f1]" />
+            <h2 className="text-lg font-serif text-[var(--sutra-charcoal)] flex items-center gap-2">
+              <Clock className="w-5 h-5 text-[var(--sutra-muted-gold)]" />
               <span>Platform Security Audit Trail</span>
             </h2>
-            <p className="text-xs text-[#555] mt-0.5">Immutable audit logging for compliance and governance</p>
+            <p className="text-[12px] text-[var(--text-2)] mt-1 font-light">Immutable audit logging for compliance and governance</p>
           </div>
-          <span className="text-xs text-[#555] font-mono">Retention: 365 Days</span>
+          <span className="text-[10px] text-[var(--text-3)] font-bold uppercase tracking-widest">Retention: 365 Days</span>
         </div>
 
-        <div className="border border-[#1a1a1a] rounded-lg overflow-hidden bg-[#0a0a0a]">
-          <table className="w-full text-left text-xs text-[#f5f5f5]">
-            <thead className="bg-[#111] text-[#555] uppercase text-[10px] tracking-wider border-b border-[#1a1a1a]">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-[12px] text-[var(--sutra-charcoal)]">
+            <thead className="bg-[var(--bg)] text-[10px] uppercase tracking-widest text-[var(--text-3)] border-b border-[var(--border)]">
               <tr>
-                <th className="p-3">Timestamp</th>
-                <th className="p-3">Action</th>
-                <th className="p-3">Description</th>
-                <th className="p-3">Impact</th>
-                <th className="p-3 text-right">Status</th>
+                <th className="p-3 font-semibold">Timestamp</th>
+                <th className="p-3 font-semibold">Action</th>
+                <th className="p-3 font-semibold">Description</th>
+                <th className="p-3 font-semibold">Impact</th>
+                <th className="p-3 text-right font-semibold">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#1a1a1a] font-mono text-[11px]">
+            <tbody className="divide-y divide-[var(--border)] font-mono text-[11px]">
               {auditLogs.map((log) => (
-                <tr key={log.id} className="hover:bg-[#111] transition-colors">
-                  <td className="p-3 text-[#555]">
+                <tr key={log.id} className="hover:bg-[var(--bg)] transition-colors group">
+                  <td className="p-3 text-[var(--text-2)]">
                     {log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '-'}
                   </td>
-                  <td className="p-3 font-semibold text-[#818cf8]">{log.action}</td>
-                  <td className="p-3 text-[#a1a1a1] font-sans text-xs">{log.description}</td>
+                  <td className="p-3 font-semibold text-[var(--sutra-charcoal)] group-hover:text-[var(--sutra-muted-gold)] transition-colors">{log.action}</td>
+                  <td className="p-3 text-[var(--text-2)] font-sans text-xs font-light">{log.description}</td>
                   <td className="p-3">
-                    <span className={log.amount < 0 ? 'text-[#f87171]' : 'text-[#4ade80]'}>
-                      {log.amount} pts
+                    <span className={log.amount < 0 ? 'text-[var(--sutra-charcoal)]' : 'text-[var(--green)]'}>
+                      {Math.abs(log.amount)} pts
                     </span>
                   </td>
                   <td className="p-3 text-right">
-                    <span className="badge badge-green">
+                    <span className="badge badge-green text-[9px]">
                       {log.status}
                     </span>
                   </td>
