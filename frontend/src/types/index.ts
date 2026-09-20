@@ -296,6 +296,8 @@ export interface OpenCodeChatComplete {
   solution_id?: string;
   build_id?: string;
   build_number?: number;
+  file_count?: number;
+  files?: string[];
 }
 
 export interface OpenCodeAgentStart {

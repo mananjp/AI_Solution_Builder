@@ -93,6 +93,32 @@ async def test_chat_falls_back_to_synthesizer_when_sidecar_down(auth_client, mon
     assert "I've outlined the inventory module" in resp.text
 
 
+async def test_chat_synthesizer_with_mock_llm_returns_rich_content_not_raw_json(
+    auth_client, monkeypatch
+):
+    """When sidecar is down and real LLM is not configured (MockChatModel used),
+    the endpoint returns clean, rich markdown text, never raw '{"content": "Mock response"}'.
+    """
+    client = auth_client["client"]
+    headers = auth_client["headers"]
+
+    async def _no():
+        return False
+
+    monkeypatch.setattr("app.api.opencode_chat.builder.health", _no)
+    monkeypatch.setattr("app.core.config.settings.LLM_PROVIDER", "mock")
+
+    resp = await client.post(
+        "/api/v1/opencode/chat",
+        json={"message": "I want to build an inventory and retail management app"},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert "Mock response" not in resp.text
+    assert "Retail & Inventory" in resp.text or "Data Models" in resp.text
+    assert '"content": "Mock response"' not in resp.text
+
+
 async def test_chat_reuses_persisted_session(workspace_solution, monkeypatch):
     client = workspace_solution["client"]
     headers = workspace_solution["headers"]
@@ -152,10 +178,12 @@ async def test_chat_build_requested_finalizes_build(workspace_solution, monkeypa
     assert "event: complete" in resp.text
     assert '"status": "complete"' in resp.text
     assert '"build_id"' in resp.text
+    assert '"file_count"' in resp.text
 
     sol_resp = await client.get(f"/api/v1/solutions/{solution_id}", headers=headers)
     assert sol_resp.status_code == 200
     assert sol_resp.json()["status"] == "complete"
+    assert len(sol_resp.json().get("artifacts") or []) > 0
 
 
 async def test_chat_rejects_session_id_mismatch(workspace_solution, monkeypatch):

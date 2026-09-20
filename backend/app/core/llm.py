@@ -15,7 +15,7 @@ import json
 import logging
 from typing import Any
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
 from pydantic import SecretStr
 
@@ -389,6 +389,69 @@ def _mock_blueprint() -> dict[str, Any]:
     }
 
 
+def _mock_ai_developer(messages: list[Any]) -> dict[str, Any]:
+    user_text = ""
+    for msg in messages:
+        if isinstance(msg, HumanMessage) or getattr(msg, "type", "") == "human":
+            user_text = str(getattr(msg, "content", ""))
+
+    lower = user_text.lower()
+    if any(
+        k in lower
+        for k in ("retail", "store", "ecommerce", "inventory", "pos", "shop", "product", "stock")
+    ):
+        app_type = "Omnichannel Retail & Inventory Platform"
+        entities = ["Products", "Orders", "Customers", "Inventory"]
+        endpoints = ["/api/v1/products", "/api/v1/orders", "/api/v1/inventory"]
+    elif any(
+        k in lower
+        for k in ("health", "clinic", "doctor", "patient", "medical", "telehealth", "ehr")
+    ):
+        app_type = "Healthcare & Clinic Management System"
+        entities = ["Patients", "Doctors", "Appointments", "Prescriptions"]
+        endpoints = ["/api/v1/patients", "/api/v1/appointments", "/api/v1/records"]
+    elif any(
+        k in lower
+        for k in ("logistics", "fleet", "dispatch", "driver", "freight", "truck", "shipment")
+    ):
+        app_type = "Logistics & Fleet Dispatch Platform"
+        entities = ["Shipments", "Vehicles", "Drivers", "Routes"]
+        endpoints = ["/api/v1/shipments", "/api/v1/routes", "/api/v1/drivers"]
+    elif any(k in lower for k in ("crm", "lead", "client", "sales", "deal")):
+        app_type = "CRM & Sales Pipeline Platform"
+        entities = ["Leads", "Clients", "Deals", "Activities"]
+        endpoints = ["/api/v1/leads", "/api/v1/clients", "/api/v1/deals"]
+    elif any(k in lower for k in ("todo", "task", "project", "kanban")):
+        app_type = "Project & Task Management System"
+        entities = ["Projects", "Tasks", "Milestones", "Tags"]
+        endpoints = ["/api/v1/projects", "/api/v1/tasks"]
+    else:
+        app_type = "Full-Stack Web Application"
+        entities = ["Users", "Items", "Categories", "Activities"]
+        endpoints = ["/api/v1/items", "/api/v1/categories", "/api/v1/users"]
+
+    ent_bullets = "\n".join(
+        f"- **{e}**: UUID identifier, status tracking, timestamps, and relationship mapping."
+        for e in entities
+    )
+    ep_bullets = "\n".join(
+        f"- `GET {ep}` & `POST {ep}` — List, filter, and create records with validation."
+        for ep in endpoints
+    )
+
+    content = (
+        f"I have architected a tailored **{app_type}** solution for your requirements.\n\n"
+        f"### 1. Data Models & Database\n{ent_bullets}\n\n"
+        f"### 2. REST API Endpoints (FastAPI)\n{ep_bullets}\n\n"
+        f"### 3. Next.js Frontend Pages\n"
+        f"- **Dashboard & Data Tables**: Real-time management interface with search, sorting, and pagination.\n"
+        f"- **Action Modals**: Record creation, editing, and status updates.\n\n"
+        f"The workspace is configured with database models, schemas, routers, and deployment configs. "
+        f"Toggle **Build** and send to verify and finalize your deployable package!"
+    )
+    return {"content": content}
+
+
 def _build_mock_content(messages: list[Any], state: dict[str, Any]) -> str:
     """Return node-appropriate JSON based on the system prompt marker."""
     system_text = ""
@@ -396,7 +459,13 @@ def _build_mock_content(messages: list[Any], state: dict[str, Any]) -> str:
         if isinstance(msg, SystemMessage):
             system_text = str(msg.content)
 
-    if "Business Analyst Agent" in system_text:
+    if (
+        "full-stack AI Developer" in system_text
+        or "Custom App Builder" in system_text
+        or "AI Developer" in system_text
+    ):
+        payload = _mock_ai_developer(messages)
+    elif "Business Analyst Agent" in system_text:
         payload = _mock_business_analyst()
     elif "Business Recommendation Agent" in system_text:
         payload = _mock_recommendation()
@@ -413,7 +482,9 @@ def _build_mock_content(messages: list[Any], state: dict[str, Any]) -> str:
     elif "Blueprint Generator Agent" in system_text:
         payload = _mock_blueprint()
     else:
-        payload = {"content": "Mock response"}
+        payload = {
+            "content": "I have reviewed your request and updated the application specifications accordingly."
+        }
 
     return json.dumps(payload, indent=2)
 

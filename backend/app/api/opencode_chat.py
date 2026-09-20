@@ -20,7 +20,7 @@ Endpoints:
 import json
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -29,6 +29,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
+from app.api.chat import _persist_artifacts
 from app.core.config import settings
 from app.core.credits import require_and_deduct_credit
 from app.core.database import async_session_factory, get_db
@@ -41,12 +42,430 @@ from app.models.workspace import Workspace
 from app.schemas import OpenCodeChatRequest
 from app.services import mvp_builder as builder
 from app.services import mvp_verifier
+from app.services.storage import get_storage
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/opencode", tags=["OpenCode Chat"])
 
 _TARGET_MAX_CONTEXT = 20_000  # uploaded-context cap fed to the sidecar
+
+
+def _synthesize_domain_artifacts(title: str, user_prompt: str) -> dict[str, Any]:
+    text = f"{title} {user_prompt}".lower()
+    industry: str
+    modules: list[str]
+    entities: list[dict[str, Any]]
+
+    if any(
+        k in text
+        for k in ("retail", "store", "ecommerce", "inventory", "pos", "shop", "product", "stock")
+    ):
+        industry = "d2c_retail"
+        modules = ["ecommerce_storefront", "inventory_management", "order_fulfillment", "crm"]
+        entities = [
+            {
+                "name": "products",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "sku", "type": "VARCHAR(100)"},
+                    {"name": "price", "type": "FLOAT"},
+                ],
+            },
+            {
+                "name": "orders",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "customer_name", "type": "VARCHAR(255)"},
+                    {"name": "total", "type": "FLOAT"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "customers",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "email", "type": "VARCHAR(255)"},
+                ],
+            },
+            {
+                "name": "inventory",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "product_name", "type": "VARCHAR(255)"},
+                    {"name": "quantity", "type": "INTEGER"},
+                ],
+            },
+        ]
+    elif any(
+        k in text for k in ("health", "clinic", "doctor", "patient", "medical", "telehealth", "ehr")
+    ):
+        industry = "healthcare_clinic"
+        modules = ["booking_scheduler", "patient_portal", "prescriptions", "invoicing_billing"]
+        entities = [
+            {
+                "name": "patients",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "dob", "type": "VARCHAR(50)"},
+                    {"name": "phone", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "doctors",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "specialty", "type": "VARCHAR(100)"},
+                ],
+            },
+            {
+                "name": "appointments",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "patient_name", "type": "VARCHAR(255)"},
+                    {"name": "appointment_date", "type": "VARCHAR(50)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "prescriptions",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "patient_name", "type": "VARCHAR(255)"},
+                    {"name": "medication", "type": "VARCHAR(255)"},
+                ],
+            },
+        ]
+    elif any(
+        k in text
+        for k in ("logistics", "fleet", "dispatch", "driver", "freight", "truck", "shipment")
+    ):
+        industry = "logistics_company"
+        modules = [
+            "order_fulfillment",
+            "fleet_tracking",
+            "dispatch_management",
+            "invoicing_billing",
+        ]
+        entities = [
+            {
+                "name": "shipments",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "tracking_number", "type": "VARCHAR(100)"},
+                    {"name": "destination", "type": "VARCHAR(255)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "drivers",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "license_number", "type": "VARCHAR(100)"},
+                ],
+            },
+            {
+                "name": "vehicles",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "plate_number", "type": "VARCHAR(50)"},
+                    {"name": "model", "type": "VARCHAR(100)"},
+                ],
+            },
+            {
+                "name": "routes",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "origin", "type": "VARCHAR(255)"},
+                    {"name": "destination", "type": "VARCHAR(255)"},
+                ],
+            },
+        ]
+    elif any(k in text for k in ("crm", "lead", "client", "sales", "deal")):
+        industry = "consulting_agency"
+        modules = ["crm", "deal_pipeline", "client_portal", "invoicing_billing"]
+        entities = [
+            {
+                "name": "leads",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "company", "type": "VARCHAR(255)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "clients",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "industry", "type": "VARCHAR(100)"},
+                ],
+            },
+            {
+                "name": "deals",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "title", "type": "VARCHAR(255)"},
+                    {"name": "amount", "type": "FLOAT"},
+                    {"name": "stage", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "activities",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "activity_type", "type": "VARCHAR(50)"},
+                    {"name": "notes", "type": "VARCHAR(500)"},
+                ],
+            },
+        ]
+    else:
+        industry = "saas_platform"
+        modules = ["core_crud", "user_management", "analytics_dashboard", "invoicing_billing"]
+        entities = [
+            {
+                "name": "items",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "categories",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "description", "type": "VARCHAR(255)"},
+                ],
+            },
+            {
+                "name": "users",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "email", "type": "VARCHAR(255)"},
+                ],
+            },
+        ]
+
+    # Build DDL
+    ddl_statements: list[str] = []
+    for ent in entities:
+        ent_name = str(ent["name"])
+        ent_fields = cast(list[dict[str, str]], ent.get("fields", []))
+        cols = ", ".join(f"{f['name']} {f['type']}" for f in ent_fields)
+        ddl_statements.append(f"CREATE TABLE {ent_name} ({cols});")
+    schema_ddl = "\n".join(ddl_statements)
+
+    # Build Endpoints
+    endpoints: list[dict[str, str]] = []
+    for ent in entities:
+        ent_name = str(ent["name"])
+        endpoints.extend(
+            [
+                {
+                    "method": "GET",
+                    "path": f"/api/v1/{ent_name}",
+                    "description": f"List {ent_name}",
+                },
+                {
+                    "method": "POST",
+                    "path": f"/api/v1/{ent_name}",
+                    "description": f"Create {ent_name}",
+                },
+                {
+                    "method": "DELETE",
+                    "path": f"/api/v1/{ent_name}/{{item_id}}",
+                    "description": f"Delete {ent_name}",
+                },
+            ]
+        )
+
+    screens: list[dict[str, Any]] = []
+    for ent in entities:
+        ent_name = str(ent["name"])
+        ent_fields = cast(list[dict[str, str]], ent.get("fields", []))
+        screens.append(
+            {
+                "name": f"{ent_name.capitalize()} Dashboard",
+                "route": f"/{ent_name}",
+                "description": f"CRUD management for {ent_name}",
+                "layout": "sidebar",
+                "components": [
+                    {
+                        "type": "data_table",
+                        "title": f"{ent_name.capitalize()} Table",
+                        "fields": [f["name"] for f in ent_fields],
+                    }
+                ],
+            }
+        )
+
+    components: list[dict[str, str]] = [
+        {
+            "name": "Frontend",
+            "technology": "Next.js 14 / React",
+            "description": "Responsive dashboard with data tables",
+        },
+        {
+            "name": "API Service",
+            "technology": "FastAPI",
+            "description": "REST API with automated OpenAPI docs",
+        },
+        {
+            "name": "Database",
+            "technology": "PostgreSQL",
+            "description": "Relational data store with UUID primary keys",
+        },
+    ]
+
+    hld_dict: dict[str, Any] = {
+        "title": f"High-Level Design — {title}",
+        "system_overview": f"A scalable full-stack application for {title}, powered by FastAPI and Next.js.",
+        "components": components,
+        "deployment": {"environment": "Render / Docker", "scaling_strategy": "horizontal"},
+        "security": {"authentication": "JWT", "authorization": "RBAC"},
+    }
+
+    lld_modules: list[dict[str, Any]] = [
+        {
+            "name": m,
+            "endpoints": [e for e in endpoints if m in e["path"] or True],
+            "data_models": [str(ent["name"]) for ent in entities],
+        }
+        for m in modules[:2]
+    ]
+
+    lld_dict: dict[str, Any] = {
+        "title": f"Low-Level Design — {title}",
+        "modules": lld_modules,
+    }
+
+    phases: list[dict[str, Any]] = [
+        {
+            "name": "Phase 1: Core Foundation",
+            "duration": "2 weeks",
+            "modules": modules[:2],
+            "deliverables": ["Database", "REST APIs", "Dashboard UI"],
+        },
+        {
+            "name": "Phase 2: Full Integration",
+            "duration": "2 weeks",
+            "modules": modules[2:],
+            "deliverables": ["Advanced Filtering", "Exporting", "Audit Logs"],
+        },
+    ]
+
+    roadmap_dict: dict[str, Any] = {
+        "title": f"Sprint Roadmap — {title}",
+        "phases": phases,
+    }
+
+    tables: list[dict[str, Any]] = [
+        {
+            "table": str(e["name"]),
+            "columns": [
+                f"{f['name']} {f['type']}" for f in cast(list[dict[str, str]], e.get("fields", []))
+            ],
+        }
+        for e in entities
+    ]
+
+    return {
+        "industry": industry,
+        "confirmed_modules": modules,
+        "identified_solutions": modules,
+        "hld": {
+            "artifact_type": "hld",
+            "title": f"High-Level Design — {title}",
+            "content": hld_dict,
+            "content_text": f"# High-Level Design — {title}\n\n{hld_dict['system_overview']}\n\n## Components\n"
+            + "\n".join(
+                f"- **{c['name']}** ({c['technology']}): {c['description']}" for c in components
+            ),
+        },
+        "lld": {
+            "artifact_type": "lld",
+            "title": f"Low-Level Design — {title}",
+            "content": lld_dict,
+            "content_text": f"# Low-Level Design — {title}\n\n## Modules\n"
+            + "\n".join(f"- **{m['name']}**" for m in lld_modules),
+        },
+        "er_diagram": {
+            "artifact_type": "er_diagram",
+            "title": f"Entity Relationship Diagram — {title}",
+            "content": {"entities": entities, "relationships": []},
+            "content_text": f"# ER Diagram — {title}\n\n"
+            + "\n".join(
+                f"- **{e['name']}**: {', '.join(f['name'] for f in cast(list[dict[str, str]], e.get('fields', [])))}"
+                for e in entities
+            ),
+        },
+        "database_schema": {
+            "artifact_type": "database_schema",
+            "title": f"Database DDL & Schema — {title}",
+            "content": {"schema_ddl": schema_ddl, "entities": entities},
+            "content_text": f"```sql\n{schema_ddl}\n```",
+        },
+        "api_spec": {
+            "artifact_type": "api_spec",
+            "title": f"OpenAPI Specification — {title}",
+            "content": {"endpoints": endpoints},
+            "content_text": f"# API Endpoints — {title}\n\n"
+            + "\n".join(f"- `{e['method']} {e['path']}`: {e['description']}" for e in endpoints),
+        },
+        "wireframes": [
+            {
+                "artifact_type": "wireframe",
+                "title": f"UI Wireframes — {title}",
+                "content": {"screens": screens},
+                "content_text": f"# Wireframe Screens — {title}\n\n"
+                + "\n".join(
+                    f"- **{s['name']}** (`{s['route']}`): {s['description']}" for s in screens
+                ),
+            }
+        ],
+        "bpmn_flows": [
+            {
+                "artifact_type": "bpmn_flows",
+                "title": f"Process Workflow — {title}",
+                "content": {
+                    "flows": [
+                        {"id": "flow_1", "name": f"{m.replace('_', ' ').title()} Flow"}
+                        for m in modules
+                    ]
+                },
+                "content_text": f"# Process Workflow — {title}\n\n"
+                + "\n".join(f"- {m.replace('_', ' ').title()}" for m in modules),
+            }
+        ],
+        "roadmap": {
+            "artifact_type": "roadmap",
+            "title": f"Sprint Roadmap — {title}",
+            "content": roadmap_dict,
+            "content_text": f"# Sprint Roadmap — {title}\n\n"
+            + "\n".join(
+                f"- **{p['name']}** ({p['duration']}): {', '.join(cast(list[str], p['deliverables']))}"
+                for p in phases
+            ),
+        },
+        "generated_schema": {
+            "artifact_type": "workable_schema",
+            "title": f"Executable Database Schema — {title}",
+            "content": {
+                "tables": tables,
+                "ddl": schema_ddl,
+            },
+            "content_text": f"```sql\n{schema_ddl}\n```",
+        },
+    }
 
 
 @router.get("/health")
@@ -258,21 +677,33 @@ async def chat(
                     resp = await llm.ainvoke(
                         [SystemMessage(content=sys_prompt), HumanMessage(content=user_prompt)]
                     )
-                    assistant_text = (
-                        str(resp.content)
-                        if resp and resp.content
-                        else (
+                    assistant_text = ""
+                    if resp and resp.content:
+                        try:
+                            parsed = json.loads(resp.content)
+                            if isinstance(parsed, dict) and "content" in parsed:
+                                assistant_text = str(parsed["content"])
+                            elif isinstance(parsed, dict) and "message" in parsed:
+                                assistant_text = str(parsed["message"])
+                            else:
+                                assistant_text = str(resp.content)
+                        except (json.JSONDecodeError, TypeError):
+                            assistant_text = str(resp.content)
+                    if not assistant_text:
+                        assistant_text = (
                             "I've structured your application requirements into the "
                             "FastAPI backend and Next.js frontend workspace. "
-                            "Click **Build App** to finalize."
+                            "Toggle **Build** and send to finalize your deployable package."
                         )
-                    )
 
                 history = solution.conversation_history or []
                 history.append({"role": "user", "content": payload.message})
                 history.append({"role": "assistant", "content": assistant_text})
                 solution.conversation_history = history
+
+                synthesized = _synthesize_domain_artifacts(solution.title, payload.message)
                 solution.ai_state = {
+                    **synthesized,
                     **ai_state,
                     "business_description": ai_state.get("business_description") or payload.message,
                 }
@@ -286,11 +717,14 @@ async def chat(
                         f"Custom build: {solution.title}",
                         solution_id=solution.id,
                     )
+                    # Persist solution artifacts to database so /solution/{id} is fully populated
+                    await _persist_artifacts(stream_db, solution, solution.ai_state)
+
                     # Pre-populate code slots from ai_state
                     builder.scaffold_build(
                         ws_dir,
                         app_title=solution.title,
-                        inject_modules=[],
+                        inject_modules=solution.ai_state.get("confirmed_modules") or [],
                         ai_state=solution.ai_state,
                     )
 
@@ -319,12 +753,37 @@ async def chat(
                             )
 
                     build_number = await _next_build_number(stream_db, solution.id)
+                    files = builder.list_build_files(ws_dir)
+                    rel_files = builder.relative_paths(ws_dir)
+
+                    # Package archive to local disk and object storage
+                    local_zip_path = ws_dir.with_suffix(".zip")
+                    zip_data = builder.build_bytes(ws_dir)
+                    local_zip_path.write_bytes(zip_data)
+
+                    storage_key = f"local:{local_zip_path}"
+                    try:
+                        storage = get_storage()
+                        uploaded_key = await storage.upload_bytes(
+                            zip_data, f"builds/{solution.id}/build_{build_number}.zip"
+                        )
+                        if uploaded_key:
+                            storage_key = uploaded_key
+                    except Exception as store_err:
+                        logger.warning(
+                            "Remote storage upload failed (%s); using local fallback (%s)",
+                            store_err,
+                            local_zip_path,
+                        )
+
                     mvp_build = MVPBuild(
                         solution_id=solution.id,
                         build_number=build_number,
                         status="complete",
                         workspace_path=str(ws_dir),
-                        file_count=len(builder.list_build_files(ws_dir)),
+                        file_count=len(files),
+                        file_list=rel_files,
+                        storage_key=storage_key,
                         opencode_session_id=session_id,
                         app_config={
                             "app_name": solution.title,
@@ -337,6 +796,8 @@ async def chat(
                     build_state = {
                         "build_id": str(mvp_build.id),
                         "build_number": build_number,
+                        "file_count": len(files),
+                        "files": [{"path": p, "size": 0, "is_dir": False} for p in rel_files],
                     }
 
                 await stream_db.commit()

@@ -70,13 +70,26 @@ function ChatContent() {
               push(data.message as string, (data.agent as string) || 'SUTRA Intelligence');
             }
           },
-          onComplete: (data) => {
+          onComplete: async (data) => {
             const c = data as OpenCodeChatComplete;
             if (c.session_id) setSessionId(c.session_id);
             if (c.solution_id) setSolutionId(c.solution_id);
             push(c.message || 'Synthesis complete.', 'SUTRA Orchestrator');
             if (c.build_id) {
-              setFinalizedBuild({ build_id: c.build_id, solution_id: c.solution_id || solutionId || '', build_number: c.build_number || 1, status: 'complete', workspace_path: '', file_count: 0 });
+              try {
+                const fresh = await mvpApi.getStatus(c.build_id);
+                setFinalizedBuild(fresh);
+              } catch {
+                setFinalizedBuild({
+                  build_id: c.build_id,
+                  solution_id: c.solution_id || solutionId || '',
+                  build_number: c.build_number || 1,
+                  status: 'complete',
+                  workspace_path: '',
+                  file_count: c.file_count || 0,
+                  files: (c.files || []).map((f) => ({ path: f, size: 1024, is_dir: false })),
+                });
+              }
             }
             if (finalize) setBuildRequested(false);
             setIsStreaming(false);
@@ -263,9 +276,19 @@ function ChatContent() {
           <div className="flex-1 p-4 overflow-y-auto">
             {finalizedBuild ? (
               <div className="space-y-4 animate-fade-in">
-                <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold text-[var(--green)] bg-[var(--bg)] border border-[var(--border)] p-2">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Build Orchestrated</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold text-[var(--green)] bg-[var(--bg)] border border-[var(--border)] p-2">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Build Orchestrated</span>
+                  </div>
+                  {finalizedBuild.solution_id && (
+                    <a
+                      href={`/solution/${finalizedBuild.solution_id}`}
+                      className="text-[11px] font-medium text-[var(--sutra-muted-gold)] hover:underline"
+                    >
+                      View Artifacts →
+                    </a>
+                  )}
                 </div>
                 <BuildCard
                   build={finalizedBuild}
