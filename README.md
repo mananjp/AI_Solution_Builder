@@ -3,11 +3,13 @@
 > **From Business Intent to Mounted, Production-Ready Software Systems in Minutes.**
 
 [![CI](https://github.com/mananjp/AI_Solution_Builder/actions/workflows/ci.yml/badge.svg)](https://github.com/mananjp/AI_Solution_Builder/actions)
+[![GHCR](https://img.shields.io/badge/GHCR-Container%20Registry-2088FF.svg?logo=github)](https://github.com/mananjp/AI_Solution_Builder/pkgs/container/ai-solution-builder-app)
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.141+-009688.svg)](https://fastapi.tiangolo.com/)
 [![Next.js](https://img.shields.io/badge/Next.js-16.3-black.svg)](https://nextjs.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%20%2B%20pgvector-336791.svg)](https://www.postgresql.org/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://www.docker.com/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
 
@@ -278,7 +280,7 @@ Prometheus metrics (`/metrics`), health/ready probes, audit logs, and credit met
 | **Mobile & PWA** | Capacitor 8 (Android shell; web app / PWA), PWA Service Worker |
 | **MVP Builder** | OpenCode headless sidecar (`opencode serve`), agent `mvp-builder` on model `opencode/big-pickle` (OpenCode Zen, free), HTTP proxy client (`httpx`) |
 | **Data & Cache** | PostgreSQL 16 with `vector` extension, Redis 7 |
-| **DevOps & Tooling**| Docker & Docker Compose, GitHub Actions, Ruff, Mypy, Pytest (Asyncio + Coverage), ESLint |
+| **DevOps & CI/CD**| GitHub Actions (CI & GHCR publishing), Docker & Docker Compose, Dockle security scanning, Ruff, Mypy, Pytest (Coverage ≥ 80%), ESLint |
 
 ---
 
@@ -431,13 +433,18 @@ Recommended production topology:
 The repository includes ready-to-deploy root manifests:
 
 1. **Render (`render.yaml`)**:
-   - Deploys application services without paying for separate managed database instances:
-     - `ai-solution-builder-backend`: FastAPI API server (`/ready` health check, connected to Neon & Upstash).
-     - `ai-solution-builder-worker`: Background build worker process (durable queue consumer, no HTTP listener).
-     - `ai-solution-builder-opencode`: Private internal sidecar service on port 4096.
-     - `ai-solution-builder-frontend`: Next.js 16 standalone web application.
+   - Streamlined 2-service production topology:
+     - `ai-solution-builder-app`: Public web service hosting Next.js frontend and FastAPI API server (`/ready` health check, connected to Neon & Upstash).
+     - `ai-solution-builder-builder`: Private internal worker service combining the background build consumer and OpenCode sidecar on a shared `/workspace`.
+   - Continuous deployment triggered automatically or via Render Blueprint sync.
 
-2. **Fly.io (`fly.toml`)**:
+2. **Container Registry (GHCR)**:
+   - Multi-stage, Dockle security-scanned production images published to **GitHub Container Registry** on `main` pushes:
+     - `ghcr.io/mananjp/ai-solution-builder-app:latest`
+     - `ghcr.io/mananjp/ai-solution-builder-builder:latest`
+   - Integrated directly into `.github/workflows/ci.yml` using `GITHUB_TOKEN` with zero manual secrets setup.
+
+3. **Fly.io (`fly.toml`)**:
    - Multi-process configuration deploying both `app` (FastAPI) and `worker` (queue consumer) from a single unified container image (`backend/Dockerfile`), with health checks routed exclusively to the HTTP `app` process.
 
 ---
