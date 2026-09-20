@@ -375,9 +375,7 @@ async def test_chat_ai_agent_request_builds_agent_architecture(workspace_solutio
     assert "agent_orchestration" in sol_data["ai_state"]["confirmed_modules"]
 
 
-async def test_chat_build_requested_emits_granular_progress_events(
-    workspace_solution, monkeypatch
-):
+async def test_chat_build_requested_emits_granular_progress_events(workspace_solution, monkeypatch):
     """When build_requested is True, SSE stream yields granular build_progress events."""
     client = workspace_solution["client"]
     headers = workspace_solution["headers"]
@@ -400,4 +398,3 @@ async def test_chat_build_requested_emits_granular_progress_events(
     assert '"phase": "scaffolding"' in resp.text
     assert '"phase": "completed"' in resp.text
     assert "event: complete" in resp.text
-
