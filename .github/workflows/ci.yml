@@ -93,12 +93,19 @@ jobs:
     needs: [backend, frontend]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Compute image tag
+      - name: Compute image tag and registry prefix
         id: meta
-        run: echo "tag=sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "tag=sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+          # GHCR requires lowercase repository owner/names
+          IMAGE_PREFIX="ghcr.io/${{ github.repository_owner }}"
+          echo "image_prefix=$(echo "$IMAGE_PREFIX" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       - name: Build app image
         run: docker build -f app.Dockerfile -t ai-solution-builder-app:${{ steps.meta.outputs.tag }} .
@@ -122,26 +129,22 @@ jobs:
           exit-code: "0"
           exit-level: fatal
 
-      # Deployment to Docker Hub + Render is gated behind the DEPLOY_SKIP repo
-      # variable until the services are first deployed manually via the Render
-      # blueprint and RENDER_*_SERVICE_ID secrets exist.
-      - name: Log in to Docker Hub
-        if: vars.DEPLOY_SKIP != 'true'
+      - name: Log in to GitHub Container Registry (GHCR)
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push to Docker Hub
-        if: vars.DEPLOY_SKIP != 'true'
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      - name: Push to GHCR
         run: |
+          PREFIX="${{ steps.meta.outputs.image_prefix }}"
+          TAG="${{ steps.meta.outputs.tag }}"
           for img in ai-solution-builder-app ai-solution-builder-builder; do
-            docker tag ${img}:${{ steps.meta.outputs.tag }} ${DOCKERHUB_USERNAME}/${img}:${{ steps.meta.outputs.tag }}
-            docker push ${DOCKERHUB_USERNAME}/${img}:${{ steps.meta.outputs.tag }}
-            docker tag ${img}:${{ steps.meta.outputs.tag }} ${DOCKERHUB_USERNAME}/${img}:latest
-            docker push ${DOCKERHUB_USERNAME}/${img}:latest
+            docker tag ${img}:${TAG} ${PREFIX}/${img}:${TAG}
+            docker push ${PREFIX}/${img}:${TAG}
+            docker tag ${img}:${TAG} ${PREFIX}/${img}:latest
+            docker push ${PREFIX}/${img}:latest
           done
 
       - name: Trigger Render redeploy
