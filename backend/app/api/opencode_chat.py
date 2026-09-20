@@ -689,7 +689,7 @@ async def chat(
                                 assistant_text = str(resp.content)
                         except (json.JSONDecodeError, TypeError):
                             assistant_text = str(resp.content)
-                    if not assistant_text:
+                    if not assistant_text or assistant_text == "Mock response":
                         assistant_text = (
                             "I've structured your application requirements into the "
                             "FastAPI backend and Next.js frontend workspace. "

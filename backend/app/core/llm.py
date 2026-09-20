@@ -482,9 +482,7 @@ def _build_mock_content(messages: list[Any], state: dict[str, Any]) -> str:
     elif "Blueprint Generator Agent" in system_text:
         payload = _mock_blueprint()
     else:
-        payload = {
-            "content": "I have reviewed your request and updated the application specifications accordingly."
-        }
+        payload = {"content": "Mock response"}
 
     return json.dumps(payload, indent=2)
 
