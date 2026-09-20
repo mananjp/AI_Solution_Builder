@@ -206,6 +206,18 @@ export type MVPBuildStatus =
   | 'failed'
   | 'cancelled';
 
+export interface OpenCodeBuildProgress {
+  phase: string;
+  step: number;
+  total_steps: number;
+  percentage: number;
+  message: string;
+  solution_id?: string;
+  session_id?: string;
+  build_id?: string;
+  file_count?: number;
+}
+
 export interface MVPBuild {
   build_id: string;
   solution_id: string;
@@ -221,8 +233,16 @@ export interface MVPBuild {
   render_dashboard_url?: string | null;
   render_deploy_url?: string | null;
   render_deploy_status?: 'building' | 'live' | 'failed' | null;
+  progress?: {
+    stage?: string;
+    step?: number;
+    total_steps?: number;
+    percentage?: number;
+    message?: string;
+  } | null;
   files?: MVPFileEntry[];
 }
+
 
 export interface MVPBuildPayload {
   app_name?: string;

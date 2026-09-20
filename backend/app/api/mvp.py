@@ -152,6 +152,7 @@ def _build_response(build: MVPBuild, include_files: bool = False) -> MVPBuildRes
         render_dashboard_url=app_config.get("render_dashboard_url"),
         render_deploy_url=render_deploy_url,
         render_deploy_status=app_config.get("render_deploy_status"),
+        progress=app_config.get("progress"),
         files=files,
     )
 
@@ -174,6 +175,20 @@ async def execute_build_job(build_id: UUID) -> None:
                     job.error_message = "Solution not found"
                 await db.commit()
                 return
+
+            # Mark build as building with initial progress
+            build.status = "building"
+            cfg = dict(build.app_config or {})
+            cfg["progress"] = {
+                "stage": "building",
+                "step": 1,
+                "total_steps": 3,
+                "percentage": 30,
+                "message": "Synthesizing and verifying codebase scaffold...",
+            }
+            build.app_config = cfg
+            await db.commit()
+            await db.refresh(build)
 
             title = (build.app_config or {}).get("app_name") or solution.title
 
@@ -257,7 +272,9 @@ async def execute_build_job(build_id: UUID) -> None:
             storage_key = f"local:{local_zip_path}"
             try:
                 storage = get_storage()
-                uploaded_key = await storage.upload_bytes(zip_data, key)
+                uploaded_key = await asyncio.wait_for(
+                    storage.upload_bytes(zip_data, key), timeout=15.0
+                )
                 if uploaded_key:
                     storage_key = key
                 logger.info("Artifact uploaded to remote storage: %s", key)
@@ -274,12 +291,22 @@ async def execute_build_job(build_id: UUID) -> None:
             gc.collect()
 
             build.storage_key = storage_key
+            cfg = dict(build.app_config or {})
+            cfg["progress"] = {
+                "stage": "complete",
+                "step": 3,
+                "total_steps": 3,
+                "percentage": 100,
+                "message": f"Build complete — {result['file_count']} files generated.",
+            }
+            build.app_config = cfg
             logger.info(
                 "MVP build %s complete — %d files, stored at %s",
                 build.id,
                 result["file_count"],
                 build.storage_key,
             )
+
             await db.commit()
     except Exception as exc:  # noqa: BLE001 - persist any failure for retry
         logger.exception("MVP build %s failed", build_id)

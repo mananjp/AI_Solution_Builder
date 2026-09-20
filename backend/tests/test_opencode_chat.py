@@ -364,6 +364,7 @@ async def test_chat_ai_agent_request_builds_agent_architecture(workspace_solutio
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
+    assert "event: build_progress" in resp.text
     assert "event: complete" in resp.text
 
     sol_resp = await client.get(f"/api/v1/solutions/{solution_id}", headers=headers)
@@ -372,3 +373,31 @@ async def test_chat_ai_agent_request_builds_agent_architecture(workspace_solutio
     assert sol_data["status"] == "complete"
     assert sol_data["ai_state"]["industry"] == "ai_agents"
     assert "agent_orchestration" in sol_data["ai_state"]["confirmed_modules"]
+
+
+async def test_chat_build_requested_emits_granular_progress_events(
+    workspace_solution, monkeypatch
+):
+    """When build_requested is True, SSE stream yields granular build_progress events."""
+    client = workspace_solution["client"]
+    headers = workspace_solution["headers"]
+    solution_id = workspace_solution["solution_id"]
+
+    _patch_sidecar(monkeypatch)
+
+    resp = await client.post(
+        "/api/v1/opencode/chat",
+        json={
+            "message": "Finalize and generate MVP artifacts",
+            "solution_id": solution_id,
+            "build_requested": True,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert "event: build_progress" in resp.text
+    assert '"phase": "analyzing"' in resp.text
+    assert '"phase": "scaffolding"' in resp.text
+    assert '"phase": "completed"' in resp.text
+    assert "event: complete" in resp.text
+

@@ -17,6 +17,7 @@ Endpoints:
     POST /api/v1/opencode/chat        SSE chat stream (build_requested finalizes)
 """
 
+import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -850,17 +851,30 @@ async def chat(
                             f"## Context from uploaded document\n{context}\n\n" + instruction
                         )
 
-                    response = await builder.send_message(
-                        session_id,
-                        instruction,
-                        agent=settings.OPENCODE_AGENT,
-                    )
-
-                    assistant_text = _extract_text(response) or (
-                        "Done — tell me what to change next, or hit Build & Deploy "
-                        "to finalize the app."
-                    )
+                    try:
+                        response = await asyncio.wait_for(
+                            builder.send_message(
+                                session_id,
+                                instruction,
+                                agent=settings.OPENCODE_AGENT,
+                                timeout=25,
+                            ),
+                            timeout=30.0,
+                        )
+                        assistant_text = _extract_text(response) or (
+                            "Done — tell me what to change next, or hit Build & Deploy "
+                            "to finalize the app."
+                        )
+                    except Exception as sidecar_err:
+                        logger.warning(
+                            "Sidecar send_message failed (%s); falling back to direct LLM",
+                            sidecar_err,
+                        )
+                        assistant_text = ""
                 else:
+                    assistant_text = ""
+
+                if not assistant_text:
                     # Integrated synthesizer — direct LLM conversation.
                     llm = get_llm()
                     sys_prompt = (
@@ -884,7 +898,6 @@ async def chat(
                     resp = await llm.ainvoke(
                         [SystemMessage(content=sys_prompt), HumanMessage(content=user_prompt)]
                     )
-                    assistant_text = ""
                     if resp and resp.content:
                         try:
                             parsed = json.loads(resp.content)
@@ -917,6 +930,21 @@ async def chat(
 
                 build_state: dict[str, Any] = {}
                 if payload.build_requested:
+                    yield {
+                        "event": "build_progress",
+                        "data": json.dumps(
+                            {
+                                "phase": "analyzing",
+                                "step": 1,
+                                "total_steps": 7,
+                                "percentage": 15,
+                                "message": f"Synthesizing domain architecture for {solution.title}...",
+                                "solution_id": str(solution.id),
+                                "session_id": session_id,
+                            }
+                        ),
+                    }
+
                     await require_and_deduct_credit(
                         stream_db,
                         current_user,
@@ -924,9 +952,38 @@ async def chat(
                         f"Custom build: {solution.title}",
                         solution_id=solution.id,
                     )
+
+                    yield {
+                        "event": "build_progress",
+                        "data": json.dumps(
+                            {
+                                "phase": "persisting",
+                                "step": 2,
+                                "total_steps": 7,
+                                "percentage": 30,
+                                "message": "Persisting architectural blueprints and data models to solution registry...",
+                                "solution_id": str(solution.id),
+                                "session_id": session_id,
+                            }
+                        ),
+                    }
                     # Persist solution artifacts to database so /solution/{id} is fully populated
                     await _persist_artifacts(stream_db, solution, solution.ai_state)
 
+                    yield {
+                        "event": "build_progress",
+                        "data": json.dumps(
+                            {
+                                "phase": "scaffolding",
+                                "step": 3,
+                                "total_steps": 7,
+                                "percentage": 50,
+                                "message": "Initializing full-stack codebase scaffold (FastAPI + Next.js)...",
+                                "solution_id": str(solution.id),
+                                "session_id": session_id,
+                            }
+                        ),
+                    }
                     # Pre-populate code slots from ai_state
                     builder.scaffold_build(
                         ws_dir,
@@ -935,17 +992,47 @@ async def chat(
                         ai_state=solution.ai_state,
                     )
 
+                    yield {
+                        "event": "build_progress",
+                        "data": json.dumps(
+                            {
+                                "phase": "coding",
+                                "step": 4,
+                                "total_steps": 7,
+                                "percentage": 70,
+                                "message": "Synthesizing domain models, Pydantic schemas, and REST routers...",
+                                "solution_id": str(solution.id),
+                                "session_id": session_id,
+                            }
+                        ),
+                    }
+
                     if sidecar_ok:
-                        # Sidecar available — run full verify+repair loop.
+                        # Sidecar available — run verify+repair loop with timeout.
                         try:
-                            await mvp_verifier.verify_and_repair(
-                                ws_dir,
-                                session_id=session_id,
-                                target_dir=target_dir,
-                                send_prompt_fn=lambda s, t: builder.send_message(s, t),
-                                check_npm=False,
-                                max_repair_turns=2,
+                            await asyncio.wait_for(
+                                mvp_verifier.verify_and_repair(
+                                    ws_dir,
+                                    session_id=session_id,
+                                    target_dir=target_dir,
+                                    send_prompt_fn=lambda s, t: builder.send_message(
+                                        s, t, timeout=25
+                                    ),
+                                    check_npm=False,
+                                    max_repair_turns=1,
+                                ),
+                                timeout=35.0,
                             )
+                        except TimeoutError:
+                            logger.warning(
+                                "Sidecar verify_and_repair timed out; performing offline verification"
+                            )
+                            errors = mvp_verifier.verify_workspace(ws_dir, check_npm=False)
+                            if errors:
+                                error_summary = "; ".join(errors[:5])
+                                raise RuntimeError(
+                                    f"Build verification failed: {error_summary}"
+                                ) from None
                         except mvp_verifier.VerificationError as exc:
                             raise RuntimeError(f"Build verification failed: {exc}") from exc
                     else:
@@ -959,6 +1046,21 @@ async def chat(
                                 f"{error_summary}"
                             )
 
+                    yield {
+                        "event": "build_progress",
+                        "data": json.dumps(
+                            {
+                                "phase": "packaging",
+                                "step": 6,
+                                "total_steps": 7,
+                                "percentage": 90,
+                                "message": "Packaging production archive (.zip) and saving build artifacts...",
+                                "solution_id": str(solution.id),
+                                "session_id": session_id,
+                            }
+                        ),
+                    }
+
                     build_number = await _next_build_number(stream_db, solution.id)
                     files = builder.list_build_files(ws_dir)
                     rel_files = builder.relative_paths(ws_dir)
@@ -971,8 +1073,11 @@ async def chat(
                     storage_key = f"local:{local_zip_path}"
                     try:
                         storage = get_storage()
-                        uploaded_key = await storage.upload_bytes(
-                            zip_data, f"builds/{solution.id}/build_{build_number}.zip"
+                        uploaded_key = await asyncio.wait_for(
+                            storage.upload_bytes(
+                                zip_data, f"builds/{solution.id}/build_{build_number}.zip"
+                            ),
+                            timeout=15.0,
                         )
                         if uploaded_key:
                             storage_key = uploaded_key
@@ -995,6 +1100,13 @@ async def chat(
                         app_config={
                             "app_name": solution.title,
                             "source": "opencode_chat",
+                            "progress": {
+                                "stage": "complete",
+                                "step": 7,
+                                "total_steps": 7,
+                                "percentage": 100,
+                                "message": f"Build complete! {len(files)} files generated.",
+                            },
                         },
                     )
                     stream_db.add(mvp_build)
@@ -1005,6 +1117,23 @@ async def chat(
                         "build_number": build_number,
                         "file_count": len(files),
                         "files": [{"path": p, "size": 0, "is_dir": False} for p in rel_files],
+                    }
+
+                    yield {
+                        "event": "build_progress",
+                        "data": json.dumps(
+                            {
+                                "phase": "completed",
+                                "step": 7,
+                                "total_steps": 7,
+                                "percentage": 100,
+                                "message": f"Build complete! {len(files)} files generated.",
+                                "solution_id": str(solution.id),
+                                "session_id": session_id,
+                                "build_id": str(mvp_build.id),
+                                "file_count": len(files),
+                            }
+                        ),
                     }
 
                 await stream_db.commit()

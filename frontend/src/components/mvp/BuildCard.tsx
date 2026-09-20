@@ -427,11 +427,42 @@ export function BuildCard({
         </div>
       </div>
 
+      {(build.status === 'building' || build.status === 'queued') && (
+
+        <div className="p-3 bg-[var(--bg-2)] border border-[var(--border)] rounded-sm space-y-2">
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="font-semibold text-[var(--sutra-charcoal)] flex items-center gap-2">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--sutra-muted-gold)]" />
+              <span>
+                {build.progress?.message ||
+                  (build.status === 'queued'
+                    ? 'Build queued in worker pipeline...'
+                    : 'Synthesizing application structure...')}
+              </span>
+            </span>
+            {build.progress?.percentage !== undefined && (
+              <span className="font-mono font-bold text-[var(--sutra-muted-gold)]">
+                {build.progress.percentage}%
+              </span>
+            )}
+          </div>
+          {build.progress?.percentage !== undefined && (
+            <div className="w-full h-1.5 bg-[var(--bg)] rounded-full overflow-hidden border border-[var(--border)]">
+              <div
+                className="h-full bg-gradient-to-r from-[var(--sutra-muted-gold)] to-[var(--green)] transition-all duration-300"
+                style={{ width: `${Math.max(5, build.progress.percentage)}%` }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
       {build.error_message && (
         <p className="text-[11px] text-[var(--red)] bg-[var(--bg)] border border-[var(--red)] p-3 font-mono shadow-sm">
           {build.error_message}
         </p>
       )}
+
 
       <div className="flex items-center gap-3 flex-wrap pt-2">
         {build.status === 'complete' && (

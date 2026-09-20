@@ -290,6 +290,7 @@ class MVPBuildResponse(BaseModel):
     render_dashboard_url: str | None = None
     render_deploy_url: str | None = None
     render_deploy_status: str | None = None
+    progress: dict[str, Any] | None = None
     files: list[MVPFileEntry] = []
 
 

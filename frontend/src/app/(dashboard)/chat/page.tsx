@@ -2,18 +2,53 @@
 
 import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Send, Paperclip, Loader2, CheckCircle2, Circle, FileText, Layout, Layers, Settings2, Play } from 'lucide-react';
+import {
+  Send,
+  Paperclip,
+  Loader2,
+  CheckCircle2,
+  Circle,
+  FileText,
+  Layout,
+  Layers,
+  Settings2,
+  Play,
+  Clock,
+  Terminal,
+  Activity,
+} from 'lucide-react';
 import ChatMessage from '@/components/ChatMessage';
 import FileUploader from '@/components/FileUploader';
 import { opencodeApi, sendOpenCodeChatStream, mvpApi } from '@/lib/api';
-import { MVPBuild, MVPDeployResult, OpenCodeChatComplete } from '@/types';
+import { MVPBuild, MVPDeployResult, OpenCodeChatComplete, OpenCodeBuildProgress } from '@/types';
 import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
 
 type Msg = { role: 'user' | 'assistant' | 'system'; content: string; agent?: string };
 
+interface BuildProgressState {
+  phase: string;
+  step: number;
+  total_steps: number;
+  percentage: number;
+  message: string;
+  logs: string[];
+  startedAt: number;
+}
+
+const BUILD_MILESTONES = [
+  { step: 1, label: 'Domain Architecture & Specs', phase: 'analyzing' },
+  { step: 2, label: 'Database & API Schema Registry', phase: 'persisting' },
+  { step: 3, label: 'Full-Stack Codebase Scaffold', phase: 'scaffolding' },
+  { step: 4, label: 'Domain Models & REST Routers', phase: 'coding' },
+  { step: 5, label: 'Interactive UI Studios & Playground', phase: 'frontend' },
+  { step: 6, label: 'Codebase Integrity Verification', phase: 'verifying' },
+  { step: 7, label: 'Production Package Archive (.zip)', phase: 'packaging' },
+];
+
 function ChatContent() {
   const searchParams = useSearchParams();
   const initialPrompt = searchParams.get('prompt') || '';
+  const initialSolutionId = searchParams.get('solution_id') || null;
 
   const [input, setInput] = useState(initialPrompt);
   const [messages, setMessages] = useState<Msg[]>([{
@@ -22,20 +57,49 @@ function ChatContent() {
     content: "I am SUTRA, your intelligence architect. Describe your application requirements, and I will synthesize a complete FastAPI + Next.js solution. Provide a PRD or spec for enhanced context, and select **Build** to finalize the architecture.",
   }]);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [solutionId, setSolutionId] = useState<string | null>(null);
+  const [solutionId, setSolutionId] = useState<string | null>(initialSolutionId);
   const [uploadedContext, setUploadedContext] = useState('');
   const [uploadedFilename, setUploadedFilename] = useState('');
-  const [showUploader, setShowUploader] = useState(true); // Default to showing context area
+  const [showUploader, setShowUploader] = useState(true);
   const [isStreaming, setIsStreaming] = useState(false);
   const [buildRequested, setBuildRequested] = useState(false);
+  const [buildProgress, setBuildProgress] = useState<BuildProgressState | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [finalizedBuild, setFinalizedBuild] = useState<MVPBuild | null>(null);
   const [engineOnline, setEngineOnline] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deployTarget, setDeployTarget] = useState<MVPBuild | null>(null);
   const [configureTarget, setConfigureTarget] = useState<MVPBuild | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const logEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isStreaming]);
+
+  // Auto-scroll the live build log
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [buildProgress?.logs]);
+
+  // Elapsed time timer for active builds
+  useEffect(() => {
+    if (!isStreaming || !buildProgress) return;
+    const timer = setInterval(() => {
+      setElapsedSeconds(Math.round((Date.now() - buildProgress.startedAt) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isStreaming, buildProgress]);
+
+  // Load any existing build for this solution on mount
+  useEffect(() => {
+    if (!solutionId) return;
+    mvpApi.listBuilds(solutionId)
+      .then((builds) => {
+        if (builds && builds.length > 0) {
+          setFinalizedBuild(builds[0]);
+        }
+      })
+      .catch(() => undefined);
+  }, [solutionId]);
 
   useEffect(() => {
     let mounted = true;
@@ -57,6 +121,20 @@ function ChatContent() {
     setError(null);
     setMessages((p) => [...p, { role: 'user', content: text }]);
     setIsStreaming(true);
+
+    if (finalize) {
+      setBuildProgress({
+        phase: 'analyzing',
+        step: 1,
+        total_steps: 7,
+        percentage: 10,
+        message: 'Synthesizing application architecture & specifications...',
+        logs: ['[0s] Initializing custom full-stack build sequence...'],
+        startedAt: Date.now(),
+      });
+      setElapsedSeconds(0);
+    }
+
     try {
       await sendOpenCodeChatStream(
         { message: text, solution_id: solutionId, session_id: sessionId, uploaded_context: uploadedContext, build_requested: finalize },
@@ -65,7 +143,26 @@ function ChatContent() {
             if (event === 'agent_start') {
               if (typeof data.session_id === 'string') setSessionId(data.session_id);
               if (typeof data.solution_id === 'string') setSolutionId(data.solution_id);
-              push(data.message as string || 'Initializing intelligence sequence…', (data.agent as string) || 'SUTRA Intelligence');
+              push((data.message as string) || 'Initializing intelligence sequence…', (data.agent as string) || 'SUTRA Intelligence');
+            } else if (event === 'build_progress') {
+              const p = data as unknown as OpenCodeBuildProgress;
+              if (p.solution_id) setSolutionId(p.solution_id);
+
+              if (p.session_id) setSessionId(p.session_id);
+              setBuildProgress((prev) => {
+                const startedAt = prev?.startedAt || Date.now();
+                const sec = Math.round((Date.now() - startedAt) / 1000);
+                const prevLogs = prev?.logs || [];
+                return {
+                  phase: p.phase || 'building',
+                  step: p.step || 1,
+                  total_steps: p.total_steps || 7,
+                  percentage: p.percentage || 15,
+                  message: p.message || 'Building application...',
+                  logs: [...prevLogs, `[${sec}s] ${p.message}`],
+                  startedAt,
+                };
+              });
             } else if (event === 'message' && data.message) {
               push(data.message as string, (data.agent as string) || 'SUTRA Intelligence');
             }
@@ -92,18 +189,21 @@ function ChatContent() {
               }
             }
             if (finalize) setBuildRequested(false);
+            setBuildProgress(null);
             setIsStreaming(false);
           },
           onError: (err) => {
             const msg = typeof err === 'object' && err && 'message' in err ? String((err as { message: string }).message) : 'Sequence interrupted.';
             setError(msg);
             push(msg, 'SUTRA Orchestrator');
+            setBuildProgress(null);
             setIsStreaming(false);
           },
         }
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to reach SUTRA intelligence layer.');
+      setBuildProgress(null);
       setIsStreaming(false);
     }
   };
@@ -206,9 +306,15 @@ function ChatContent() {
             {messages.map((m, i) => <ChatMessage key={i} role={m.role} content={m.content} agent={m.agent} />)}
 
             {isStreaming && (
-              <div className="flex items-center gap-3 text-[12px] text-[var(--text-2)] py-4 font-serif italic">
+              <div className="flex items-center gap-3 text-[12px] text-[var(--text-2)] py-4 font-serif italic border-t border-[var(--border)] mt-4">
                 <Loader2 className="w-4 h-4 animate-spin text-[var(--sutra-muted-gold)]" />
-                Synthesizing architecture...
+                {buildProgress ? (
+                  <span>
+                    Building application: <strong className="text-[var(--sutra-charcoal)]">{buildProgress.percentage}%</strong> — Step {buildProgress.step}/{buildProgress.total_steps}: {buildProgress.message}
+                  </span>
+                ) : (
+                  'Synthesizing architecture...'
+                )}
               </div>
             )}
             <div ref={endRef} className="h-4" />
@@ -268,9 +374,17 @@ function ChatContent() {
 
         {/* ZONE 3: ARTIFACT (3 cols) */}
         <div className="hidden lg:flex flex-col lg:col-span-3 h-full sutra-card bg-[var(--bg-2)] border-[var(--border)] min-w-0">
-          <div className="p-4 border-b border-[var(--border)] flex items-center gap-2 bg-[var(--bg)]">
-            <Layers className="w-4 h-4 text-[var(--text-3)]" />
-            <h2 className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">Build Artifacts</h2>
+          <div className="p-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--bg)]">
+            <div className="flex items-center gap-2">
+              <Layers className="w-4 h-4 text-[var(--text-3)]" />
+              <h2 className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">Build Artifacts</h2>
+            </div>
+            {isStreaming && buildProgress && (
+              <div className="flex items-center gap-1.5 text-[10px] font-mono text-[var(--sutra-muted-gold)] font-bold">
+                <Clock className="w-3 h-3 animate-spin" />
+                <span>{elapsedSeconds}s</span>
+              </div>
+            )}
           </div>
           
           <div className="flex-1 p-4 overflow-y-auto">
@@ -298,6 +412,88 @@ function ChatContent() {
                   onDownload={() => handleDownload(finalizedBuild)}
                   onDestroy={() => handleDestroy(finalizedBuild)}
                 />
+              </div>
+            ) : isStreaming && (buildRequested || buildProgress) ? (
+              /* LIVE BUILD PROGRESS DASHBOARD */
+              <div className="space-y-4 animate-fade-in">
+                {/* Active Status Badge */}
+                <div className="p-3 bg-[var(--bg)] border border-[var(--sutra-muted-gold)] shadow-sm">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">
+                      <Activity className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)] animate-pulse" />
+                      <span>Building Application</span>
+                    </div>
+                    <span className="text-[11px] font-mono font-bold text-[var(--sutra-muted-gold)]">
+                      {buildProgress?.percentage || 15}%
+                    </span>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div className="w-full h-1.5 bg-[var(--bg-2)] rounded-full overflow-hidden border border-[var(--border)]">
+                    <div
+                      className="h-full bg-gradient-to-r from-[var(--sutra-muted-gold)] to-[var(--green)] transition-all duration-500 ease-out"
+                      style={{ width: `${Math.max(5, buildProgress?.percentage || 15)}%` }}
+                    />
+                  </div>
+
+                  <p className="text-[11px] text-[var(--text-2)] font-light mt-2 break-words">
+                    {buildProgress?.message || 'Synthesizing application structure...'}
+                  </p>
+                </div>
+
+                {/* Milestone Checklist */}
+                <div className="bg-[var(--bg)] border border-[var(--border)] p-3 space-y-2">
+                  <h3 className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)] mb-2">
+                    Execution Milestones
+                  </h3>
+                  <div className="space-y-2">
+                    {BUILD_MILESTONES.map((m) => {
+                      const currentStep = buildProgress?.step || 1;
+                      const isComplete = currentStep > m.step;
+                      const isCurrent = currentStep === m.step;
+                      return (
+                        <div key={m.step} className="flex items-center gap-2.5 text-[11px]">
+                          {isComplete ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-[var(--green)] shrink-0" />
+                          ) : isCurrent ? (
+                            <Loader2 className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)] animate-spin shrink-0" />
+                          ) : (
+                            <Circle className="w-3.5 h-3.5 text-[var(--text-3)]/40 shrink-0" />
+                          )}
+                          <span
+                            className={
+                              isComplete
+                                ? 'text-[var(--sutra-charcoal)] font-medium'
+                                : isCurrent
+                                ? 'text-[var(--sutra-charcoal)] font-bold'
+                                : 'text-[var(--text-3)] font-light'
+                            }
+                          >
+                            {m.label}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Live Activity Log */}
+                {buildProgress?.logs && buildProgress.logs.length > 0 && (
+                  <div className="bg-[var(--bg)] border border-[var(--border)] p-3">
+                    <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)] mb-2">
+                      <Terminal className="w-3 h-3" />
+                      <span>Live Build Log</span>
+                    </div>
+                    <div className="max-h-36 overflow-y-auto space-y-1 font-mono text-[10px] text-[var(--text-2)] bg-[var(--bg-2)] p-2 rounded-sm border border-[var(--border)]">
+                      {buildProgress.logs.map((log, idx) => (
+                        <div key={idx} className="break-words leading-tight">
+                          <span className="text-[var(--sutra-muted-gold)]">{log}</span>
+                        </div>
+                      ))}
+                      <div ref={logEndRef} />
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-center space-y-4 opacity-60">
@@ -329,4 +525,4 @@ export default function ChatPage() {
       <ChatContent />
     </Suspense>
   );
-}
+}
