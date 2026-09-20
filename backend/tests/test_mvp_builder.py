@@ -227,7 +227,6 @@ def test_scaffold_build_with_ai_agent_state(tmp_path):
     routers_code = (build_dir / "backend" / "routers.py").read_text(encoding="utf-8")
     assert "/agents/{agent_id}/run" in routers_code
 
-
     # Agent runner service should be generated
     assert (build_dir / "backend" / "agent_runner.py").exists()
 
@@ -239,8 +238,6 @@ def test_scaffold_build_with_ai_agent_state(tmp_path):
         encoding="utf-8"
     )
     assert "Interactive Agent Playground" in agents_page
-
-
 
 
 def test_package_build_zips_project(tmp_path):

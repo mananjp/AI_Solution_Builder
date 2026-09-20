@@ -332,7 +332,12 @@ def _synthesize_domain_artifacts(title: str, user_prompt: str) -> dict[str, Any]
         ]
     elif any(k in text for k in ("finance", "invoice", "billing", "payment", "expense")):
         industry = "finance_invoicing"
-        modules = ["invoice_management", "payment_processing", "expense_tracker", "ledger_reporting"]
+        modules = [
+            "invoice_management",
+            "payment_processing",
+            "expense_tracker",
+            "ledger_reporting",
+        ]
         entities = [
             {
                 "name": "invoices",

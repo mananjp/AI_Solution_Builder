@@ -325,7 +325,9 @@ async def test_chat_cannot_access_other_users_solution(workspace_solution, monke
 def test_synthesize_domain_artifacts_ai_agents():
     from app.api.opencode_chat import _synthesize_domain_artifacts
 
-    artifacts = _synthesize_domain_artifacts("AI Agent App", "Build an autonomous AI agent with tool calling and memory")
+    artifacts = _synthesize_domain_artifacts(
+        "AI Agent App", "Build an autonomous AI agent with tool calling and memory"
+    )
     assert artifacts["industry"] == "ai_agents"
     assert "agent_orchestration" in artifacts["confirmed_modules"]
     assert "tool_registry" in artifacts["confirmed_modules"]
@@ -343,7 +345,6 @@ def test_synthesize_domain_artifacts_ai_agents():
     assert "system_prompt" in agent_field_names
     assert "temperature" in agent_field_names
     assert "model" in agent_field_names
-
 
 
 async def test_chat_ai_agent_request_builds_agent_architecture(workspace_solution, monkeypatch):
@@ -371,5 +372,3 @@ async def test_chat_ai_agent_request_builds_agent_architecture(workspace_solutio
     assert sol_data["status"] == "complete"
     assert sol_data["ai_state"]["industry"] == "ai_agents"
     assert "agent_orchestration" in sol_data["ai_state"]["confirmed_modules"]
-
-

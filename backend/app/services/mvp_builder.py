@@ -261,7 +261,7 @@ def _generate_frontend_module_page(
         ]
     )
     form_fields_state = ", ".join(
-        [f'{pf["name"]}: {pf.get("js_default", pf["py_default"])}' for pf in parsed_fields]
+        [f"{pf['name']}: {pf.get('js_default', pf['py_default'])}" for pf in parsed_fields]
     )
 
     form_inputs = "\n".join(
@@ -591,7 +591,6 @@ def _auto_synthesize_slots(root: Path, ai_state: dict[str, Any], app_title: str)
                 }
             )
 
-
         if not parsed_fields:
             parsed_fields.append(
                 {
@@ -715,7 +714,7 @@ def _auto_synthesize_slots(root: Path, ai_state: dict[str, Any], app_title: str)
                     '        "query": query,',
                     (
                         '        "output": f"[{agent_name}] Processed task: \'{query}\'.'
-                        " Autonomous workflow reasoning and execution completed successfully.\","
+                        ' Autonomous workflow reasoning and execution completed successfully.",'
                     ),
                     "    }",
                 ]
