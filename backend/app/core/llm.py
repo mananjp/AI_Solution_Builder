@@ -398,6 +398,30 @@ def _mock_ai_developer(messages: list[Any]) -> dict[str, Any]:
     lower = user_text.lower()
     if any(
         k in lower
+        for k in (
+            "agent",
+            "bot",
+            "assistant",
+            "copilot",
+            "llm",
+            "ai",
+            "autonomous",
+            "orchestrator",
+            "rag",
+            "prompt",
+        )
+    ):
+        app_type = "Autonomous AI Agent System"
+        entities = ["Agents", "Tools", "Conversations", "Messages", "Executions"]
+        endpoints = [
+            "/api/v1/agents",
+            "/api/v1/agents/{agent_id}/run",
+            "/api/v1/tools",
+            "/api/v1/conversations",
+            "/api/v1/executions",
+        ]
+    elif any(
+        k in lower
         for k in ("retail", "store", "ecommerce", "inventory", "pos", "shop", "product", "stock")
     ):
         app_type = "Omnichannel Retail & Inventory Platform"
@@ -421,10 +445,22 @@ def _mock_ai_developer(messages: list[Any]) -> dict[str, Any]:
         app_type = "CRM & Sales Pipeline Platform"
         entities = ["Leads", "Clients", "Deals", "Activities"]
         endpoints = ["/api/v1/leads", "/api/v1/clients", "/api/v1/deals"]
-    elif any(k in lower for k in ("todo", "task", "project", "kanban")):
+    elif any(k in lower for k in ("todo", "task", "project", "kanban", "sprint")):
         app_type = "Project & Task Management System"
         entities = ["Projects", "Tasks", "Milestones", "Tags"]
         endpoints = ["/api/v1/projects", "/api/v1/tasks"]
+    elif any(k in lower for k in ("finance", "invoice", "billing", "payment", "expense")):
+        app_type = "Finance & Invoicing Platform"
+        entities = ["Invoices", "Transactions", "Expenses", "Accounts"]
+        endpoints = ["/api/v1/invoices", "/api/v1/transactions", "/api/v1/expenses"]
+    elif any(k in lower for k in ("property", "real estate", "listing", "tenant", "rental")):
+        app_type = "Real Estate & Property Management"
+        entities = ["Properties", "Units", "Leases", "Tenants"]
+        endpoints = ["/api/v1/properties", "/api/v1/units", "/api/v1/leases"]
+    elif any(k in lower for k in ("course", "student", "teacher", "learning", "lms")):
+        app_type = "Education & Learning Management System"
+        entities = ["Courses", "Lessons", "Students", "Enrollments"]
+        endpoints = ["/api/v1/courses", "/api/v1/lessons", "/api/v1/students"]
     else:
         app_type = "Full-Stack Web Application"
         entities = ["Users", "Items", "Categories", "Activities"]

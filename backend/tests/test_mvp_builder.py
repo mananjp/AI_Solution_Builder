@@ -176,6 +176,73 @@ def test_scaffold_build_copies_and_substitutes(tmp_path):
     assert remaining == []
 
 
+def test_scaffold_build_with_ai_agent_state(tmp_path):
+    build_dir = tmp_path / "agent_project"
+    agent_state = {
+        "solution_title": "AutoAgent Pro",
+        "industry": "ai_agents",
+        "confirmed_modules": ["agents", "tools", "conversations"],
+        "er_diagram": {
+            "content": {
+                "entities": [
+                    {
+                        "name": "agents",
+                        "fields": [
+                            {"name": "name", "type": "VARCHAR(255)"},
+                            {"name": "system_prompt", "type": "TEXT"},
+                            {"name": "model", "type": "VARCHAR(100)"},
+                            {"name": "temperature", "type": "FLOAT"},
+                            {"name": "is_active", "type": "BOOLEAN"},
+                        ],
+                    },
+                    {
+                        "name": "tools",
+                        "fields": [
+                            {"name": "name", "type": "VARCHAR(255)"},
+                            {"name": "description", "type": "TEXT"},
+                        ],
+                    },
+                ]
+            }
+        },
+    }
+    builder.scaffold_build(
+        build_dir,
+        app_title="AutoAgent Pro",
+        inject_modules=["agents", "tools"],
+        ai_state=agent_state,
+    )
+
+    models_code = (build_dir / "backend" / "models.py").read_text(encoding="utf-8")
+    assert "class Agents(Base):" in models_code
+    assert "system_prompt: Mapped[str] = mapped_column(Text" in models_code
+    assert "temperature: Mapped[float] = mapped_column(Float" in models_code
+    assert "is_active: Mapped[bool] = mapped_column(Boolean" in models_code
+
+    schemas_code = (build_dir / "backend" / "schemas.py").read_text(encoding="utf-8")
+    assert "class AgentsBase(BaseModel):" in schemas_code
+    assert "system_prompt: str" in schemas_code
+    assert "temperature: float" in schemas_code
+
+    routers_code = (build_dir / "backend" / "routers.py").read_text(encoding="utf-8")
+    assert "/agents/{agent_id}/run" in routers_code
+
+
+    # Agent runner service should be generated
+    assert (build_dir / "backend" / "agent_runner.py").exists()
+
+    # Frontend module pages should be generated
+    assert (build_dir / "frontend" / "src" / "app" / "agents" / "page.tsx").exists()
+    assert (build_dir / "frontend" / "src" / "app" / "tools" / "page.tsx").exists()
+
+    agents_page = (build_dir / "frontend" / "src" / "app" / "agents" / "page.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert "Interactive Agent Playground" in agents_page
+
+
+
+
 def test_package_build_zips_project(tmp_path):
     root = Path(tmp_path)
     (root / "backend").mkdir(parents=True)

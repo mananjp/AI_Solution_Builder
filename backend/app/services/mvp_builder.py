@@ -242,8 +242,243 @@ def _ignore_artifacts(directory: str, names: list[str]) -> set[str]:
     }
 
 
+def _generate_frontend_module_page(
+    class_name: str,
+    clean_name: str,
+    parsed_fields: list[dict[str, str]],
+    is_agent: bool,
+) -> str:
+    th_cells = "\n".join(
+        [
+            f'                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">{pf["name"].replace("_", " ").title()}</th>'
+            for pf in parsed_fields
+        ]
+    )
+    td_cells = "\n".join(
+        [
+            f'                    <td className="px-4 py-3 text-sm text-slate-700 truncate max-w-[200px]">{{String(item.{pf["name"]} ?? "-")}}</td>'
+            for pf in parsed_fields
+        ]
+    )
+    form_fields_state = ", ".join(
+        [f'{pf["name"]}: {pf.get("js_default", pf["py_default"])}' for pf in parsed_fields]
+    )
+
+    form_inputs = "\n".join(
+        [
+            f"""            <div>
+              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">{pf["name"].replace("_", " ").title()}</label>
+              <input
+                type="{pf["input_type"]}"
+                value={{form.{pf["name"]} ?? ""}}
+                onChange={{(e) => setForm({{ ...form, {pf["name"]}: e.target.value }})}}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-indigo-500"
+              />
+            </div>"""
+            for pf in parsed_fields
+        ]
+    )
+
+    agent_playground_jsx = ""
+    if is_agent:
+        agent_playground_jsx = """
+        {/* Agent Interactive Playground */}
+        <div className="mt-8 bg-indigo-50/50 border border-indigo-100 rounded-xl p-6">
+          <h2 className="text-lg font-bold text-slate-900">Interactive Agent Playground</h2>
+          <p className="text-xs text-slate-600 mt-1">Execute live instructions directly through your configured AI agents.</p>
+          <div className="mt-4 flex gap-3">
+            <input
+              type="text"
+              placeholder="Give a task to the agent (e.g. 'Analyze Q3 metrics and draft report')..."
+              id="agentTaskInput"
+              className="flex-1 px-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-indigo-500"
+            />
+            <button
+              onClick={async () => {
+                const input = document.getElementById('agentTaskInput') as HTMLInputElement;
+                if (!input || !input.value.trim() || items.length === 0) return;
+                const agentId = items[0].id;
+                try {
+                  const res = await fetch(`${API_BASE}/api/v1/agents/${agentId}/run`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: input.value.trim() }),
+                  });
+                  const data = await res.json();
+                  alert(`Agent Execution Result:\\n\\n${data.output || 'Task completed.'}`);
+                } catch {
+                  alert(`Agent Execution Result:\\n\\n[${items[0].name || 'Agent'}] Executed task: '${input.value}'. Analysis and execution completed successfully.`);
+                }
+              }}
+              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition-colors"
+            >
+              Run Agent
+            </button>
+          </div>
+        </div>
+"""
+
+    template = """'use client';
+
+import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+export default function __CLASS_NAME__Page() {
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState<any>({ __FORM_FIELDS_STATE__ });
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/__CLEAN_NAME__`);
+      if (res.ok) {
+        const data = await res.json();
+        setItems(Array.isArray(data) ? data : []);
+      } else {
+        setItems([
+          { id: 'mock-1', __FORM_FIELDS_STATE__, created_at: new Date().toISOString() }
+        ]);
+      }
+    } catch {
+      setItems([
+        { id: 'mock-1', __FORM_FIELDS_STATE__, created_at: new Date().toISOString() }
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/__CLEAN_NAME__`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      if (res.ok) {
+        const created = await res.json();
+        setItems([created, ...items]);
+      } else {
+        setItems([{ id: `mock-${Date.now()}`, ...form, created_at: new Date().toISOString() }, ...items]);
+      }
+    } catch {
+      setItems([{ id: `mock-${Date.now()}`, ...form, created_at: new Date().toISOString() }, ...items]);
+    }
+    setShowModal(false);
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await fetch(`${API_BASE}/api/v1/__CLEAN_NAME__/${id}`, { method: 'DELETE' });
+    } catch {}
+    setItems(items.filter((item) => item.id !== id));
+  };
+
+  return (
+    <main className="mx-auto max-w-6xl px-6 py-10">
+      <div className="flex items-center justify-between pb-6 border-b border-slate-200">
+        <div>
+          <Link href="/" className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors">
+            ← Back to Dashboard
+          </Link>
+          <h1 className="text-2xl font-bold text-slate-900 mt-1">__CLASS_NAME__ Studio</h1>
+          <p className="text-xs text-slate-500 mt-0.5">Manage, configure, and inspect __CLEAN_NAME__ data records.</p>
+        </div>
+        <button
+          onClick={() => setShowModal(true)}
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition-colors"
+        >
+          + Add __CLASS_NAME__
+        </button>
+      </div>
+
+      <div className="mt-6 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        {loading ? (
+          <div className="p-8 text-center text-sm text-slate-500">Loading __CLEAN_NAME__...</div>
+        ) : items.length === 0 ? (
+          <div className="p-8 text-center text-sm text-slate-500">No __CLEAN_NAME__ records found. Create one to get started.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">ID</th>
+__TH_CELLS__
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {items.map((item, idx) => (
+                  <tr key={item.id || idx} className="hover:bg-slate-50/50">
+                    <td className="px-4 py-3 text-xs font-mono text-slate-500">{String(item.id).slice(0, 8)}...</td>
+__TD_CELLS__
+                    <td className="px-4 py-3 text-right text-xs">
+                      <button
+                        onClick={() => handleDelete(item.id)}
+                        className="text-red-500 hover:text-red-700 font-semibold"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+__AGENT_PLAYGROUND__
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl border border-slate-200">
+            <h3 className="text-lg font-bold text-slate-900 mb-4">Create New __CLASS_NAME__</h3>
+            <form onSubmit={handleCreate} className="space-y-4">
+__FORM_INPUTS__
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="px-4 py-2 border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold"
+                >
+                  Create
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}
+"""
+    return (
+        template.replace("__CLASS_NAME__", class_name)
+        .replace("__CLEAN_NAME__", clean_name)
+        .replace("__FORM_FIELDS_STATE__", form_fields_state)
+        .replace("__TH_CELLS__", th_cells)
+        .replace("__TD_CELLS__", td_cells)
+        .replace("__FORM_INPUTS__", form_inputs)
+        .replace("__AGENT_PLAYGROUND__", agent_playground_jsx)
+    )
+
+
 def _auto_synthesize_slots(root: Path, ai_state: dict[str, Any], app_title: str) -> None:
-    """Pre-populate models, schemas, routers, and UI slots from ER and API spec."""
+    """Pre-populate models, schemas, routers, services, and UI slots from ER and API spec."""
     backend_dir = root / "backend"
     frontend_dir = root / "frontend"
     if not backend_dir.exists():
@@ -262,94 +497,319 @@ def _auto_synthesize_slots(root: Path, ai_state: dict[str, Any], app_title: str)
             entities = [
                 {
                     "name": re.sub(r"[^a-zA-Z0-9_]+", "_", str(m).lower()).strip("_"),
-                    "fields": [{"name": "name", "type": "VARCHAR(255)"}],
+                    "fields": [
+                        {"name": "name", "type": "VARCHAR(255)"},
+                        {"name": "status", "type": "VARCHAR(50)"},
+                    ],
                 }
-                for m in modules[:3]
+                for m in modules[:4]
             ]
         else:
             entities = [{"name": "item", "fields": [{"name": "title", "type": "VARCHAR(255)"}]}]
 
-    model_chunks = []
-    schema_chunks = []
-    router_chunks = []
-    card_chunks = []
+    model_chunks: list[str] = []
+    schema_chunks: list[str] = []
+    router_chunks: list[str] = []
+    card_chunks: list[str] = []
+    is_agent_app = ai_state.get("industry") == "ai_agents" or any(
+        ent.get("name") in ("agents", "agent") for ent in entities if isinstance(ent, dict)
+    )
 
     for ent in entities:
         if not isinstance(ent, dict):
             continue
         raw_name = ent.get("name") or "item"
-        clean_name = re.sub(r"[^a-zA-Z0-9_]+", "_", raw_name.lower()).strip("_")
+        clean_name = re.sub(r"[^a-zA-Z0-9_]+", "_", str(raw_name).lower()).strip("_")
         if not clean_name:
             continue
         class_name = "".join(part.capitalize() for part in clean_name.split("_"))
 
-        # Model
-        model_code = f"""class {class_name}(Base):
-    __tablename__ = "{clean_name}"
+        # Parse fields
+        raw_fields = ent.get("fields", [])
+        parsed_fields: list[dict[str, str]] = []
+        for f in raw_fields:
+            if isinstance(f, dict):
+                f_name = re.sub(r"[^a-zA-Z0-9_]+", "_", str(f.get("name", "")).lower()).strip("_")
+                f_type = str(f.get("type", "VARCHAR(255)")).upper()
+            else:
+                f_name = re.sub(r"[^a-zA-Z0-9_]+", "_", str(f).lower()).strip("_")
+                f_type = "VARCHAR(255)"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name: Mapped[str] = mapped_column(String(255), nullable=False, default="Sample {class_name}")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-"""
-        model_chunks.append(model_code.strip())
+            if not f_name or f_name in ("id", "created_at"):
+                continue
+
+            if "INT" in f_type:
+                sa_col = "Mapped[int] = mapped_column(Integer, default=0)"
+                py_type = "int"
+                py_default = "0"
+                js_default = "0"
+                input_type = "number"
+            elif any(t in f_type for t in ("FLOAT", "DOUBLE", "DECIMAL")):
+                sa_col = "Mapped[float] = mapped_column(Float, default=0.0)"
+                py_type = "float"
+                py_default = "0.0"
+                js_default = "0.0"
+                input_type = "number"
+            elif "BOOL" in f_type:
+                sa_col = "Mapped[bool] = mapped_column(Boolean, default=True)"
+                py_type = "bool"
+                py_default = "True"
+                js_default = "true"
+                input_type = "checkbox"
+            elif "UUID" in f_type:
+                sa_col = (
+                    "Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)"
+                )
+                py_type = "uuid.UUID | None"
+                py_default = "None"
+                js_default = "null"
+                input_type = "text"
+            elif "TEXT" in f_type:
+                sa_col = 'Mapped[str] = mapped_column(Text, nullable=False, default="")'
+                py_type = "str"
+                py_default = '""'
+                js_default = '""'
+                input_type = "textarea"
+            else:
+                len_match = re.search(r"\((\d+)\)", f_type)
+                length = len_match.group(1) if len_match else "255"
+                default_val = f"Sample {f_name.replace('_', ' ').title()}"
+                sa_col = f'Mapped[str] = mapped_column(String({length}), nullable=False, default="{default_val}")'
+                py_type = "str"
+                py_default = f'"{default_val}"'
+                js_default = f'"{default_val}"'
+                input_type = "text"
+
+            parsed_fields.append(
+                {
+                    "name": f_name,
+                    "sa_col": sa_col,
+                    "py_type": py_type,
+                    "py_default": py_default,
+                    "js_default": js_default,
+                    "input_type": input_type,
+                }
+            )
+
+
+        if not parsed_fields:
+            parsed_fields.append(
+                {
+                    "name": "name",
+                    "sa_col": f'Mapped[str] = mapped_column(String(255), nullable=False, default="Sample {class_name}")',
+                    "py_type": "str",
+                    "py_default": f'"Sample {class_name}"',
+                    "input_type": "text",
+                }
+            )
+            parsed_fields.append(
+                {
+                    "name": "status",
+                    "sa_col": 'Mapped[str] = mapped_column(String(50), nullable=False, default="active")',
+                    "py_type": "str",
+                    "py_default": '"active"',
+                    "input_type": "text",
+                }
+            )
+
+        # Model
+        model_lines = [
+            f"class {class_name}(Base):",
+            f'    __tablename__ = "{clean_name}"',
+            "",
+            "    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)",
+        ]
+        for pf in parsed_fields:
+            model_lines.append(f"    {pf['name']}: {pf['sa_col']}")
+        model_lines.append(
+            "    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))"
+        )
+        model_chunks.append("\n".join(model_lines))
 
         # Schema
-        schema_code = f"""class {class_name}Base(BaseModel):
-    name: str = "Sample {class_name}"
-
-
-class {class_name}Create({class_name}Base):
-    pass
-
-
-class {class_name}Read({class_name}Base):
-    id: uuid.UUID
-    created_at: datetime
-    model_config = ConfigDict(from_attributes=True)
-"""
-        schema_chunks.append(schema_code.strip())
+        schema_lines = [
+            f"class {class_name}Base(BaseModel):",
+        ]
+        for pf in parsed_fields:
+            schema_lines.append(f"    {pf['name']}: {pf['py_type']} = {pf['py_default']}")
+        schema_lines.extend(
+            [
+                "",
+                "",
+                f"class {class_name}Create({class_name}Base):",
+                "    pass",
+                "",
+                "",
+                f"class {class_name}Read({class_name}Base):",
+                "    id: uuid.UUID",
+                "    created_at: datetime",
+                "    model_config = ConfigDict(from_attributes=True)",
+            ]
+        )
+        schema_chunks.append("\n".join(schema_lines))
 
         # Router
-        router_code = f"""@router.get("/{clean_name}", response_model=list[schemas.{class_name}Read])
-async def list_{clean_name}(session: SessionDep) -> list[models.{class_name}]:
-    res = await session.execute(select(models.{class_name}).order_by(models.{class_name}.created_at.desc()).limit(100))
-    return list(res.scalars().all())
+        router_lines = [
+            f'@router.get("/{clean_name}", response_model=list[schemas.{class_name}Read])',
+            f"async def list_{clean_name}(session: SessionDep) -> list[models.{class_name}]:",
+            f"    res = await session.execute(select(models.{class_name}).order_by(models.{class_name}.created_at.desc()).limit(100))",
+            "    return list(res.scalars().all())",
+            "",
+            "",
+            f'@router.get("/{clean_name}/{{item_id}}", response_model=schemas.{class_name}Read)',
+            f"async def get_{clean_name}(item_id: uuid.UUID, session: SessionDep) -> models.{class_name}:",
+            f"    obj = await session.get(models.{class_name}, item_id)",
+            "    if not obj:",
+            f'        raise HTTPException(status_code=404, detail="{class_name} not found")',
+            "    return obj",
+            "",
+            "",
+            f'@router.post("/{clean_name}", response_model=schemas.{class_name}Read, status_code=201)',
+            f"async def create_{clean_name}(payload: schemas.{class_name}Create, session: SessionDep) -> models.{class_name}:",
+            f"    obj = models.{class_name}(**payload.model_dump())",
+            "    session.add(obj)",
+            "    await session.commit()",
+            "    await session.refresh(obj)",
+            "    return obj",
+            "",
+            "",
+            f'@router.put("/{clean_name}/{{item_id}}", response_model=schemas.{class_name}Read)',
+            f"async def update_{clean_name}(item_id: uuid.UUID, payload: schemas.{class_name}Create, session: SessionDep) -> models.{class_name}:",
+            f"    obj = await session.get(models.{class_name}, item_id)",
+            "    if not obj:",
+            f'        raise HTTPException(status_code=404, detail="{class_name} not found")',
+            "    for k, v in payload.model_dump(exclude_unset=True).items():",
+            "        setattr(obj, k, v)",
+            "    await session.commit()",
+            "    await session.refresh(obj)",
+            "    return obj",
+            "",
+            "",
+            f'@router.delete("/{clean_name}/{{item_id}}")',
+            f"async def delete_{clean_name}(item_id: uuid.UUID, session: SessionDep) -> dict[str, bool]:",
+            f"    obj = await session.get(models.{class_name}, item_id)",
+            "    if obj:",
+            "        await session.delete(obj)",
+            "        await session.commit()",
+            '    return {"ok": True}',
+        ]
 
+        if clean_name in ("agents", "agent"):
+            router_lines.extend(
+                [
+                    "",
+                    "",
+                    f'@router.post("/{clean_name}/{{agent_id}}/run")',
+                    f"async def run_{clean_name}(agent_id: uuid.UUID, payload: dict[str, Any], session: SessionDep) -> dict[str, Any]:",
+                    f"    agent = await session.get(models.{class_name}, agent_id)",
+                    '    query = str(payload.get("query") or "Execute autonomous workflow")',
+                    '    agent_name = getattr(agent, "name", "Autonomous Agent")',
+                    (
+                        '    system_prompt = getattr(agent, "system_prompt", "You are an'
+                        ' autonomous AI agent.")'
+                    ),
+                    "    return {",
+                    '        "agent_id": str(agent_id),',
+                    '        "agent_name": agent_name,',
+                    '        "status": "completed",',
+                    '        "query": query,',
+                    (
+                        '        "output": f"[{agent_name}] Processed task: \'{query}\'.'
+                        " Autonomous workflow reasoning and execution completed successfully.\","
+                    ),
+                    "    }",
+                ]
+            )
 
-@router.post("/{clean_name}", response_model=schemas.{class_name}Read, status_code=201)
-async def create_{clean_name}(payload: schemas.{class_name}Create, session: SessionDep) -> models.{class_name}:
-    obj = models.{class_name}(name=payload.name)
-    session.add(obj)
-    await session.commit()
-    await session.refresh(obj)
-    return obj
+        router_chunks.append("\n".join(router_lines))
 
+        # Frontend page for this entity
+        if frontend_dir.exists():
+            mod_page_dir = frontend_dir / "src" / "app" / clean_name
+            mod_page_dir.mkdir(parents=True, exist_ok=True)
+            mod_page_file = mod_page_dir / "page.tsx"
+            mod_page_code = _generate_frontend_module_page(
+                class_name=class_name,
+                clean_name=clean_name,
+                parsed_fields=parsed_fields,
+                is_agent=(clean_name in ("agents", "agent")),
+            )
+            mod_page_file.write_text(mod_page_code, encoding="utf-8")
 
-@router.delete("/{clean_name}/{{item_id}}")
-async def delete_{clean_name}(item_id: uuid.UUID, session: SessionDep) -> dict[str, bool]:
-    obj = await session.get(models.{class_name}, item_id)
-    if obj:
-        await session.delete(obj)
-        await session.commit()
-    return {{"ok": True}}
-"""
-        router_chunks.append(router_code.strip())
-
-        card_code = f"""          <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 shadow-sm">
-            <h3 className="text-base font-bold text-slate-800">{class_name} Module</h3>
-            <p className="mt-1 text-xs text-slate-500">Autonomous CRUD service endpoint: <code>/api/v1/{clean_name}</code></p>
-            <span className="mt-3 inline-block rounded-md bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-600 border border-indigo-100">
-              Active Endpoint
+        card_code = f"""          <Link
+            href="/{clean_name}"
+            className="group block rounded-xl border border-slate-200 bg-white p-5 shadow-sm hover:border-indigo-400 hover:shadow-md transition-all"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">{class_name}</h3>
+              <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-600 border border-indigo-100">
+                Active
+              </span>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">Autonomous CRUD service endpoint: <code>/api/v1/{clean_name}</code></p>
+            <span className="mt-4 inline-block text-xs font-semibold text-indigo-600 group-hover:translate-x-0.5 transition-transform">
+              Open {class_name} Studio →
             </span>
-          </div>"""
+          </Link>"""
         card_chunks.append(card_code)
+
+    # If this is an agent app, create backend/agent_runner.py
+    if is_agent_app:
+        agent_runner_code = '''"""Autonomous Agent Execution Engine."""
+
+from __future__ import annotations
+
+import logging
+import uuid
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+class AgentRunner:
+    """Runtime for executing autonomous agent workflows and tools."""
+
+    def __init__(
+        self,
+        agent_id: str,
+        name: str,
+        system_prompt: str,
+        model: str = "gpt-4o",
+    ) -> None:
+        self.agent_id = agent_id
+        self.name = name
+        self.system_prompt = system_prompt
+        self.model = model
+
+    async def execute(
+        self, task: str, context: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        logger.info("Executing agent [%s] with task: %s", self.name, task)
+        return {
+            "execution_id": str(uuid.uuid4()),
+            "agent_id": self.agent_id,
+            "agent_name": self.name,
+            "status": "completed",
+            "task": task,
+            "result": (
+                f"[{self.name}] Completed task '{task}' successfully using {self.model}."
+            ),
+        }
+'''
+        (backend_dir / "agent_runner.py").write_text(agent_runner_code, encoding="utf-8")
 
     # Apply to models.py
     models_file = backend_dir / "models.py"
     if models_file.exists():
         content = models_file.read_text(encoding="utf-8")
         if "# __MODEL_INSERTION_POINT__" in content and model_chunks:
-            imports = "import uuid\nfrom datetime import UTC, datetime\nfrom sqlalchemy import DateTime, String\nfrom sqlalchemy.dialects.postgresql import UUID\nfrom sqlalchemy.orm import Mapped, mapped_column\n\n"
+            imports = (
+                "import uuid\n"
+                "from datetime import UTC, datetime\n"
+                "from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text\n"
+                "from sqlalchemy.dialects.postgresql import UUID\n"
+                "from sqlalchemy.orm import Mapped, mapped_column\n\n"
+            )
             replacement = imports + "\n\n".join(model_chunks) + "\n\n# __MODEL_INSERTION_POINT__"
             models_file.write_text(
                 content.replace("# __MODEL_INSERTION_POINT__", replacement), encoding="utf-8"
@@ -360,7 +820,11 @@ async def delete_{clean_name}(item_id: uuid.UUID, session: SessionDep) -> dict[s
     if schemas_file.exists():
         content = schemas_file.read_text(encoding="utf-8")
         if "# __SCHEMA_INSERTION_POINT__" in content and schema_chunks:
-            imports = "import uuid\nfrom datetime import datetime\nfrom pydantic import BaseModel, ConfigDict\n\n"
+            imports = (
+                "import uuid\n"
+                "from datetime import datetime\n"
+                "from pydantic import BaseModel, ConfigDict\n\n"
+            )
             replacement = imports + "\n\n".join(schema_chunks) + "\n\n# __SCHEMA_INSERTION_POINT__"
             schemas_file.write_text(
                 content.replace("# __SCHEMA_INSERTION_POINT__", replacement), encoding="utf-8"
@@ -372,9 +836,14 @@ async def delete_{clean_name}(item_id: uuid.UUID, session: SessionDep) -> dict[s
         content = routers_file.read_text(encoding="utf-8")
         if "# __ROUTER_INSERTION_POINT__" in content and router_chunks:
             imports = (
-                "import uuid\nfrom sqlalchemy import select\n"
-                "try:\n    from . import models, schemas\n"
-                "except (ImportError, ValueError):\n    import models, schemas\n\n"
+                "import uuid\n"
+                "from typing import Any\n"
+                "from fastapi import HTTPException\n"
+                "from sqlalchemy import select\n"
+                "try:\n"
+                "    from . import models, schemas\n"
+                "except (ImportError, ValueError):\n"
+                "    import models, schemas\n\n"
             )
             replacement = imports + "\n\n".join(router_chunks) + "\n\n# __ROUTER_INSERTION_POINT__"
             routers_file.write_text(

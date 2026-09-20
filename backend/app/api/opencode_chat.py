@@ -59,6 +59,78 @@ def _synthesize_domain_artifacts(title: str, user_prompt: str) -> dict[str, Any]
 
     if any(
         k in text
+        for k in (
+            "agent",
+            "bot",
+            "assistant",
+            "copilot",
+            "llm",
+            "ai",
+            "autonomous",
+            "orchestrator",
+            "rag",
+            "prompt",
+        )
+    ):
+        industry = "ai_agents"
+        modules = ["agent_orchestration", "tool_registry", "chat_interface", "execution_logs"]
+        entities = [
+            {
+                "name": "agents",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "description", "type": "VARCHAR(500)"},
+                    {"name": "model", "type": "VARCHAR(100)"},
+                    {"name": "system_prompt", "type": "TEXT"},
+                    {"name": "temperature", "type": "FLOAT"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "tools",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "description", "type": "VARCHAR(500)"},
+                    {"name": "tool_type", "type": "VARCHAR(100)"},
+                    {"name": "parameters_schema", "type": "TEXT"},
+                    {"name": "is_enabled", "type": "BOOLEAN"},
+                ],
+            },
+            {
+                "name": "conversations",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "title", "type": "VARCHAR(255)"},
+                    {"name": "agent_name", "type": "VARCHAR(255)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "messages",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "conversation_id", "type": "UUID"},
+                    {"name": "role", "type": "VARCHAR(50)"},
+                    {"name": "content", "type": "TEXT"},
+                    {"name": "tokens", "type": "INTEGER"},
+                ],
+            },
+            {
+                "name": "executions",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "agent_name", "type": "VARCHAR(255)"},
+                    {"name": "input_query", "type": "TEXT"},
+                    {"name": "output_result", "type": "TEXT"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                    {"name": "duration_ms", "type": "INTEGER"},
+                ],
+            },
+        ]
+    elif any(
+        k in text
         for k in ("retail", "store", "ecommerce", "inventory", "pos", "shop", "product", "stock")
     ):
         industry = "d2c_retail"
@@ -222,6 +294,136 @@ def _synthesize_domain_artifacts(title: str, user_prompt: str) -> dict[str, Any]
                     {"name": "id", "type": "UUID"},
                     {"name": "activity_type", "type": "VARCHAR(50)"},
                     {"name": "notes", "type": "VARCHAR(500)"},
+                ],
+            },
+        ]
+    elif any(k in text for k in ("todo", "task", "project", "kanban", "sprint")):
+        industry = "project_management"
+        modules = ["task_tracking", "project_boards", "milestone_planner", "team_collaboration"]
+        entities = [
+            {
+                "name": "projects",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "description", "type": "TEXT"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "tasks",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "title", "type": "VARCHAR(255)"},
+                    {"name": "description", "type": "TEXT"},
+                    {"name": "priority", "type": "VARCHAR(50)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "milestones",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "title", "type": "VARCHAR(255)"},
+                    {"name": "due_date", "type": "VARCHAR(50)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+        ]
+    elif any(k in text for k in ("finance", "invoice", "billing", "payment", "expense")):
+        industry = "finance_invoicing"
+        modules = ["invoice_management", "payment_processing", "expense_tracker", "ledger_reporting"]
+        entities = [
+            {
+                "name": "invoices",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "invoice_number", "type": "VARCHAR(50)"},
+                    {"name": "recipient", "type": "VARCHAR(255)"},
+                    {"name": "amount", "type": "FLOAT"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "transactions",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "description", "type": "VARCHAR(255)"},
+                    {"name": "amount", "type": "FLOAT"},
+                    {"name": "category", "type": "VARCHAR(100)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "accounts",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "account_name", "type": "VARCHAR(255)"},
+                    {"name": "balance", "type": "FLOAT"},
+                    {"name": "currency", "type": "VARCHAR(10)"},
+                ],
+            },
+        ]
+    elif any(k in text for k in ("property", "real estate", "listing", "tenant", "rental")):
+        industry = "real_estate"
+        modules = ["property_listings", "unit_management", "lease_tracking", "tenant_portal"]
+        entities = [
+            {
+                "name": "properties",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "address", "type": "VARCHAR(255)"},
+                    {"name": "property_type", "type": "VARCHAR(100)"},
+                ],
+            },
+            {
+                "name": "units",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "unit_number", "type": "VARCHAR(50)"},
+                    {"name": "rent_amount", "type": "FLOAT"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "tenants",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "email", "type": "VARCHAR(255)"},
+                    {"name": "phone", "type": "VARCHAR(50)"},
+                ],
+            },
+        ]
+    elif any(k in text for k in ("course", "student", "teacher", "learning", "lms")):
+        industry = "education_lms"
+        modules = ["course_catalog", "lesson_manager", "student_enrollment", "grading_analytics"]
+        entities = [
+            {
+                "name": "courses",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "title", "type": "VARCHAR(255)"},
+                    {"name": "description", "type": "TEXT"},
+                    {"name": "instructor", "type": "VARCHAR(255)"},
+                ],
+            },
+            {
+                "name": "lessons",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "title", "type": "VARCHAR(255)"},
+                    {"name": "content", "type": "TEXT"},
+                    {"name": "order_index", "type": "INTEGER"},
+                ],
+            },
+            {
+                "name": "students",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "email", "type": "VARCHAR(255)"},
                 ],
             },
         ]

@@ -320,3 +320,56 @@ async def test_chat_cannot_access_other_users_solution(workspace_solution, monke
         headers=intruder_headers,
     )
     assert resp.status_code == 404
+
+
+def test_synthesize_domain_artifacts_ai_agents():
+    from app.api.opencode_chat import _synthesize_domain_artifacts
+
+    artifacts = _synthesize_domain_artifacts("AI Agent App", "Build an autonomous AI agent with tool calling and memory")
+    assert artifacts["industry"] == "ai_agents"
+    assert "agent_orchestration" in artifacts["confirmed_modules"]
+    assert "tool_registry" in artifacts["confirmed_modules"]
+
+    entities = artifacts["er_diagram"]["content"]["entities"]
+    entity_names = [e["name"] for e in entities]
+    assert "agents" in entity_names
+    assert "tools" in entity_names
+    assert "conversations" in entity_names
+    assert "messages" in entity_names
+    assert "executions" in entity_names
+
+    agent_entity = next(e for e in entities if e["name"] == "agents")
+    agent_field_names = [f["name"] for f in agent_entity["fields"]]
+    assert "system_prompt" in agent_field_names
+    assert "temperature" in agent_field_names
+    assert "model" in agent_field_names
+
+
+
+async def test_chat_ai_agent_request_builds_agent_architecture(workspace_solution, monkeypatch):
+    client = workspace_solution["client"]
+    headers = workspace_solution["headers"]
+    solution_id = workspace_solution["solution_id"]
+
+    _patch_sidecar(monkeypatch)
+
+    resp = await client.post(
+        "/api/v1/opencode/chat",
+        json={
+            "message": "Create an autonomous AI agent with tool calling capabilities",
+            "solution_id": solution_id,
+            "build_requested": True,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert "event: complete" in resp.text
+
+    sol_resp = await client.get(f"/api/v1/solutions/{solution_id}", headers=headers)
+    assert sol_resp.status_code == 200
+    sol_data = sol_resp.json()
+    assert sol_data["status"] == "complete"
+    assert sol_data["ai_state"]["industry"] == "ai_agents"
+    assert "agent_orchestration" in sol_data["ai_state"]["confirmed_modules"]
+
+
