@@ -20,6 +20,7 @@ Endpoints:
 import asyncio
 import json
 import logging
+import re
 from collections.abc import AsyncIterator
 from typing import Any, cast
 from uuid import UUID
@@ -52,418 +53,88 @@ router = APIRouter(prefix="/opencode", tags=["OpenCode Chat"])
 _TARGET_MAX_CONTEXT = 20_000  # uploaded-context cap fed to the sidecar
 
 
-def _synthesize_domain_artifacts(title: str, user_prompt: str) -> dict[str, Any]:
-    text = f"{title} {user_prompt}".lower()
-    industry: str
-    modules: list[str]
-    entities: list[dict[str, Any]]
+def _extract_app_title(prompt: str, fallback: str = "Custom App") -> str:
+    """Extract a clean, concise application title from a user prompt."""
+    if not prompt or not prompt.strip():
+        return fallback
 
-    if any(
-        k in text
-        for k in (
-            "agent",
-            "bot",
-            "assistant",
-            "copilot",
-            "llm",
-            "ai",
-            "autonomous",
-            "orchestrator",
-            "rag",
-            "prompt",
-        )
-    ):
-        industry = "ai_agents"
-        modules = ["agent_orchestration", "tool_registry", "chat_interface", "execution_logs"]
-        entities = [
-            {
-                "name": "agents",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "name", "type": "VARCHAR(255)"},
-                    {"name": "description", "type": "VARCHAR(500)"},
-                    {"name": "model", "type": "VARCHAR(100)"},
-                    {"name": "system_prompt", "type": "TEXT"},
-                    {"name": "temperature", "type": "FLOAT"},
-                    {"name": "status", "type": "VARCHAR(50)"},
-                ],
-            },
-            {
-                "name": "tools",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "name", "type": "VARCHAR(255)"},
-                    {"name": "description", "type": "VARCHAR(500)"},
-                    {"name": "tool_type", "type": "VARCHAR(100)"},
-                    {"name": "parameters_schema", "type": "TEXT"},
-                    {"name": "is_enabled", "type": "BOOLEAN"},
-                ],
-            },
-            {
-                "name": "conversations",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "title", "type": "VARCHAR(255)"},
-                    {"name": "agent_name", "type": "VARCHAR(255)"},
-                    {"name": "status", "type": "VARCHAR(50)"},
-                ],
-            },
-            {
-                "name": "messages",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "conversation_id", "type": "UUID"},
-                    {"name": "role", "type": "VARCHAR(50)"},
-                    {"name": "content", "type": "TEXT"},
-                    {"name": "tokens", "type": "INTEGER"},
-                ],
-            },
-            {
-                "name": "executions",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "agent_name", "type": "VARCHAR(255)"},
-                    {"name": "input_query", "type": "TEXT"},
-                    {"name": "output_result", "type": "TEXT"},
-                    {"name": "status", "type": "VARCHAR(50)"},
-                    {"name": "duration_ms", "type": "INTEGER"},
-                ],
-            },
-        ]
-    elif any(
-        k in text
-        for k in ("retail", "store", "ecommerce", "inventory", "pos", "shop", "product", "stock")
-    ):
-        industry = "d2c_retail"
-        modules = ["ecommerce_storefront", "inventory_management", "order_fulfillment", "crm"]
-        entities = [
-            {
-                "name": "products",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "name", "type": "VARCHAR(255)"},
-                    {"name": "sku", "type": "VARCHAR(100)"},
-                    {"name": "price", "type": "FLOAT"},
-                ],
-            },
-            {
-                "name": "orders",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "customer_name", "type": "VARCHAR(255)"},
-                    {"name": "total", "type": "FLOAT"},
-                    {"name": "status", "type": "VARCHAR(50)"},
-                ],
-            },
-            {
-                "name": "customers",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "name", "type": "VARCHAR(255)"},
-                    {"name": "email", "type": "VARCHAR(255)"},
-                ],
-            },
-            {
-                "name": "inventory",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "product_name", "type": "VARCHAR(255)"},
-                    {"name": "quantity", "type": "INTEGER"},
-                ],
-            },
-        ]
-    elif any(
-        k in text for k in ("health", "clinic", "doctor", "patient", "medical", "telehealth", "ehr")
-    ):
-        industry = "healthcare_clinic"
-        modules = ["booking_scheduler", "patient_portal", "prescriptions", "invoicing_billing"]
-        entities = [
-            {
-                "name": "patients",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "name", "type": "VARCHAR(255)"},
-                    {"name": "dob", "type": "VARCHAR(50)"},
-                    {"name": "phone", "type": "VARCHAR(50)"},
-                ],
-            },
-            {
-                "name": "doctors",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "name", "type": "VARCHAR(255)"},
-                    {"name": "specialty", "type": "VARCHAR(100)"},
-                ],
-            },
-            {
-                "name": "appointments",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "patient_name", "type": "VARCHAR(255)"},
-                    {"name": "appointment_date", "type": "VARCHAR(50)"},
-                    {"name": "status", "type": "VARCHAR(50)"},
-                ],
-            },
-            {
-                "name": "prescriptions",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "patient_name", "type": "VARCHAR(255)"},
-                    {"name": "medication", "type": "VARCHAR(255)"},
-                ],
-            },
-        ]
-    elif any(
-        k in text
-        for k in ("logistics", "fleet", "dispatch", "driver", "freight", "truck", "shipment")
-    ):
-        industry = "logistics_company"
-        modules = [
-            "order_fulfillment",
-            "fleet_tracking",
-            "dispatch_management",
-            "invoicing_billing",
-        ]
-        entities = [
-            {
-                "name": "shipments",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "tracking_number", "type": "VARCHAR(100)"},
-                    {"name": "destination", "type": "VARCHAR(255)"},
-                    {"name": "status", "type": "VARCHAR(50)"},
-                ],
-            },
-            {
-                "name": "drivers",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "name", "type": "VARCHAR(255)"},
-                    {"name": "license_number", "type": "VARCHAR(100)"},
-                ],
-            },
-            {
-                "name": "vehicles",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "plate_number", "type": "VARCHAR(50)"},
-                    {"name": "model", "type": "VARCHAR(100)"},
-                ],
-            },
-            {
-                "name": "routes",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "origin", "type": "VARCHAR(255)"},
-                    {"name": "destination", "type": "VARCHAR(255)"},
-                ],
-            },
-        ]
-    elif any(k in text for k in ("crm", "lead", "client", "sales", "deal")):
-        industry = "consulting_agency"
-        modules = ["crm", "deal_pipeline", "client_portal", "invoicing_billing"]
-        entities = [
-            {
-                "name": "leads",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "name", "type": "VARCHAR(255)"},
-                    {"name": "company", "type": "VARCHAR(255)"},
-                    {"name": "status", "type": "VARCHAR(50)"},
-                ],
-            },
-            {
-                "name": "clients",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "name", "type": "VARCHAR(255)"},
-                    {"name": "industry", "type": "VARCHAR(100)"},
-                ],
-            },
-            {
-                "name": "deals",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "title", "type": "VARCHAR(255)"},
-                    {"name": "amount", "type": "FLOAT"},
-                    {"name": "stage", "type": "VARCHAR(50)"},
-                ],
-            },
-            {
-                "name": "activities",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "activity_type", "type": "VARCHAR(50)"},
-                    {"name": "notes", "type": "VARCHAR(500)"},
-                ],
-            },
-        ]
-    elif any(k in text for k in ("todo", "task", "project", "kanban", "sprint")):
-        industry = "project_management"
-        modules = ["task_tracking", "project_boards", "milestone_planner", "team_collaboration"]
-        entities = [
-            {
-                "name": "projects",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "name", "type": "VARCHAR(255)"},
-                    {"name": "description", "type": "TEXT"},
-                    {"name": "status", "type": "VARCHAR(50)"},
-                ],
-            },
-            {
-                "name": "tasks",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "title", "type": "VARCHAR(255)"},
-                    {"name": "description", "type": "TEXT"},
-                    {"name": "priority", "type": "VARCHAR(50)"},
-                    {"name": "status", "type": "VARCHAR(50)"},
-                ],
-            },
-            {
-                "name": "milestones",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "title", "type": "VARCHAR(255)"},
-                    {"name": "due_date", "type": "VARCHAR(50)"},
-                    {"name": "status", "type": "VARCHAR(50)"},
-                ],
-            },
-        ]
-    elif any(k in text for k in ("finance", "invoice", "billing", "payment", "expense")):
-        industry = "finance_invoicing"
-        modules = [
-            "invoice_management",
-            "payment_processing",
-            "expense_tracker",
-            "ledger_reporting",
-        ]
-        entities = [
-            {
-                "name": "invoices",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "invoice_number", "type": "VARCHAR(50)"},
-                    {"name": "recipient", "type": "VARCHAR(255)"},
-                    {"name": "amount", "type": "FLOAT"},
-                    {"name": "status", "type": "VARCHAR(50)"},
-                ],
-            },
-            {
-                "name": "transactions",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "description", "type": "VARCHAR(255)"},
-                    {"name": "amount", "type": "FLOAT"},
-                    {"name": "category", "type": "VARCHAR(100)"},
-                    {"name": "status", "type": "VARCHAR(50)"},
-                ],
-            },
-            {
-                "name": "accounts",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "account_name", "type": "VARCHAR(255)"},
-                    {"name": "balance", "type": "FLOAT"},
-                    {"name": "currency", "type": "VARCHAR(10)"},
-                ],
-            },
-        ]
-    elif any(k in text for k in ("property", "real estate", "listing", "tenant", "rental")):
-        industry = "real_estate"
-        modules = ["property_listings", "unit_management", "lease_tracking", "tenant_portal"]
-        entities = [
-            {
-                "name": "properties",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "name", "type": "VARCHAR(255)"},
-                    {"name": "address", "type": "VARCHAR(255)"},
-                    {"name": "property_type", "type": "VARCHAR(100)"},
-                ],
-            },
-            {
-                "name": "units",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "unit_number", "type": "VARCHAR(50)"},
-                    {"name": "rent_amount", "type": "FLOAT"},
-                    {"name": "status", "type": "VARCHAR(50)"},
-                ],
-            },
-            {
-                "name": "tenants",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "name", "type": "VARCHAR(255)"},
-                    {"name": "email", "type": "VARCHAR(255)"},
-                    {"name": "phone", "type": "VARCHAR(50)"},
-                ],
-            },
-        ]
-    elif any(k in text for k in ("course", "student", "teacher", "learning", "lms")):
-        industry = "education_lms"
-        modules = ["course_catalog", "lesson_manager", "student_enrollment", "grading_analytics"]
-        entities = [
-            {
-                "name": "courses",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "title", "type": "VARCHAR(255)"},
-                    {"name": "description", "type": "TEXT"},
-                    {"name": "instructor", "type": "VARCHAR(255)"},
-                ],
-            },
-            {
-                "name": "lessons",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "title", "type": "VARCHAR(255)"},
-                    {"name": "content", "type": "TEXT"},
-                    {"name": "order_index", "type": "INTEGER"},
-                ],
-            },
-            {
-                "name": "students",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "name", "type": "VARCHAR(255)"},
-                    {"name": "email", "type": "VARCHAR(255)"},
-                ],
-            },
-        ]
-    else:
-        industry = "saas_platform"
-        modules = ["core_crud", "user_management", "analytics_dashboard", "invoicing_billing"]
-        entities = [
-            {
-                "name": "items",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "name", "type": "VARCHAR(255)"},
-                    {"name": "status", "type": "VARCHAR(50)"},
-                ],
-            },
-            {
-                "name": "categories",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "name", "type": "VARCHAR(255)"},
-                    {"name": "description", "type": "VARCHAR(255)"},
-                ],
-            },
-            {
-                "name": "users",
-                "fields": [
-                    {"name": "id", "type": "UUID"},
-                    {"name": "name", "type": "VARCHAR(255)"},
-                    {"name": "email", "type": "VARCHAR(255)"},
-                ],
-            },
-        ]
+    cleaned = prompt.strip()
+    # Check if prompt is just a greeting or single non-descriptive word
+    if cleaned.lower().rstrip(".!?") in {"hi", "hello", "hey", "test", "build", "app", "help", "yo", "start"}:
+        return fallback
 
-    # Build DDL
+    # Check for explicit named patterns first: "called XYZ" or "named XYZ"
+    named_match = re.search(
+        r"(?:called|named)\s+[\"']?([A-Za-z0-9_\-\s]{2,40}?)[\"']?(?:\s+(?:for|with|that|which|\.|\,)|$)",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    if named_match:
+        name = named_match.group(1).strip()
+        if name:
+            return name
+
+    patterns = [
+        r"^(?:please\s+)?(?:i\s+want\s+to\s+|i\s+would\s+like\s+to\s+|can\s+you\s+)?(?:build|create|make|develop|design|generate)\s+(?:me\s+)?(?:an?\s+)?(?:mvp\s+)?(?:app\s+for\s+|application\s+for\s+|system\s+for\s+|platform\s+for\s+)?(?:an?\s+)?",
+        r"^(?:i\s+need\s+an?\s+app\s+for\s+|i\s+need\s+an?\s+application\s+for\s+|i\s+need\s+a\s+system\s+for\s+)",
+        r"^(?:build\s+|create\s+|make\s+|design\s+)(?:an?\s+)?(?:app\s+for\s+|application\s+for\s+|system\s+for\s+)?(?:an?\s+)?",
+    ]
+    for p in patterns:
+        cleaned = re.sub(p, "", cleaned, flags=re.IGNORECASE).strip()
+
+    first_clause = re.split(
+        r"[.\n,;]|\bwith\b|\bthat\b|\bfor\b|\bwhich\b", cleaned, flags=re.IGNORECASE
+    )[0].strip()
+    words = first_clause.split()
+    if 1 <= len(words) <= 6:
+        candidate = " ".join(words).title()
+        return candidate[:60]
+
+    if words:
+        candidate = " ".join(words[:4]).title()
+        return candidate[:60]
+    return fallback
+
+
+def _synthesize_artifacts_from_spec(
+    title: str,
+    industry: str,
+    modules: list[str],
+    entities: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Construct full architecture artifacts (HLD, LLD, ER, schema, APIs, wireframes) from entities."""
+    normalized_entities: list[dict[str, Any]] = []
+    for ent in entities:
+        if not isinstance(ent, dict):
+            continue
+        ent_name = str(ent.get("name", "item"))
+        clean_name = re.sub(r"[^a-zA-Z0-9_]+", "_", ent_name.lower()).strip("_") or "item"
+        raw_fields = ent.get("fields", [])
+        clean_fields: list[dict[str, str]] = []
+        has_id = False
+        for f in raw_fields:
+            if isinstance(f, dict):
+                fname = re.sub(r"[^a-zA-Z0-9_]+", "_", str(f.get("name", "")).lower()).strip("_")
+                ftype = str(f.get("type", "VARCHAR(255)")).upper()
+            else:
+                fname = re.sub(r"[^a-zA-Z0-9_]+", "_", str(f).lower()).strip("_")
+                ftype = "VARCHAR(255)"
+            if fname == "id":
+                has_id = True
+                clean_fields.insert(0, {"name": "id", "type": "UUID"})
+            elif fname:
+                clean_fields.append({"name": fname, "type": ftype})
+        if not has_id:
+            clean_fields.insert(0, {"name": "id", "type": "UUID"})
+        normalized_entities.append({"name": clean_name, "fields": clean_fields})
+
+    entities = normalized_entities or [
+        {
+            "name": "items",
+            "fields": [{"name": "id", "type": "UUID"}, {"name": "name", "type": "VARCHAR(255)"}],
+        }
+    ]
+
     ddl_statements: list[str] = []
     for ent in entities:
         ent_name = str(ent["name"])
@@ -472,7 +143,6 @@ def _synthesize_domain_artifacts(title: str, user_prompt: str) -> dict[str, Any]
         ddl_statements.append(f"CREATE TABLE {ent_name} ({cols});")
     schema_ddl = "\n".join(ddl_statements)
 
-    # Build Endpoints
     endpoints: list[dict[str, str]] = []
     for ent in entities:
         ent_name = str(ent["name"])
@@ -502,14 +172,14 @@ def _synthesize_domain_artifacts(title: str, user_prompt: str) -> dict[str, Any]
         ent_fields = cast(list[dict[str, str]], ent.get("fields", []))
         screens.append(
             {
-                "name": f"{ent_name.capitalize()} Dashboard",
+                "name": f"{ent_name.replace('_', ' ').title()} Dashboard",
                 "route": f"/{ent_name}",
                 "description": f"CRUD management for {ent_name}",
                 "layout": "sidebar",
                 "components": [
                     {
                         "type": "data_table",
-                        "title": f"{ent_name.capitalize()} Table",
+                        "title": f"{ent_name.replace('_', ' ').title()} Table",
                         "fields": [f["name"] for f in ent_fields],
                     }
                 ],
@@ -676,6 +346,872 @@ def _synthesize_domain_artifacts(title: str, user_prompt: str) -> dict[str, Any]
     }
 
 
+def _synthesize_domain_artifacts_heuristic(title: str, user_prompt: str) -> dict[str, Any]:
+    """Heuristic fallback for domain artifact synthesis using word-boundary matching."""
+    text = f"{title} {user_prompt}".lower()
+    industry: str
+    modules: list[str]
+    entities: list[dict[str, Any]]
+
+    # 1. AI Agents / LLMs — Use WORD BOUNDARIES so "retail", "trainer", "email", "repair" don't match!
+    if re.search(
+        r"\b(agent|agents|bot|bots|assistant|assistants|copilot|llm|ai|autonomous|orchestrator|rag|prompt)\b",
+        text,
+    ):
+        industry = "ai_agents"
+        modules = ["agent_orchestration", "tool_registry", "chat_interface", "execution_logs"]
+        entities = [
+            {
+                "name": "agents",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "description", "type": "VARCHAR(500)"},
+                    {"name": "model", "type": "VARCHAR(100)"},
+                    {"name": "system_prompt", "type": "TEXT"},
+                    {"name": "temperature", "type": "FLOAT"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "tools",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "description", "type": "VARCHAR(500)"},
+                    {"name": "tool_type", "type": "VARCHAR(100)"},
+                    {"name": "parameters_schema", "type": "TEXT"},
+                    {"name": "is_enabled", "type": "BOOLEAN"},
+                ],
+            },
+            {
+                "name": "conversations",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "title", "type": "VARCHAR(255)"},
+                    {"name": "agent_name", "type": "VARCHAR(255)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "messages",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "conversation_id", "type": "UUID"},
+                    {"name": "role", "type": "VARCHAR(50)"},
+                    {"name": "content", "type": "TEXT"},
+                    {"name": "tokens", "type": "INTEGER"},
+                ],
+            },
+            {
+                "name": "executions",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "agent_name", "type": "VARCHAR(255)"},
+                    {"name": "input_query", "type": "TEXT"},
+                    {"name": "output_result", "type": "TEXT"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                    {"name": "duration_ms", "type": "INTEGER"},
+                ],
+            },
+        ]
+    # 2. Gym / Fitness / Wellness
+    elif re.search(
+        r"\b(gym|fitness|workout|workouts|trainer|trainers|exercise|exercises|bodybuilding|athlete|coaching)\b",
+        text,
+    ):
+        industry = "fitness"
+        modules = ["member_directory", "trainer_roster", "workout_planner", "subscriptions"]
+        entities = [
+            {
+                "name": "members",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "email", "type": "VARCHAR(255)"},
+                    {"name": "phone", "type": "VARCHAR(50)"},
+                    {"name": "membership_tier", "type": "VARCHAR(50)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "trainers",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "specialty", "type": "VARCHAR(100)"},
+                    {"name": "hourly_rate", "type": "FLOAT"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "workouts",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "title", "type": "VARCHAR(255)"},
+                    {"name": "difficulty", "type": "VARCHAR(50)"},
+                    {"name": "duration_mins", "type": "INTEGER"},
+                    {"name": "description", "type": "TEXT"},
+                ],
+            },
+            {
+                "name": "subscriptions",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "member_name", "type": "VARCHAR(255)"},
+                    {"name": "plan_name", "type": "VARCHAR(100)"},
+                    {"name": "price", "type": "FLOAT"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+        ]
+    # 3. Restaurant / Food / Dining
+    elif re.search(
+        r"\b(restaurant|food|menu|menus|dish|dishes|dining|meal|meals|recipe|recipes|chef|waiter|cafe|bakery)\b",
+        text,
+    ):
+        industry = "food_and_beverage"
+        modules = ["menu_catalog", "order_management", "table_reservations", "kitchen_display"]
+        entities = [
+            {
+                "name": "menus",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "category", "type": "VARCHAR(100)"},
+                    {"name": "is_active", "type": "BOOLEAN"},
+                ],
+            },
+            {
+                "name": "dishes",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "price", "type": "FLOAT"},
+                    {"name": "description", "type": "TEXT"},
+                    {"name": "is_available", "type": "BOOLEAN"},
+                ],
+            },
+            {
+                "name": "orders",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "table_number", "type": "VARCHAR(50)"},
+                    {"name": "total_amount", "type": "FLOAT"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "reservations",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "guest_name", "type": "VARCHAR(255)"},
+                    {"name": "party_size", "type": "INTEGER"},
+                    {"name": "reservation_time", "type": "VARCHAR(50)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+        ]
+    # 4. Events / Ticketing / Conferences
+    elif re.search(
+        r"\b(event|events|conference|conferences|ticket|tickets|ticketing|attendee|attendees|speaker|speakers)\b",
+        text,
+    ):
+        industry = "event_management"
+        modules = ["event_catalog", "ticket_booking", "attendee_registry", "speaker_schedule"]
+        entities = [
+            {
+                "name": "events",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "title", "type": "VARCHAR(255)"},
+                    {"name": "venue", "type": "VARCHAR(255)"},
+                    {"name": "event_date", "type": "VARCHAR(50)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "tickets",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "event_title", "type": "VARCHAR(255)"},
+                    {"name": "tier", "type": "VARCHAR(50)"},
+                    {"name": "price", "type": "FLOAT"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "attendees",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "email", "type": "VARCHAR(255)"},
+                    {"name": "badge_number", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "speakers",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "topic", "type": "VARCHAR(255)"},
+                    {"name": "bio", "type": "TEXT"},
+                ],
+            },
+        ]
+    # 5. Hotels / Hospitality
+    elif re.search(
+        r"\b(hotel|hotels|room|rooms|hospitality|reservation|reservations|guest|guests|stay)\b",
+        text,
+    ):
+        industry = "hotel_hospitality"
+        modules = ["room_inventory", "guest_portal", "booking_engine", "billing_folio"]
+        entities = [
+            {
+                "name": "rooms",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "room_number", "type": "VARCHAR(50)"},
+                    {"name": "room_type", "type": "VARCHAR(100)"},
+                    {"name": "nightly_rate", "type": "FLOAT"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "guests",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "email", "type": "VARCHAR(255)"},
+                    {"name": "phone", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "bookings",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "guest_name", "type": "VARCHAR(255)"},
+                    {"name": "check_in", "type": "VARCHAR(50)"},
+                    {"name": "check_out", "type": "VARCHAR(50)"},
+                    {"name": "total_price", "type": "FLOAT"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+        ]
+    # 6. HR / Workforce / Recruitment
+    elif re.search(
+        r"\b(hr|employee|employees|staff|payroll|applicant|applicants|recruitment|job|jobs|hiring)\b",
+        text,
+    ):
+        industry = "hr_workforce"
+        modules = ["employee_directory", "department_manager", "leave_tracker", "payroll_ledger"]
+        entities = [
+            {
+                "name": "employees",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "email", "type": "VARCHAR(255)"},
+                    {"name": "job_title", "type": "VARCHAR(100)"},
+                    {"name": "department", "type": "VARCHAR(100)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "departments",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "manager_name", "type": "VARCHAR(255)"},
+                ],
+            },
+            {
+                "name": "leave_requests",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "employee_name", "type": "VARCHAR(255)"},
+                    {"name": "leave_type", "type": "VARCHAR(50)"},
+                    {"name": "start_date", "type": "VARCHAR(50)"},
+                    {"name": "end_date", "type": "VARCHAR(50)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+        ]
+    # 7. Retail / E-commerce
+    elif re.search(
+        r"\b(retail|store|ecommerce|inventory|pos|shop|product|products|stock|cart|catalog)\b",
+        text,
+    ):
+        industry = "d2c_retail"
+        modules = ["ecommerce_storefront", "inventory_management", "order_fulfillment", "crm"]
+        entities = [
+            {
+                "name": "products",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "sku", "type": "VARCHAR(100)"},
+                    {"name": "price", "type": "FLOAT"},
+                ],
+            },
+            {
+                "name": "orders",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "customer_name", "type": "VARCHAR(255)"},
+                    {"name": "total", "type": "FLOAT"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "customers",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "email", "type": "VARCHAR(255)"},
+                ],
+            },
+            {
+                "name": "inventory",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "product_name", "type": "VARCHAR(255)"},
+                    {"name": "quantity", "type": "INTEGER"},
+                ],
+            },
+        ]
+    # 8. Healthcare / Clinic
+    elif re.search(
+        r"\b(health|clinic|doctor|doctors|patient|patients|medical|telehealth|ehr|hospital|dental)\b",
+        text,
+    ):
+        industry = "healthcare_clinic"
+        modules = ["booking_scheduler", "patient_portal", "prescriptions", "invoicing_billing"]
+        entities = [
+            {
+                "name": "patients",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "dob", "type": "VARCHAR(50)"},
+                    {"name": "phone", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "doctors",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "specialty", "type": "VARCHAR(100)"},
+                ],
+            },
+            {
+                "name": "appointments",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "patient_name", "type": "VARCHAR(255)"},
+                    {"name": "appointment_date", "type": "VARCHAR(50)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "prescriptions",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "patient_name", "type": "VARCHAR(255)"},
+                    {"name": "medication", "type": "VARCHAR(255)"},
+                ],
+            },
+        ]
+    # 9. Logistics / Fleet / Shipping
+    elif re.search(
+        r"\b(logistics|fleet|dispatch|driver|drivers|freight|truck|trucks|shipment|shipments|warehouse)\b",
+        text,
+    ):
+        industry = "logistics_company"
+        modules = [
+            "order_fulfillment",
+            "fleet_tracking",
+            "dispatch_management",
+            "invoicing_billing",
+        ]
+        entities = [
+            {
+                "name": "shipments",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "tracking_number", "type": "VARCHAR(100)"},
+                    {"name": "destination", "type": "VARCHAR(255)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "drivers",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "license_number", "type": "VARCHAR(100)"},
+                ],
+            },
+            {
+                "name": "vehicles",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "plate_number", "type": "VARCHAR(50)"},
+                    {"name": "model", "type": "VARCHAR(100)"},
+                ],
+            },
+            {
+                "name": "routes",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "origin", "type": "VARCHAR(255)"},
+                    {"name": "destination", "type": "VARCHAR(255)"},
+                ],
+            },
+        ]
+    # 10. CRM / Sales
+    elif re.search(r"\b(crm|lead|leads|client|clients|sales|deal|deals|pipeline)\b", text):
+        industry = "consulting_agency"
+        modules = ["crm", "deal_pipeline", "client_portal", "invoicing_billing"]
+        entities = [
+            {
+                "name": "leads",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "company", "type": "VARCHAR(255)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "clients",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "industry", "type": "VARCHAR(100)"},
+                ],
+            },
+            {
+                "name": "deals",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "title", "type": "VARCHAR(255)"},
+                    {"name": "amount", "type": "FLOAT"},
+                    {"name": "stage", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "activities",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "activity_type", "type": "VARCHAR(50)"},
+                    {"name": "notes", "type": "VARCHAR(500)"},
+                ],
+            },
+        ]
+    # 11. Project Management / Tasks
+    elif re.search(
+        r"\b(todo|task|tasks|project|projects|kanban|sprint|sprints|issue|issues|bug|bugs)\b",
+        text,
+    ):
+        industry = "project_management"
+        modules = ["task_tracking", "project_boards", "milestone_planner", "team_collaboration"]
+        entities = [
+            {
+                "name": "projects",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "description", "type": "TEXT"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "tasks",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "title", "type": "VARCHAR(255)"},
+                    {"name": "description", "type": "TEXT"},
+                    {"name": "priority", "type": "VARCHAR(50)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "milestones",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "title", "type": "VARCHAR(255)"},
+                    {"name": "due_date", "type": "VARCHAR(50)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+        ]
+    # 12. Finance / Invoicing / Payments
+    elif re.search(
+        r"\b(finance|invoice|invoices|billing|payment|payments|expense|expenses|wallet|crypto|ledger)\b",
+        text,
+    ):
+        industry = "finance_invoicing"
+        modules = [
+            "invoice_management",
+            "payment_processing",
+            "expense_tracker",
+            "ledger_reporting",
+        ]
+        entities = [
+            {
+                "name": "invoices",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "invoice_number", "type": "VARCHAR(50)"},
+                    {"name": "recipient", "type": "VARCHAR(255)"},
+                    {"name": "amount", "type": "FLOAT"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "transactions",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "description", "type": "VARCHAR(255)"},
+                    {"name": "amount", "type": "FLOAT"},
+                    {"name": "category", "type": "VARCHAR(100)"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "accounts",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "account_name", "type": "VARCHAR(255)"},
+                    {"name": "balance", "type": "FLOAT"},
+                    {"name": "currency", "type": "VARCHAR(10)"},
+                ],
+            },
+        ]
+    # 13. Real Estate / Property
+    elif re.search(
+        r"\b(property|properties|real\s+estate|listing|listings|tenant|tenants|rental|rentals|lease|apartment)\b",
+        text,
+    ):
+        industry = "real_estate"
+        modules = ["property_listings", "unit_management", "lease_tracking", "tenant_portal"]
+        entities = [
+            {
+                "name": "properties",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "address", "type": "VARCHAR(255)"},
+                    {"name": "property_type", "type": "VARCHAR(100)"},
+                ],
+            },
+            {
+                "name": "units",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "unit_number", "type": "VARCHAR(50)"},
+                    {"name": "rent_amount", "type": "FLOAT"},
+                    {"name": "status", "type": "VARCHAR(50)"},
+                ],
+            },
+            {
+                "name": "tenants",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "email", "type": "VARCHAR(255)"},
+                    {"name": "phone", "type": "VARCHAR(50)"},
+                ],
+            },
+        ]
+    # 14. Education / LMS
+    elif re.search(
+        r"\b(course|courses|student|students|teacher|teachers|learning|lms|school|university|class|classes)\b",
+        text,
+    ):
+        industry = "education_lms"
+        modules = ["course_catalog", "lesson_manager", "student_enrollment", "grading_analytics"]
+        entities = [
+            {
+                "name": "courses",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "title", "type": "VARCHAR(255)"},
+                    {"name": "description", "type": "TEXT"},
+                    {"name": "instructor", "type": "VARCHAR(255)"},
+                ],
+            },
+            {
+                "name": "lessons",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "title", "type": "VARCHAR(255)"},
+                    {"name": "content", "type": "TEXT"},
+                    {"name": "order_index", "type": "INTEGER"},
+                ],
+            },
+            {
+                "name": "students",
+                "fields": [
+                    {"name": "id", "type": "UUID"},
+                    {"name": "name", "type": "VARCHAR(255)"},
+                    {"name": "email", "type": "VARCHAR(255)"},
+                ],
+            },
+        ]
+    else:
+        # Dynamic extraction from user prompt words instead of always generic "items"
+        industry = "custom_domain"
+        clean_words = [
+            w
+            for w in re.findall(r"[a-z]{3,}", text)
+            if w
+            not in {
+                "the",
+                "and",
+                "for",
+                "with",
+                "that",
+                "this",
+                "app",
+                "application",
+                "system",
+                "build",
+                "create",
+                "make",
+                "want",
+                "need",
+                "like",
+                "from",
+                "have",
+                "more",
+                "user",
+                "custom",
+                "into",
+                "full",
+                "stack",
+                "fastapi",
+                "nextjs",
+                "crud",
+                "real",
+                "data",
+                "platform",
+            }
+        ]
+        entities = []
+        modules = []
+        for w in clean_words[:4]:
+            singular = w.rstrip("s")
+            plural = f"{singular}s"
+            if plural not in [e["name"] for e in entities]:
+                entities.append(
+                    {
+                        "name": plural,
+                        "fields": [
+                            {"name": "id", "type": "UUID"},
+                            {"name": "name", "type": "VARCHAR(255)"},
+                            {"name": "description", "type": "TEXT"},
+                            {"name": "status", "type": "VARCHAR(50)"},
+                        ],
+                    }
+                )
+                modules.append(f"{singular}_management")
+        if not entities:
+            industry = "saas_platform"
+            modules = ["core_crud", "user_management", "analytics_dashboard", "invoicing_billing"]
+            entities = [
+                {
+                    "name": "items",
+                    "fields": [
+                        {"name": "id", "type": "UUID"},
+                        {"name": "name", "type": "VARCHAR(255)"},
+                        {"name": "status", "type": "VARCHAR(50)"},
+                    ],
+                },
+                {
+                    "name": "categories",
+                    "fields": [
+                        {"name": "id", "type": "UUID"},
+                        {"name": "name", "type": "VARCHAR(255)"},
+                        {"name": "description", "type": "VARCHAR(255)"},
+                    ],
+                },
+                {
+                    "name": "users",
+                    "fields": [
+                        {"name": "id", "type": "UUID"},
+                        {"name": "name", "type": "VARCHAR(255)"},
+                        {"name": "email", "type": "VARCHAR(255)"},
+                    ],
+                },
+            ]
+
+    return _synthesize_artifacts_from_spec(title, industry, modules, entities)
+
+
+def _synthesize_domain_artifacts(title: str, user_prompt: str) -> dict[str, Any]:
+    """Backward-compatible synchronous wrapper for heuristic domain artifact synthesis."""
+    return _synthesize_domain_artifacts_heuristic(title, user_prompt)
+
+
+async def _synthesize_domain_artifacts_dynamic(
+    title: str,
+    user_prompt: str,
+    context: str = "",
+    history: list[dict[str, Any]] | None = None,
+    existing_state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Dynamically synthesize domain models, entities, and modules for the user's application.
+
+    Uses LLM to extract domain structure from prompt and history, falling back to
+    intelligent regex heuristic if LLM is unavailable or offline.
+    """
+    # 1. Check if user prompt is a short confirmation (e.g. "build it", "build it now", "yes", "proceed")
+    # and we already have existing domain entities in existing_state.
+    short_confirmations = {
+        "build",
+        "build it",
+        "build it now",
+        "build now",
+        "build app",
+        "build please",
+        "please build",
+        "please build it",
+        "yes",
+        "yes please",
+        "go ahead",
+        "proceed",
+        "proceed with build",
+        "finalize",
+        "deploy",
+        "confirm",
+        "looks good",
+        "looks good build it",
+        "ok",
+        "okay",
+        "start build",
+        "build and deploy",
+    }
+    cleaned_prompt = re.sub(r"[^a-zA-Z0-9\s]+", "", user_prompt.strip().lower()).strip()
+    words = cleaned_prompt.split()
+    is_confirmation = (
+        cleaned_prompt in short_confirmations
+        or (
+            len(words) <= 5
+            and any(
+                w in words
+                for w in ("build", "proceed", "finalize", "confirm", "deploy", "yes", "ok", "okay")
+            )
+            and not any(
+                w in words
+                for w in (
+                    "create",
+                    "make",
+                    "design",
+                    "instead",
+                    "change",
+                    "modify",
+                    "different",
+                    "new",
+                    "another",
+                )
+            )
+        )
+    )
+
+    if (
+        is_confirmation
+        and existing_state
+        and existing_state.get("er_diagram", {}).get("content", {}).get("entities")
+    ):
+        logger.info(
+            "Preserving existing domain architecture for confirmation prompt '%s'", user_prompt
+        )
+        return dict(existing_state)
+
+    # 2. Combine history if current prompt is short but we need context
+    effective_prompt = user_prompt
+    if len(user_prompt.split()) < 5 and history:
+        user_msgs = [m.get("content", "") for m in history if m.get("role") == "user"]
+        if user_msgs:
+            effective_prompt = f"{' '.join(user_msgs[-3:])} {user_prompt}"
+
+    # 3. Attempt LLM-based structured synthesis
+    try:
+        llm = get_llm(temperature=0.1)
+        sys_prompt = (
+            "You are an expert software architect. Analyze the user's application requirements "
+            "and extract a structured domain specification as a JSON object with EXACTLY this schema:\n"
+            "{\n"
+            '  "app_title": "Concise 2-4 word application name (e.g. FitPulse Gym, MedTrack Inventory)",\n'
+            '  "industry": "slugified industry name (e.g. fitness_gym, healthcare, ecommerce)",\n'
+            '  "modules": ["module1_slug", "module2_slug", "module3_slug", "module4_slug"],\n'
+            '  "entities": [\n'
+            '    {\n'
+            '      "name": "plural_table_name (e.g. members, trainers, classes)",\n'
+            '      "fields": [\n'
+            '        {"name": "id", "type": "UUID"},\n'
+            '        {"name": "field_name", "type": "VARCHAR(255) | TEXT | INTEGER | FLOAT | BOOLEAN"}\n'
+            '      ]\n'
+            '    }\n'
+            '  ]\n'
+            "}\n"
+            "Include 3-5 domain entities with 4-7 realistic fields each tailored precisely to the user's app. "
+            "Respond ONLY with the JSON object."
+        )
+        user_content = f"User Request: {effective_prompt}"
+        if context:
+            user_content = f"Uploaded Context:\n{context[:4000]}\n\n{user_content}"
+
+        resp = await asyncio.wait_for(
+            llm.ainvoke([SystemMessage(content=sys_prompt), HumanMessage(content=user_content)]),
+            timeout=10.0,
+        )
+        if resp and resp.content:
+            raw_text = str(resp.content).strip()
+            if "```json" in raw_text:
+                raw_text = raw_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in raw_text:
+                raw_text = raw_text.split("```")[1].split("```")[0].strip()
+            parsed = json.loads(raw_text)
+            if (
+                isinstance(parsed, dict)
+                and parsed.get("entities")
+                and isinstance(parsed["entities"], list)
+                and len(parsed["entities"]) >= 1
+            ):
+                app_title = parsed.get("app_title") or title or _extract_app_title(effective_prompt)
+                industry = parsed.get("industry") or "custom_domain"
+                modules = parsed.get("modules") or [
+                    f"{e.get('name', 'item')}_mgmt" for e in parsed["entities"]
+                ]
+                entities = parsed["entities"]
+                logger.info(
+                    "LLM synthesized custom domain for '%s': %s (%d entities)",
+                    app_title,
+                    industry,
+                    len(entities),
+                )
+                res = _synthesize_artifacts_from_spec(app_title, industry, modules, entities)
+                res["app_title"] = app_title
+                return res
+    except Exception as exc:
+        logger.warning("LLM dynamic domain synthesis skipped or failed (%s); using heuristic", exc)
+
+    # 4. Fallback to heuristic
+    app_title = (
+        title
+        if title not in ("Custom App Build", "Custom App")
+        else _extract_app_title(effective_prompt)
+    )
+    res = _synthesize_domain_artifacts_heuristic(app_title, effective_prompt)
+    res["app_title"] = app_title
+    return res
+
+
+
 @router.get("/health")
 async def health() -> dict[str, Any]:
     """Report whether the AI build engine is reachable and ready.
@@ -769,12 +1305,15 @@ async def chat(
                     solution = await _verify_solution_access(
                         stream_db, payload.solution_id, current_user
                     )
+                    if payload.app_name and solution.title in ("Custom App Build", "Custom App"):
+                        solution.title = payload.app_name
                 else:
                     workspace = await _get_or_create_workspace(stream_db, current_user)
+                    initial_title = payload.app_name or _extract_app_title(payload.message)
                     solution = Solution(
                         workspace_id=workspace.id,
-                        title=payload.app_name or "Custom App Build",
-                        description="App built through conversational OpenCode chat",
+                        title=initial_title,
+                        description=f"App built through conversational OpenCode chat: {payload.message[:200]}",
                         status="discovery",
                         conversation_history=[],
                     )
@@ -911,7 +1450,7 @@ async def chat(
                             assistant_text = str(resp.content)
                     if not assistant_text or assistant_text == "Mock response":
                         assistant_text = (
-                            "I've structured your application requirements into the "
+                            f"I've structured your application requirements for **{solution.title}** into the "
                             "FastAPI backend and Next.js frontend workspace. "
                             "Toggle **Build** and send to finalize your deployable package."
                         )
@@ -921,10 +1460,20 @@ async def chat(
                 history.append({"role": "assistant", "content": assistant_text})
                 solution.conversation_history = history
 
-                synthesized = _synthesize_domain_artifacts(solution.title, payload.message)
+                synthesized = await _synthesize_domain_artifacts_dynamic(
+                    solution.title,
+                    payload.message,
+                    context=payload.uploaded_context or "",
+                    history=solution.conversation_history or [],
+                    existing_state=ai_state,
+                )
+                if synthesized.get("app_title") and solution.title in ("Custom App Build", "Custom App"):
+                    solution.title = synthesized["app_title"]
+
                 solution.ai_state = {
-                    **synthesized,
                     **ai_state,
+                    **synthesized,
+                    "solution_title": solution.title,
                     "business_description": ai_state.get("business_description") or payload.message,
                 }
 

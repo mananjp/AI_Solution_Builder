@@ -398,3 +398,84 @@ async def test_chat_build_requested_emits_granular_progress_events(workspace_sol
     assert '"phase": "scaffolding"' in resp.text
     assert '"phase": "completed"' in resp.text
     assert "event: complete" in resp.text
+
+
+def test_synthesize_domain_artifacts_no_false_positive_ai_matches():
+    """Words containing 'ai' (retail, trainer, email, repair) must NOT trigger ai_agents."""
+    from app.api.opencode_chat import _synthesize_domain_artifacts
+
+    prompts = [
+        "Build a retail clothing store management app",
+        "Personal trainer and fitness workout tracker",
+        "Email marketing campaign manager",
+        "Auto repair and maintenance shop booking",
+    ]
+    for p in prompts:
+        artifacts = _synthesize_domain_artifacts("Test App", p)
+        assert artifacts["industry"] != "ai_agents", f"Prompt '{p}' incorrectly matched ai_agents!"
+
+
+def test_extract_app_title():
+    """Verify clean title extraction from user prompts."""
+    from app.api.opencode_chat import _extract_app_title
+
+    assert _extract_app_title("Build a gym management platform called IronFit") == "IronFit"
+    assert _extract_app_title("Create an app named PetHaven for pet adoption") == "PetHaven"
+    assert _extract_app_title("Build an app for hotel booking") == "Hotel Booking"
+    assert _extract_app_title("Build a restaurant food ordering system") == "Restaurant Food Ordering System"
+    assert _extract_app_title("hello") == "Custom App"
+
+
+def test_synthesize_domain_artifacts_gym_fitness():
+    """Verify gym/fitness domain produces fitness-specific entities."""
+    from app.api.opencode_chat import _synthesize_domain_artifacts
+
+    artifacts = _synthesize_domain_artifacts(
+        "FitPulse Gym", "Build a gym and fitness club management app with members, trainers, and classes"
+    )
+    assert artifacts["industry"] in ("fitness", "gym_management")
+    entities = artifacts["er_diagram"]["content"]["entities"]
+    entity_names = [e["name"] for e in entities]
+    assert "members" in entity_names
+    assert "trainers" in entity_names
+    assert "workouts" in entity_names or "classes" in entity_names or "subscriptions" in entity_names
+
+
+def test_synthesize_domain_artifacts_restaurant():
+    """Verify restaurant domain produces food & beverage entities."""
+    from app.api.opencode_chat import _synthesize_domain_artifacts
+
+    artifacts = _synthesize_domain_artifacts(
+        "Bistro Cafe", "Create a restaurant food ordering and table reservation platform"
+    )
+    assert artifacts["industry"] == "food_and_beverage"
+    entities = artifacts["er_diagram"]["content"]["entities"]
+    entity_names = [e["name"] for e in entities]
+    assert "menus" in entity_names or "menu_items" in entity_names
+    assert "dishes" in entity_names or "orders" in entity_names
+
+
+async def test_synthesize_domain_artifacts_dynamic_preserves_state():
+    """When the user provides a short confirmation prompt ('build it'), existing domain state is preserved."""
+    from app.api.opencode_chat import _synthesize_domain_artifacts_dynamic
+
+    existing_state = {
+        "industry": "fitness",
+        "confirmed_modules": ["members", "trainers"],
+        "er_diagram": {
+            "type": "er_diagram",
+            "content": {
+                "entities": [
+                    {"name": "members", "fields": [{"name": "id", "type": "uuid"}]},
+                    {"name": "trainers", "fields": [{"name": "id", "type": "uuid"}]},
+                ]
+            }
+        },
+    }
+
+    result = await _synthesize_domain_artifacts_dynamic("FitPulse", "build it now", existing_state=existing_state)
+    assert result["industry"] == "fitness"
+    entity_names = [e["name"] for e in result["er_diagram"]["content"]["entities"]]
+    assert "members" in entity_names
+    assert "trainers" in entity_names
+

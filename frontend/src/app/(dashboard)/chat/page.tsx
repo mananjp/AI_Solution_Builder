@@ -51,6 +51,7 @@ function ChatContent() {
   const initialSolutionId = searchParams.get('solution_id') || null;
 
   const [input, setInput] = useState(initialPrompt);
+  const [appName, setAppName] = useState(searchParams.get('app_name') || '');
   const [messages, setMessages] = useState<Msg[]>([{
     role: 'assistant',
     agent: 'SUTRA Orchestrator',
@@ -137,7 +138,14 @@ function ChatContent() {
 
     try {
       await sendOpenCodeChatStream(
-        { message: text, solution_id: solutionId, session_id: sessionId, uploaded_context: uploadedContext, build_requested: finalize },
+        {
+          message: text,
+          app_name: appName.trim() || undefined,
+          solution_id: solutionId,
+          session_id: sessionId,
+          uploaded_context: uploadedContext,
+          build_requested: finalize,
+        },
         {
           onEvent: (event, data) => {
             if (event === 'agent_start') {
@@ -324,6 +332,20 @@ function ChatContent() {
           <div className="p-4 bg-[var(--bg-2)] border-t border-[var(--border)]">
             {error && (
               <p className="text-[11px] font-semibold text-[var(--red)] bg-[var(--bg)] border border-[var(--red)] px-4 py-2 mb-3 shadow-sm">{error}</p>
+            )}
+
+            {buildRequested && (
+              <div className="mb-2.5 flex items-center gap-2 animate-fade-in">
+                <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)] shrink-0">App Name (optional):</span>
+                <input
+                  type="text"
+                  value={appName}
+                  onChange={(e) => setAppName(e.target.value)}
+                  placeholder="e.g. FitPulse Gym, Gourmet Bistro, PetHaven..."
+                  disabled={isStreaming}
+                  className="flex-1 py-1.5 px-3 bg-[var(--bg)] border border-[var(--border)] text-[12px] text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm"
+                />
+              </div>
             )}
 
             <form
