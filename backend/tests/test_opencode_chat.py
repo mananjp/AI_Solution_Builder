@@ -422,7 +422,10 @@ def test_extract_app_title():
     assert _extract_app_title("Build a gym management platform called IronFit") == "IronFit"
     assert _extract_app_title("Create an app named PetHaven for pet adoption") == "PetHaven"
     assert _extract_app_title("Build an app for hotel booking") == "Hotel Booking"
-    assert _extract_app_title("Build a restaurant food ordering system") == "Restaurant Food Ordering System"
+    assert (
+        _extract_app_title("Build a restaurant food ordering system")
+        == "Restaurant Food Ordering System"
+    )
     assert _extract_app_title("hello") == "Custom App"
 
 
@@ -431,14 +434,17 @@ def test_synthesize_domain_artifacts_gym_fitness():
     from app.api.opencode_chat import _synthesize_domain_artifacts
 
     artifacts = _synthesize_domain_artifacts(
-        "FitPulse Gym", "Build a gym and fitness club management app with members, trainers, and classes"
+        "FitPulse Gym",
+        "Build a gym and fitness club management app with members, trainers, and classes",
     )
     assert artifacts["industry"] in ("fitness", "gym_management")
     entities = artifacts["er_diagram"]["content"]["entities"]
     entity_names = [e["name"] for e in entities]
     assert "members" in entity_names
     assert "trainers" in entity_names
-    assert "workouts" in entity_names or "classes" in entity_names or "subscriptions" in entity_names
+    assert (
+        "workouts" in entity_names or "classes" in entity_names or "subscriptions" in entity_names
+    )
 
 
 def test_synthesize_domain_artifacts_restaurant():
@@ -469,13 +475,14 @@ async def test_synthesize_domain_artifacts_dynamic_preserves_state():
                     {"name": "members", "fields": [{"name": "id", "type": "uuid"}]},
                     {"name": "trainers", "fields": [{"name": "id", "type": "uuid"}]},
                 ]
-            }
+            },
         },
     }
 
-    result = await _synthesize_domain_artifacts_dynamic("FitPulse", "build it now", existing_state=existing_state)
+    result = await _synthesize_domain_artifacts_dynamic(
+        "FitPulse", "build it now", existing_state=existing_state
+    )
     assert result["industry"] == "fitness"
     entity_names = [e["name"] for e in result["er_diagram"]["content"]["entities"]]
     assert "members" in entity_names
     assert "trainers" in entity_names
-

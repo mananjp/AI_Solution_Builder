@@ -60,7 +60,17 @@ def _extract_app_title(prompt: str, fallback: str = "Custom App") -> str:
 
     cleaned = prompt.strip()
     # Check if prompt is just a greeting or single non-descriptive word
-    if cleaned.lower().rstrip(".!?") in {"hi", "hello", "hey", "test", "build", "app", "help", "yo", "start"}:
+    if cleaned.lower().rstrip(".!?") in {
+        "hi",
+        "hello",
+        "hey",
+        "test",
+        "build",
+        "app",
+        "help",
+        "yo",
+        "start",
+    }:
         return fallback
 
     # Check for explicit named patterns first: "called XYZ" or "named XYZ"
@@ -1096,27 +1106,24 @@ async def _synthesize_domain_artifacts_dynamic(
     }
     cleaned_prompt = re.sub(r"[^a-zA-Z0-9\s]+", "", user_prompt.strip().lower()).strip()
     words = cleaned_prompt.split()
-    is_confirmation = (
-        cleaned_prompt in short_confirmations
-        or (
-            len(words) <= 5
-            and any(
-                w in words
-                for w in ("build", "proceed", "finalize", "confirm", "deploy", "yes", "ok", "okay")
-            )
-            and not any(
-                w in words
-                for w in (
-                    "create",
-                    "make",
-                    "design",
-                    "instead",
-                    "change",
-                    "modify",
-                    "different",
-                    "new",
-                    "another",
-                )
+    is_confirmation = cleaned_prompt in short_confirmations or (
+        len(words) <= 5
+        and any(
+            w in words
+            for w in ("build", "proceed", "finalize", "confirm", "deploy", "yes", "ok", "okay")
+        )
+        and not any(
+            w in words
+            for w in (
+                "create",
+                "make",
+                "design",
+                "instead",
+                "change",
+                "modify",
+                "different",
+                "new",
+                "another",
             )
         )
     )
@@ -1149,14 +1156,14 @@ async def _synthesize_domain_artifacts_dynamic(
             '  "industry": "slugified industry name (e.g. fitness_gym, healthcare, ecommerce)",\n'
             '  "modules": ["module1_slug", "module2_slug", "module3_slug", "module4_slug"],\n'
             '  "entities": [\n'
-            '    {\n'
+            "    {\n"
             '      "name": "plural_table_name (e.g. members, trainers, classes)",\n'
             '      "fields": [\n'
             '        {"name": "id", "type": "UUID"},\n'
             '        {"name": "field_name", "type": "VARCHAR(255) | TEXT | INTEGER | FLOAT | BOOLEAN"}\n'
-            '      ]\n'
-            '    }\n'
-            '  ]\n'
+            "      ]\n"
+            "    }\n"
+            "  ]\n"
             "}\n"
             "Include 3-5 domain entities with 4-7 realistic fields each tailored precisely to the user's app. "
             "Respond ONLY with the JSON object."
@@ -1209,7 +1216,6 @@ async def _synthesize_domain_artifacts_dynamic(
     res = _synthesize_domain_artifacts_heuristic(app_title, effective_prompt)
     res["app_title"] = app_title
     return res
-
 
 
 @router.get("/health")
@@ -1467,7 +1473,10 @@ async def chat(
                     history=solution.conversation_history or [],
                     existing_state=ai_state,
                 )
-                if synthesized.get("app_title") and solution.title in ("Custom App Build", "Custom App"):
+                if synthesized.get("app_title") and solution.title in (
+                    "Custom App Build",
+                    "Custom App",
+                ):
                     solution.title = synthesized["app_title"]
 
                 solution.ai_state = {
