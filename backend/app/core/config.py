@@ -115,6 +115,9 @@ class Settings(BaseSettings):
     MVP_VERIFY_NPM: bool = False  # Skip npm install/build in memory-constrained environments
     MVP_VERIFY_INSTALL_TIMEOUT: int = 180  # seconds for npm install in checkpoint
     MVP_VERIFY_BUILD_TIMEOUT: int = 120  # seconds for npm run build in checkpoint
+    MVP_MAX_REPAIR_TURNS: int = 4
+    MVP_TEST_TIMEOUT_S: int = 180
+
 
     # ── Worker Process / Queue ────────────────────
     WORKER_MODE: str = "inline"  # "worker" (separate process) | "inline" (in-process fallback)

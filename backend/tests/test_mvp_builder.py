@@ -501,3 +501,146 @@ def test_todo_template_prompt_small_enough_for_generous_tpm():
     prompt = builder.build_mvp_prompt(tpl.build_ai_state(), "012345abcdef/build_1")  # type: ignore[arg-type]
     assert len(prompt) < 3000
     assert "task_management" in prompt
+
+
+def test_restaurant_template_registered_and_builds_state():
+    tpl = templates.get_template("restaurant_ordering")
+    assert tpl is not None
+    assert tpl.slug == "restaurant_ordering"
+    state = tpl.build_ai_state()
+    assert "dishes" in state["confirmed_modules"]
+    assert "orders" in state["confirmed_modules"]
+
+
+def test_apply_restaurant_template_files(tmp_path):
+    builder.scaffold_build(
+        tmp_path, app_title="Bistro Demo", inject_modules=["restaurant_ordering"]
+    )
+    templates.apply_template_files(tmp_path, "restaurant_ordering", app_title="Bistro Demo")
+
+    # Backend verification
+    models = (tmp_path / "backend" / "models.py").read_text(encoding="utf-8")
+    assert "class Dish(Base):" in models
+    assert "class Order(Base):" in models
+
+    schemas = (tmp_path / "backend" / "schemas.py").read_text(encoding="utf-8")
+    assert "class DishCreate(DishBase):" in schemas
+    assert "class OrderRead(OrderBase):" in schemas
+
+    routers = (tmp_path / "backend" / "routers.py").read_text(encoding="utf-8")
+    assert "/dishes" in routers
+    assert "/orders" in routers
+    assert "Truffle Mushroom Risotto" in routers
+
+    # Frontend verification
+    page_tsx = (tmp_path / "frontend" / "src" / "app" / "page.tsx").read_text(encoding="utf-8")
+    assert "Digital Menu & Table Ordering System" in page_tsx
+    assert "Bistro Demo" in page_tsx
+
+    orders_page = (tmp_path / "frontend" / "src" / "app" / "orders" / "page.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert "Kitchen Display" in orders_page
+    assert "Orders Board" in orders_page
+
+    dishes_page = (tmp_path / "frontend" / "src" / "app" / "dishes" / "page.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert "Dish &amp; Menu Management" in dishes_page
+
+
+def test_scaffold_build_with_restaurant_ai_state(tmp_path):
+    build_dir = tmp_path / "restaurant_project"
+    restaurant_state = {
+        "solution_title": "Grand Cafe",
+        "description": "An online menu and food ordering system with admin kitchen orders",
+        "confirmed_modules": ["dishes", "orders"],
+        "er_diagram": {
+            "content": {
+                "entities": [
+                    {
+                        "name": "dishes",
+                        "fields": [
+                            {"name": "name", "type": "VARCHAR(255)"},
+                            {"name": "price", "type": "FLOAT"},
+                            {"name": "category", "type": "VARCHAR(100)"},
+                        ],
+                    },
+                    {
+                        "name": "orders",
+                        "fields": [
+                            {"name": "table_number", "type": "VARCHAR(50)"},
+                            {"name": "total_amount", "type": "FLOAT"},
+                            {"name": "status", "type": "VARCHAR(50)"},
+                        ],
+                    },
+                ]
+            }
+        },
+    }
+
+    builder.scaffold_build(
+        build_dir,
+        app_title="Grand Cafe",
+        inject_modules=["dishes", "orders"],
+        ai_state=restaurant_state,
+    )
+
+    page_content = (build_dir / "frontend" / "src" / "app" / "page.tsx").read_text(encoding="utf-8")
+    assert "Digital Menu & Table Ordering System" in page_content
+    assert "Grand Cafe" in page_content
+
+    # Orders and dishes routes should be created
+    assert (build_dir / "frontend" / "src" / "app" / "orders" / "page.tsx").exists()
+    assert (build_dir / "frontend" / "src" / "app" / "dishes" / "page.tsx").exists()
+
+
+def test_scaffold_build_with_gym_fitness_ai_state(tmp_path):
+    build_dir = tmp_path / "gym_project"
+    gym_state = {
+        "solution_title": "Apex Performance Club",
+        "description": "A high-intensity fitness club with class booking and member attendance tracking",
+        "industry": "fitness",
+        "confirmed_modules": ["workouts", "bookings"],
+        "er_diagram": {
+            "content": {
+                "entities": [
+                    {
+                        "name": "workouts",
+                        "fields": [
+                            {"name": "name", "type": "VARCHAR(255)"},
+                            {"name": "price", "type": "FLOAT"},
+                            {"name": "category", "type": "VARCHAR(100)"},
+                        ],
+                    },
+                    {
+                        "name": "bookings",
+                        "fields": [
+                            {"name": "member_name", "type": "VARCHAR(100)"},
+                            {"name": "total_amount", "type": "FLOAT"},
+                            {"name": "status", "type": "VARCHAR(50)"},
+                        ],
+                    },
+                ]
+            }
+        },
+    }
+
+    builder.scaffold_build(
+        build_dir,
+        app_title="Apex Performance Club",
+        inject_modules=["workouts", "bookings"],
+        ai_state=gym_state,
+    )
+
+    page_content = (build_dir / "frontend" / "src" / "app" / "page.tsx").read_text(encoding="utf-8")
+    assert "Apex Performance Club" in page_content
+    assert "Class Scheduling & Member Pass Management" in page_content
+    assert "Browse Schedule" in page_content
+    assert "Member Bookings" in page_content
+    assert "Book Class" in page_content
+    assert "Class Reservations" in page_content
+
+    # Workout and bookings studios should be created
+    assert (build_dir / "frontend" / "src" / "app" / "workouts" / "page.tsx").exists()
+    assert (build_dir / "frontend" / "src" / "app" / "bookings" / "page.tsx").exists()

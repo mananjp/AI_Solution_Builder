@@ -12,6 +12,8 @@ asyncpg==0.30.0
 alembic==1.14.1
 pgvector==0.3.6
 psycopg2-binary==2.9.10  # advisory-locked startup migration wrapper
+aiosqlite>=0.20.0
+
 
 # Auth & Security
 PyJWT[crypto]==2.14.0

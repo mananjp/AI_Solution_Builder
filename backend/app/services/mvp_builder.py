@@ -27,7 +27,9 @@ import re
 import shutil
 import zipfile
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
+if TYPE_CHECKING:
+    from app.services.app_spec import AppSpec
 from uuid import UUID
 
 import httpx
@@ -242,11 +244,1140 @@ def _ignore_artifacts(directory: str, names: list[str]) -> set[str]:
     }
 
 
+def _classify_solution_entities(
+    entities: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, list[dict[str, Any]]]:
+    """Dynamically classify ER entities into Catalog, Transaction, and Supporting roles."""
+    if not entities:
+        return None, None, []
+
+    tx_keywords = {
+        "order",
+        "orders",
+        "booking",
+        "bookings",
+        "reservation",
+        "reservations",
+        "appointment",
+        "appointments",
+        "enrollment",
+        "enrollments",
+        "ticket",
+        "tickets",
+        "invoice",
+        "invoices",
+        "request",
+        "requests",
+        "transaction",
+        "transactions",
+        "subscription",
+        "subscriptions",
+        "inquiry",
+        "inquiries",
+        "task",
+        "tasks",
+        "submission",
+        "submissions",
+        "dispatch",
+        "dispatches",
+        "session",
+        "sessions",
+    }
+
+    catalog_keywords = {
+        "dish",
+        "dishes",
+        "menu",
+        "menus",
+        "product",
+        "products",
+        "item",
+        "items",
+        "service",
+        "services",
+        "course",
+        "courses",
+        "class",
+        "classes",
+        "property",
+        "properties",
+        "listing",
+        "listings",
+        "workout",
+        "workouts",
+        "plan",
+        "plans",
+        "meal",
+        "meals",
+        "book",
+        "books",
+        "article",
+        "articles",
+        "project",
+        "projects",
+        "inventory",
+        "inventory_item",
+        "inventory_items",
+        "room",
+        "rooms",
+        "asset",
+        "assets",
+    }
+
+    tx_ent = None
+    cat_ent = None
+    remaining: list[dict[str, Any]] = []
+
+    # First pass: find explicit transaction entity
+    for ent in entities:
+        if not isinstance(ent, dict):
+            continue
+        name = str(ent.get("name", "")).lower()
+        if tx_ent is None and any(kw in name for kw in tx_keywords):
+            tx_ent = ent
+            continue
+        remaining.append(ent)
+
+    # Second pass: find catalog entity among remaining
+    supporting: list[dict[str, Any]] = []
+    for ent in remaining:
+        name = str(ent.get("name", "")).lower()
+        if cat_ent is None and any(kw in name for kw in catalog_keywords):
+            cat_ent = ent
+            continue
+        supporting.append(ent)
+
+    # Fallback for catalog if not found
+    if cat_ent is None and remaining:
+        cat_ent = remaining[0]
+        supporting = [e for e in remaining[1:]]
+
+    # Fallback for tx if not found
+    if tx_ent is None and supporting:
+        for i, ent in enumerate(supporting):
+            fields = [
+                str(f.get("name", "")).lower() if isinstance(f, dict) else str(f).lower()
+                for f in ent.get("fields", [])
+            ]
+            if "status" in fields or "state" in fields:
+                tx_ent = supporting.pop(i)
+                break
+        if tx_ent is None and supporting:
+            tx_ent = supporting.pop(0)
+
+    return cat_ent, tx_ent, supporting
+
+
+def _build_smart_mock_records(
+    entity_name: str,
+    fields: list[dict[str, Any]],
+    app_title: str = "",
+    industry: str = "",
+    count: int = 4,
+) -> list[dict[str, Any]]:
+    """Generate domain-authentic realistic mock records matching the entity and industry."""
+    name_lower = str(entity_name).lower()
+    title_lower = str(app_title).lower()
+    ind_lower = str(industry).lower()
+    context = f"{name_lower} {title_lower} {ind_lower}"
+
+    if any(
+        k in context
+        for k in (
+            "dish",
+            "menu",
+            "food",
+            "restaurant",
+            "cafe",
+            "bistro",
+            "dining",
+            "pizza",
+            "burger",
+            "bakery",
+            "kitchen",
+        )
+    ):
+        presets = [
+            {
+                "title": "Artisan Truffle Tagliatelle",
+                "category": "Main Courses",
+                "price": 18.50,
+                "desc": "Handcrafted pasta tossed in black summer truffle butter with 24-month aged parmigiano reggiano.",
+                "img": "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&q=80",
+            },
+            {
+                "title": "Wood-Fired Margherita Pizza",
+                "category": "Artisan Pizzas",
+                "price": 14.00,
+                "desc": "Slow-fermented Neapolitan dough, San Marzano tomato sauce, fresh fior di latte, and aromatic basil.",
+                "img": "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=600&q=80",
+            },
+            {
+                "title": "Crispy Calamari Fritti",
+                "category": "Starters",
+                "price": 12.50,
+                "desc": "Flash-fried tender calamari served with charred lemon wedges and house-made citrus garlic aioli.",
+                "img": "https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?w=600&q=80",
+            },
+            {
+                "title": "Sicilian Pistachio Tiramisu",
+                "category": "Desserts",
+                "price": 8.50,
+                "desc": "Espresso-drenched ladyfingers layered with velvety Bronte pistachio mascarpone mousse.",
+                "img": "https://images.unsplash.com/photo-1571877227200-a0d98ea607e9?w=600&q=80",
+            },
+        ]
+    elif any(
+        k in context
+        for k in ("gym", "fitness", "workout", "class", "trainer", "yoga", "crossfit", "wellness")
+    ):
+        presets = [
+            {
+                "title": "High-Intensity Interval Circuit",
+                "category": "Strength & Cardio",
+                "price": 25.00,
+                "desc": "Dynamic 45-minute circuit combining kettlebells, plyometrics, and functional cardio intervals.",
+                "img": "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=600&q=80",
+            },
+            {
+                "title": "Power Vinyasa Yoga Flow",
+                "category": "Mind & Body",
+                "price": 20.00,
+                "desc": "Breath-synchronized athletic flow developing deep core strength, balance, and mindful flexibility.",
+                "img": "https://images.unsplash.com/photo-1545205597-3d9d02c29597?w=600&q=80",
+            },
+            {
+                "title": "Olympic Barbell Conditioning",
+                "category": "Strength",
+                "price": 30.00,
+                "desc": "Precision coaching on snatch, clean & jerk, and compound lifting mechanics for all skill levels.",
+                "img": "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=600&q=80",
+            },
+            {
+                "title": "Rhythm Indoor Cycle Ride",
+                "category": "Cardio",
+                "price": 22.00,
+                "desc": "High-energy rhythm ride driven by curated playlists, speed intervals, and sprint climbs.",
+                "img": "https://images.unsplash.com/photo-1518611012118-696072aa579a?w=600&q=80",
+            },
+        ]
+    elif any(
+        k in context
+        for k in ("course", "lesson", "education", "academy", "student", "learn", "tutorial")
+    ):
+        presets = [
+            {
+                "title": "Full-Stack Next.js & Cloud Systems",
+                "category": "Engineering",
+                "price": 99.00,
+                "desc": "Build production SaaS platforms with Next.js App Router, PostgreSQL, Tailwind, and serverless APIs.",
+                "img": "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600&q=80",
+            },
+            {
+                "title": "Applied Machine Learning & LLMs",
+                "category": "AI & Data",
+                "price": 129.00,
+                "desc": "Hands-on model fine-tuning, RAG system construction, and vector search deployment pipelines.",
+                "img": "https://images.unsplash.com/photo-1555949963-ff9fe0c870eb?w=600&q=80",
+            },
+            {
+                "title": "Modern UI/UX Design Systems",
+                "category": "Design",
+                "price": 79.00,
+                "desc": "Design token architecture, interactive component states, typography scales, and Figma handoff.",
+                "img": "https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?w=600&q=80",
+            },
+            {
+                "title": "Zero Trust Security & DevSecOps",
+                "category": "Security",
+                "price": 119.00,
+                "desc": "Identity federation, automated security scanning, secrets management, and container isolation.",
+                "img": "https://images.unsplash.com/photo-1563986768609-322da13575f3?w=600&q=80",
+            },
+        ]
+    elif any(
+        k in context
+        for k in ("property", "real_estate", "listing", "home", "realty", "apartment", "house")
+    ):
+        presets = [
+            {
+                "title": "Downtown Panoramic Sky Loft",
+                "category": "Penthouses",
+                "price": 850000.00,
+                "desc": "Floor-to-ceiling glass wrapping the city skyline, private rooftop terrace, and custom Italian marble island.",
+                "img": "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=600&q=80",
+            },
+            {
+                "title": "Suburban Garden Family Villa",
+                "category": "Family Estates",
+                "price": 620000.00,
+                "desc": "Spacious 4-bedroom contemporary residence featuring heated infinity pool and solar micro-grid.",
+                "img": "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=600&q=80",
+            },
+            {
+                "title": "Waterfront Coastal Condo",
+                "category": "Condominiums",
+                "price": 410000.00,
+                "desc": "Sun-drenched open concept studio with direct boardwalk access and marina docking privileges.",
+                "img": "https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=600&q=80",
+            },
+            {
+                "title": "Historic Restored Brownstone",
+                "category": "Heritage",
+                "price": 1250000.00,
+                "desc": "Impeccably preserved 19th-century architecture featuring original exposed brickwork and oak herringbone floors.",
+                "img": "https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?w=600&q=80",
+            },
+        ]
+    elif any(
+        k in context
+        for k in ("clinic", "doctor", "health", "medical", "patient", "care", "hospital")
+    ):
+        presets = [
+            {
+                "title": "Comprehensive Preventive Screening",
+                "category": "General Medicine",
+                "price": 150.00,
+                "desc": "Full diagnostic biometrics review, advanced blood panel, and personalized clinical health consultation.",
+                "img": "https://images.unsplash.com/photo-1505751172876-fa1923c5c528?w=600&q=80",
+            },
+            {
+                "title": "Cardiovascular Stress Evaluation",
+                "category": "Cardiology",
+                "price": 220.00,
+                "desc": "Specialized exercise ECG and echocardiogram assessment conducted by certified cardiology specialists.",
+                "img": "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=600&q=80",
+            },
+            {
+                "title": "Musculoskeletal Mobility Therapy",
+                "category": "Physiotherapy",
+                "price": 95.00,
+                "desc": "Targeted postural correction, joint articulation recovery, and guided biomechanical rehabilitation.",
+                "img": "https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=600&q=80",
+            },
+            {
+                "title": "Clinical Dermatology Consultation",
+                "category": "Dermatology",
+                "price": 130.00,
+                "desc": "Full-body dermascopic evaluation, mole mapping, and bespoke dermatological treatment planning.",
+                "img": "https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?w=600&q=80",
+            },
+        ]
+    else:
+        clean = re.sub(r"[^a-zA-Z0-9]+", " ", entity_name).title().strip() or "Product"
+        presets = [
+            {
+                "title": f"Premium {clean} Pro",
+                "category": "Standard Tier",
+                "price": 49.00,
+                "desc": f"Fully optimized {clean.lower()} engineered for high performance and daily productivity.",
+                "img": "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&q=80",
+            },
+            {
+                "title": f"Enterprise {clean} Suite",
+                "category": "Enterprise",
+                "price": 149.00,
+                "desc": f"Advanced {clean.lower()} package featuring extended capabilities, automated workflows, and dedicated support.",
+                "img": "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=600&q=80",
+            },
+            {
+                "title": f"Essential {clean} Starter",
+                "category": "Starter",
+                "price": 29.00,
+                "desc": f"Lightweight and reliable {clean.lower()} designed for quick onboarding and seamless collaboration.",
+                "img": "https://images.unsplash.com/photo-1546868871-7041f2a55e12?w=600&q=80",
+            },
+            {
+                "title": f"Custom {clean} Ultra",
+                "category": "Advanced",
+                "price": 89.00,
+                "desc": f"Tailored {clean.lower()} solution with granular controls, telemetry insights, and custom integrations.",
+                "img": "https://images.unsplash.com/photo-1572635196237-14b3f281503f?w=600&q=80",
+            },
+        ]
+
+    records: list[dict[str, Any]] = []
+    for i in range(min(count, len(presets))):
+        p = presets[i]
+        rec: dict[str, Any] = {"id": f"rec-{101 + i}"}
+        for f in fields:
+            fname = f.get("name", "") if isinstance(f, dict) else str(f)
+            fname_clean = fname.lower()
+            itype = f.get("input_type", "text") if isinstance(f, dict) else "text"
+
+            if fname_clean in (
+                "title",
+                "name",
+                "label",
+                "dish_name",
+                "product_name",
+                "class_name",
+                "item_name",
+            ):
+                rec[fname] = p["title"]
+            elif fname_clean in ("category", "type", "genre", "department", "tag", "section"):
+                rec[fname] = p["category"]
+            elif fname_clean in ("price", "cost", "amount", "fee", "rate", "subtotal", "total"):
+                rec[fname] = p["price"]
+            elif fname_clean in ("description", "desc", "details", "summary", "notes"):
+                rec[fname] = p["desc"]
+            elif fname_clean in ("image", "img", "photo", "thumbnail", "cover_url"):
+                rec[fname] = p["img"]
+            elif fname_clean in ("status", "state"):
+                rec[fname] = "Active"
+            elif fname_clean in ("rating", "score"):
+                rec[fname] = round(4.6 + (i * 0.1), 1)
+            elif itype == "number":
+                rec[fname] = 10 + (i * 5)
+            elif itype == "checkbox":
+                rec[fname] = True
+            else:
+                rec[fname] = f"{p['category']} {fname.replace('_', ' ').title()}"
+
+        if "title" not in rec and "name" not in rec:
+            rec["name"] = p["title"]
+        if "price" not in rec and not any(k in rec for k in ("cost", "amount", "fee")):
+            rec["price"] = p["price"]
+        if "category" not in rec and "type" not in rec:
+            rec["category"] = p["category"]
+        if "description" not in rec and "desc" not in rec:
+            rec["description"] = p["desc"]
+        if "image" not in rec and "img" not in rec:
+            rec["image"] = p["img"]
+
+        records.append(rec)
+    return records
+
+
+def _generate_universal_app_page(
+    app_title: str,
+    ai_state: dict[str, Any],
+    catalog_entity: dict[str, Any] | None,
+    transaction_entity: dict[str, Any] | None,
+    all_entities: list[dict[str, Any]],
+) -> str:
+    """Generate a rich, interactive, dual-perspective Next.js application shell for ANY domain."""
+    escaped_title = app_title.replace('"', '\\\\"')
+    industry = ai_state.get("industry", "general")
+    desc = (
+        ai_state.get("business_description")
+        or ai_state.get("description")
+        or "An intelligent business solution generated by AI Solution Builder."
+    )
+    escaped_desc = desc.replace('"', '\\\\"').replace("\\n", " ")
+
+    cat = catalog_entity or (all_entities[0] if all_entities else {"name": "item"})
+    cat_name = cat.get("name", "item")
+    clean_cat = re.sub(r"[^a-zA-Z0-9_]+", "_", str(cat_name).lower()).strip("_") or "item"
+    cat_class = "".join(part.capitalize() for part in clean_cat.split("_"))
+    cat_plural = cat_class + "s" if not cat_class.endswith("s") else cat_class
+
+    tx = transaction_entity
+    clean_tx = (
+        re.sub(r"[^a-zA-Z0-9_]+", "_", str(tx.get("name", "")).lower()).strip("_")
+        if tx
+        else "orders"
+    ) or "orders"
+    tx_class = "".join(part.capitalize() for part in clean_tx.split("_"))
+    tx_plural = tx_class + "s" if not tx_class.endswith("s") else tx_class
+
+    ctx = f"{clean_cat} {clean_tx} {industry} {app_title}".lower()
+    if any(
+        k in ctx
+        for k in ("food", "dish", "menu", "restaurant", "cafe", "bistro", "pizza", "dining")
+    ):
+        action_verb = "Add to Order"
+        cart_title = "Your Dining Order"
+        tx_board_title = "Kitchen Display & Orders Board"
+        status_stages = ["Pending", "In Kitchen", "Ready", "Delivered"]
+        domain_icon = "🍽️"
+        catalog_tab_title = "Browse Menu"
+        domain_subtitle = "Digital Menu & Table Ordering System"
+    elif any(k in ctx for k in ("gym", "fitness", "workout", "class", "trainer", "yoga")):
+        action_verb = "Book Class"
+        cart_title = "Class Reservations"
+        tx_board_title = "Member Bookings"
+        status_stages = ["Confirmed", "Checked In", "Completed"]
+        domain_icon = "⚡"
+        catalog_tab_title = "Browse Schedule"
+        domain_subtitle = "Class Scheduling & Member Pass Management"
+    elif any(k in ctx for k in ("course", "education", "lesson", "student", "learn")):
+        action_verb = "Enroll Now"
+        cart_title = "Course Enrollment"
+        tx_board_title = "Student Enrollments"
+        status_stages = ["Enrolled", "In Progress", "Completed"]
+        domain_icon = "🎓"
+        catalog_tab_title = "Explore Courses"
+        domain_subtitle = "Course Directory & Student Enrollment Portal"
+    elif any(k in ctx for k in ("property", "real_estate", "listing", "home")):
+        action_verb = "Request Tour"
+        cart_title = "Tour Schedule"
+        tx_board_title = "Viewing Inquiries"
+        status_stages = ["Requested", "Scheduled", "Completed"]
+        domain_icon = "🏡"
+        catalog_tab_title = "Browse Properties"
+        domain_subtitle = "Property Portfolio & Viewing Booking System"
+    elif any(k in ctx for k in ("clinic", "health", "doctor", "medical", "patient")):
+        action_verb = "Book Visit"
+        cart_title = "Consultation Request"
+        tx_board_title = "Patient Queue"
+        status_stages = ["Scheduled", "In Consultation", "Completed"]
+        domain_icon = "🩺"
+        catalog_tab_title = "Care Services"
+        domain_subtitle = "Care Directory & Patient Appointment Booking"
+    else:
+        action_verb = "Add to Cart"
+        cart_title = "Order Cart"
+        tx_board_title = f"{tx_plural} Board"
+        status_stages = ["Pending", "In Progress", "Ready", "Completed"]
+        domain_icon = "✨"
+        catalog_tab_title = f"Explore {cat_plural}"
+        domain_subtitle = f"{cat_plural} Catalog & {tx_plural} Operations"
+
+    status_stages_json = json.dumps(status_stages)
+
+    module_links_jsx = []
+    for ent in all_entities:
+        ename = ent.get("name", "")
+        cname = re.sub(r"[^a-zA-Z0-9_]+", "_", str(ename).lower()).strip("_")
+        if not cname:
+            continue
+        cclass = "".join(p.capitalize() for p in cname.split("_"))
+        module_links_jsx.append(f"""          <Link
+            href="/{cname}"
+            className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:border-indigo-400 hover:shadow-md transition-all group"
+          >
+            <div>
+              <p className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                {cclass} Studio
+              </p>
+              <p className="text-[11px] text-slate-500">Manage database records &amp; schemas</p>
+            </div>
+            <span className="text-slate-400 group-hover:text-indigo-600 text-sm font-bold transition-colors">→</span>
+          </Link>""")
+
+    links_block = "\\n".join(module_links_jsx)
+
+    mock_cat = _build_smart_mock_records(
+        clean_cat, cat.get("fields", []), app_title=app_title, industry=industry, count=4
+    )
+    mock_cat_json = json.dumps(mock_cat, indent=6)
+
+    mock_tx = [
+        {
+            "id": "tx-101",
+            "customer_name": "Marcus Vance",
+            "items_summary": f"{mock_cat[0]['name']} (x2), {mock_cat[1]['name']} (x1)",
+            "total_amount": round(float(mock_cat[0]["price"]) * 2 + float(mock_cat[1]["price"]), 2),
+            "status": status_stages[0],
+            "notes": "Priority processing requested",
+            "created_at": "12 mins ago",
+        },
+        {
+            "id": "tx-102",
+            "customer_name": "Elena Rostova",
+            "items_summary": f"{mock_cat[2]['name']} (x1)",
+            "total_amount": round(float(mock_cat[2]["price"]), 2),
+            "status": status_stages[1] if len(status_stages) > 1 else status_stages[0],
+            "notes": "Verified client",
+            "created_at": "25 mins ago",
+        },
+        {
+            "id": "tx-103",
+            "customer_name": "David Miller",
+            "items_summary": f"{mock_cat[3]['name']} (x2), {mock_cat[0]['name']} (x1)",
+            "total_amount": round(float(mock_cat[3]["price"]) * 2 + float(mock_cat[0]["price"]), 2),
+            "status": status_stages[2] if len(status_stages) > 2 else status_stages[0],
+            "notes": "Direct fulfillment",
+            "created_at": "45 mins ago",
+        },
+    ]
+    mock_tx_json = json.dumps(mock_tx, indent=6)
+
+    template = """'use client';
+
+import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+const DEFAULT_CATALOG: any[] = __MOCK_CATALOG__;
+const DEFAULT_TRANSACTIONS: any[] = __MOCK_TRANSACTIONS__;
+const STATUS_STAGES: string[] = __STATUS_STAGES__;
+
+export default function HomePage() {
+  const [items, setItems] = useState<any[]>(DEFAULT_CATALOG);
+  const [orders, setOrders] = useState<any[]>(DEFAULT_TRANSACTIONS);
+  const [activeTab, setActiveTab] = useState<'catalog' | 'operations'>('catalog');
+  const [selectedCat, setSelectedCat] = useState<string>('All');
+  const [search, setSearch] = useState<string>('');
+  const [cart, setCart] = useState<{ id: string; item: any; quantity: number }[]>([]);
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [customerName, setCustomerName] = useState('');
+  const [customerNotes, setCustomerNotes] = useState('');
+  const [orderConfirmed, setOrderConfirmed] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/v1/__CLEAN_CAT__`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) setItems(data);
+      })
+      .catch(() => undefined);
+
+    fetch(`${API_BASE}/api/v1/__CLEAN_TX__`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) setOrders(data);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const categories = [
+    'All',
+    ...Array.from(new Set(items.map((i) => i.category || 'General').filter(Boolean))),
+  ];
+
+  const filteredItems = items.filter((item) => {
+    const matchesCat = selectedCat === 'All' || (item.category || 'General') === selectedCat;
+    const title = String(item.title || item.name || '').toLowerCase();
+    const desc = String(item.description || item.desc || '').toLowerCase();
+    const q = search.toLowerCase();
+    return matchesCat && (title.includes(q) || desc.includes(q));
+  });
+
+  const addToCart = (item: any) => {
+    setCart((prev) => {
+      const existing = prev.find((c) => c.id === item.id);
+      if (existing) {
+        return prev.map((c) => (c.id === item.id ? { ...c, quantity: c.quantity + 1 } : c));
+      }
+      return [...prev, { id: item.id, item, quantity: 1 }];
+    });
+  };
+
+  const updateCartQty = (id: string, delta: number) => {
+    setCart((prev) =>
+      prev
+        .map((c) => (c.id === id ? { ...c, quantity: c.quantity + delta } : c))
+        .filter((c) => c.quantity > 0)
+    );
+  };
+
+  const cartCount = cart.reduce((sum, c) => sum + c.quantity, 0);
+  const subtotal = cart.reduce((sum, c) => sum + (Number(c.item.price) || 0) * c.quantity, 0);
+  const tax = subtotal * 0.05;
+  const grandTotal = subtotal + tax;
+
+  const handleCheckout = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (cart.length === 0) return;
+
+    const newId = `tx-${Date.now().toString().slice(-4)}`;
+    const newRecord = {
+      id: newId,
+      customer_name: customerName.trim() || 'Guest Customer',
+      items_summary: cart.map((c) => `${c.item.title || c.item.name} (x${c.quantity})`).join(', '),
+      total_amount: grandTotal,
+      status: STATUS_STAGES[0] || 'Pending',
+      notes: customerNotes,
+      created_at: 'Just now',
+    };
+
+    setOrders((prev) => [newRecord, ...prev]);
+    setCart([]);
+    setCustomerName('');
+    setCustomerNotes('');
+    setOrderConfirmed(newId);
+    setIsCartOpen(false);
+
+    try {
+      await fetch(`${API_BASE}/api/v1/__CLEAN_TX__`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newRecord),
+      });
+    } catch {
+      // Optimistic local state preserved
+    }
+  };
+
+  const handleAdvanceStatus = async (orderId: string) => {
+    setOrders((prev) =>
+      prev.map((o) => {
+        if (o.id !== orderId) return o;
+        const currIdx = STATUS_STAGES.indexOf(o.status);
+        const nextStatus =
+          currIdx >= 0 && currIdx < STATUS_STAGES.length - 1
+            ? STATUS_STAGES[currIdx + 1]
+            : o.status;
+        return { ...o, status: nextStatus };
+      })
+    );
+  };
+
+  const activeOrdersCount = orders.filter(
+    (o) => o.status !== STATUS_STAGES[STATUS_STAGES.length - 1]
+  ).length;
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      {/* Top Header */}
+      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">__DOMAIN_ICON__</span>
+            <div>
+              <h1 className="text-lg font-bold text-slate-900 leading-tight">__APP_TITLE__</h1>
+              <p className="text-[11px] text-slate-500 font-medium">__DOMAIN_SUBTITLE__ · __APP_DESC__</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* View Switcher */}
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold">
+              <button
+                onClick={() => setActiveTab('catalog')}
+                className={`px-3 py-1.5 rounded-lg transition-all ${
+                  activeTab === 'catalog'
+                    ? 'bg-white text-indigo-600 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                __CATALOG_TAB_TITLE__
+              </button>
+              <button
+                onClick={() => setActiveTab('operations')}
+                className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                  activeTab === 'operations'
+                    ? 'bg-white text-indigo-600 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <span>__TX_BOARD_TITLE__</span>
+                {activeOrdersCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-white text-[10px]">
+                    {activeOrdersCount}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Cart Trigger */}
+            <button
+              onClick={() => setIsCartOpen(true)}
+              className="relative flex items-center gap-2 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-all"
+            >
+              <span>🛒</span>
+              <span className="hidden sm:inline">Cart</span>
+              {cartCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-white text-indigo-700 text-[10px] font-bold">
+                  {cartCount}
+                </span>
+              )}
+              <span className="font-bold border-l border-indigo-400 pl-1.5">${grandTotal.toFixed(2)}</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Confirmation Notification */}
+      {orderConfirmed && (
+        <div className="max-w-4xl mx-auto mt-4 px-4">
+          <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-2xl p-4 flex items-center justify-between shadow-sm">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">🎉</span>
+              <div>
+                <p className="font-bold text-sm">Action Successfully Submitted!</p>
+                <p className="text-xs text-emerald-700">
+                  Record <strong>#{orderConfirmed}</strong> has been created and transmitted to the{' '}
+                  <strong>__TX_BOARD_TITLE__</strong>.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setOrderConfirmed(null)}
+              className="text-xs font-semibold text-emerald-800 hover:text-emerald-950 px-3 py-1.5 rounded-lg bg-emerald-100 hover:bg-emerald-200 transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Main Viewport */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {activeTab === 'catalog' ? (
+          <div>
+            {/* Search & Categories */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+              <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 scrollbar-none">
+                {categories.map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCat(cat)}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
+                      selectedCat === cat
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              <div className="w-full md:w-72">
+                <input
+                  type="text"
+                  placeholder="Search catalog items..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-indigo-500 shadow-sm"
+                />
+              </div>
+            </div>
+
+            {/* Catalog Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              {filteredItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col justify-between group"
+                >
+                  {item.image && (
+                    <div className="h-44 w-full overflow-hidden bg-slate-100 relative">
+                      <img
+                        src={item.image}
+                        alt={item.title || item.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                      <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-white text-[10px] font-semibold">
+                        {item.category || 'General'}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="p-4 flex-1 flex flex-col justify-between">
+                    <div>
+                      <h3 className="font-bold text-slate-900 text-sm leading-snug">
+                        {item.title || item.name}
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                        {item.description || item.desc || 'Configured catalog item available for ordering.'}
+                      </p>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                      <span className="text-base font-black text-indigo-600">
+                        ${Number(item.price || 0).toFixed(2)}
+                      </span>
+                      <button
+                        onClick={() => addToCart(item)}
+                        className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white rounded-lg text-xs font-semibold transition-all"
+                      >
+                        + __ACTION_VERB__
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          /* Operations / Workflow Tab */
+          <div>
+            {/* Stat Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+                <p className="text-[11px] font-bold text-slate-400 uppercase">Total Volume</p>
+                <p className="text-2xl font-black text-slate-900 mt-1">{orders.length}</p>
+              </div>
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+                <p className="text-[11px] font-bold text-amber-600 uppercase">Active / In-Flight</p>
+                <p className="text-2xl font-black text-amber-600 mt-1">{activeOrdersCount}</p>
+              </div>
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+                <p className="text-[11px] font-bold text-emerald-600 uppercase">Completed</p>
+                <p className="text-2xl font-black text-emerald-600 mt-1">
+                  {orders.filter((o) => o.status === STATUS_STAGES[STATUS_STAGES.length - 1]).length}
+                </p>
+              </div>
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+                <p className="text-[11px] font-bold text-indigo-600 uppercase">Total Value</p>
+                <p className="text-2xl font-black text-indigo-600 mt-1">
+                  ${orders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0).toFixed(2)}
+                </p>
+              </div>
+            </div>
+
+            {/* Orders Feed */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {orders.map((ord) => (
+                <div
+                  key={ord.id}
+                  className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4"
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-bold text-indigo-600">{ord.id}</span>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            ord.status === STATUS_STAGES[STATUS_STAGES.length - 1]
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : ord.status === STATUS_STAGES[0]
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-indigo-100 text-indigo-700'
+                          }`}
+                        >
+                          {ord.status}
+                        </span>
+                      </div>
+                      <p className="text-sm font-bold text-slate-800 mt-1">
+                        Client: {ord.customer_name || 'Anonymous'}
+                      </p>
+                      {ord.notes && <p className="text-xs text-slate-500 italic mt-0.5">{ord.notes}</p>}
+                    </div>
+                    <span className="text-sm font-black text-slate-900">
+                      ${Number(ord.total_amount || 0).toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-50 rounded-xl p-3 text-xs text-slate-600">
+                    <p className="font-semibold text-slate-700">Items:</p>
+                    <p className="mt-0.5">{ord.items_summary || 'Standard package items'}</p>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[11px] text-slate-400">{ord.created_at || 'Recently'}</span>
+                    {ord.status !== STATUS_STAGES[STATUS_STAGES.length - 1] && (
+                      <button
+                        onClick={() => handleAdvanceStatus(ord.id)}
+                        className="px-3 py-1.5 bg-slate-900 hover:bg-indigo-600 text-white text-xs font-semibold rounded-lg transition-colors"
+                      >
+                        Advance Status →
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Database Studios Link Section */}
+        <div className="mt-12 pt-8 border-t border-slate-200">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-4">
+            Domain Database Studios
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+__MODULE_LINKS_BLOCK__
+          </div>
+        </div>
+      </main>
+
+      {/* Slide-over Action/Cart Drawer */}
+      {isCartOpen && (
+        <div className="fixed inset-0 z-50 overflow-hidden">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
+            onClick={() => setIsCartOpen(false)}
+          />
+          <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
+            <div className="w-screen max-w-md bg-white shadow-2xl flex flex-col">
+              <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">__CART_TITLE__</h2>
+                  <p className="text-xs text-slate-500">{cartCount} items selected</p>
+                </div>
+                <button
+                  onClick={() => setIsCartOpen(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Items List */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {cart.length === 0 ? (
+                  <div className="text-center py-16 text-slate-400">
+                    <p className="text-3xl">🛒</p>
+                    <p className="mt-2 text-sm font-medium">Your cart is empty.</p>
+                    <p className="text-xs mt-1">Select items from the catalog to build an order.</p>
+                  </div>
+                ) : (
+                  cart.map(({ id, item, quantity }) => (
+                    <div
+                      key={id}
+                      className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200"
+                    >
+                      <div className="flex-1 min-w-0 pr-3">
+                        <p className="text-xs font-bold text-slate-900 truncate">
+                          {item.title || item.name}
+                        </p>
+                        <p className="text-xs text-indigo-600 font-semibold mt-0.5">
+                          ${(Number(item.price || 0) * quantity).toFixed(2)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => updateCartQty(id, -1)}
+                          className="w-6 h-6 flex items-center justify-center rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                        >
+                          -
+                        </button>
+                        <span className="text-xs font-bold w-4 text-center">{quantity}</span>
+                        <button
+                          onClick={() => updateCartQty(id, 1)}
+                          className="w-6 h-6 flex items-center justify-center rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Summary and Form */}
+              {cart.length > 0 && (
+                <div className="p-4 border-t border-slate-200 bg-slate-50 space-y-3">
+                  <div className="space-y-1.5 text-xs text-slate-600">
+                    <div className="flex justify-between">
+                      <span>Subtotal</span>
+                      <span className="font-semibold text-slate-800">${subtotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Service / Platform Fee (5%)</span>
+                      <span className="font-semibold text-slate-800">${tax.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-bold text-slate-900 pt-1 border-t border-slate-200">
+                      <span>Total Due</span>
+                      <span className="text-indigo-600">${grandTotal.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleCheckout} className="space-y-2 pt-1">
+                    <input
+                      type="text"
+                      placeholder="Your Name (e.g. Alex Morgan)"
+                      required
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-indigo-500 shadow-sm"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Special instructions or notes..."
+                      value={customerNotes}
+                      onChange={(e) => setCustomerNotes(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-indigo-500 shadow-sm"
+                    />
+                    <button
+                      type="submit"
+                      className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition-all mt-2"
+                    >
+                      Confirm & Place Order (${grandTotal.toFixed(2)})
+                    </button>
+                  </form>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+"""
+
+    return (
+        template.replace("__APP_TITLE__", escaped_title)
+        .replace("__APP_DESC__", escaped_desc)
+        .replace("__DOMAIN_SUBTITLE__", domain_subtitle)
+        .replace("__DOMAIN_ICON__", domain_icon)
+        .replace("__CATALOG_TAB_TITLE__", catalog_tab_title)
+        .replace("__TX_BOARD_TITLE__", tx_board_title)
+        .replace("__ACTION_VERB__", action_verb)
+        .replace("__CART_TITLE__", cart_title)
+        .replace("__CLEAN_CAT__", clean_cat)
+        .replace("__CLEAN_TX__", clean_tx)
+        .replace("__STATUS_STAGES__", status_stages_json)
+        .replace("__MOCK_CATALOG__", mock_cat_json)
+        .replace("__MOCK_TRANSACTIONS__", mock_tx_json)
+        .replace("__MODULE_LINKS_BLOCK__", links_block)
+    )
+
+
+def _generate_restaurant_storefront_page(app_title: str) -> str:
+    """Backward-compatible helper for templates preset."""
+    cat = {
+        "name": "dishes",
+        "fields": [
+            {"name": "name"},
+            {"name": "price"},
+            {"name": "category"},
+            {"name": "description"},
+        ],
+    }
+    tx = {
+        "name": "orders",
+        "fields": [{"name": "customer_name"}, {"name": "total_amount"}, {"name": "status"}],
+    }
+    return _generate_universal_app_page(
+        app_title,
+        {
+            "industry": "restaurant_hospitality",
+            "business_description": "Digital Menu & Table Ordering System",
+        },
+        cat,
+        tx,
+        [cat, tx],
+    )
+
+
+def _generate_dish_management_page(app_title: str) -> str:
+    """Backward-compatible helper for templates preset."""
+    fields = [
+        {"name": "name", "input_type": "text", "py_default": '""', "js_default": '""'},
+        {"name": "price", "input_type": "number", "py_default": "0.0", "js_default": "0.0"},
+        {"name": "category", "input_type": "text", "py_default": '""', "js_default": '""'},
+        {"name": "description", "input_type": "text", "py_default": '""', "js_default": '""'},
+    ]
+    code = _generate_frontend_module_page(
+        "Dish", "dishes", fields, False, app_title=app_title, industry="restaurant_hospitality"
+    )
+    return code.replace("Dish Studio", "Dish &amp; Menu Management")
+
+
+def _generate_admin_orders_page(app_title: str) -> str:
+    """Backward-compatible helper for templates preset."""
+    fields = [
+        {"name": "customer_name", "input_type": "text", "py_default": '""', "js_default": '""'},
+        {"name": "items_summary", "input_type": "text", "py_default": '""', "js_default": '""'},
+        {"name": "total_amount", "input_type": "number", "py_default": "0.0", "js_default": "0.0"},
+        {
+            "name": "status",
+            "input_type": "text",
+            "py_default": '"Pending"',
+            "js_default": '"Pending"',
+        },
+    ]
+    code = _generate_frontend_module_page(
+        "Order", "orders", fields, False, app_title=app_title, industry="restaurant_hospitality"
+    )
+    return code.replace("Order Studio", "Kitchen Display & Orders Board")
+
+
 def _generate_frontend_module_page(
     class_name: str,
     clean_name: str,
     parsed_fields: list[dict[str, str]],
     is_agent: bool,
+    app_title: str = "",
+    industry: str = "",
 ) -> str:
     th_cells = "\n".join(
         [
@@ -263,6 +1394,11 @@ def _generate_frontend_module_page(
     form_fields_state = ", ".join(
         [f"{pf['name']}: {pf.get('js_default', pf['py_default'])}" for pf in parsed_fields]
     )
+
+    mock_records = _build_smart_mock_records(
+        clean_name, parsed_fields, app_title=app_title, industry=industry, count=4
+    )
+    mock_records_js = json.dumps(mock_records, indent=10)
 
     form_inputs = "\n".join(
         [
@@ -339,9 +1475,7 @@ export default function __CLASS_NAME__Page() {
         const data = await res.json();
         setItems(Array.isArray(data) ? data : []);
       } else {
-        setItems([
-          { id: 'mock-1', __FORM_FIELDS_STATE__, created_at: new Date().toISOString() }
-        ]);
+        setItems(__MOCK_RECORDS_JS__);
       }
     } catch {
       setItems([
@@ -474,6 +1608,7 @@ __FORM_INPUTS__
         .replace("__TD_CELLS__", td_cells)
         .replace("__FORM_INPUTS__", form_inputs)
         .replace("__AGENT_PLAYGROUND__", agent_playground_jsx)
+        .replace("__MOCK_RECORDS_JS__", mock_records_js)
     )
 
 
@@ -732,6 +1867,8 @@ def _auto_synthesize_slots(root: Path, ai_state: dict[str, Any], app_title: str)
                 clean_name=clean_name,
                 parsed_fields=parsed_fields,
                 is_agent=(clean_name in ("agents", "agent")),
+                app_title=app_title,
+                industry=ai_state.get("industry", ""),
             )
             mod_page_file.write_text(mod_page_code, encoding="utf-8")
 
@@ -760,7 +1897,9 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any
+from typing import Any, TYPE_CHECKING
+if TYPE_CHECKING:
+    from app.services.app_spec import AppSpec
 
 logger = logging.getLogger(__name__)
 
@@ -849,15 +1988,18 @@ class AgentRunner:
                 content.replace("# __ROUTER_INSERTION_POINT__", replacement), encoding="utf-8"
             )
 
-    # Apply to frontend page.tsx
+    # Apply to frontend page.tsx (Universal dynamic application shell)
     page_file = frontend_dir / "src" / "app" / "page.tsx"
-    if page_file.exists():
-        content = page_file.read_text(encoding="utf-8")
-        if "{/* __MODULE_LINKS__ */}" in content and card_chunks:
-            page_file.write_text(
-                content.replace("{/* __MODULE_LINKS__ */}", "\n".join(card_chunks)),
-                encoding="utf-8",
-            )
+    if frontend_dir.exists():
+        cat_ent, tx_ent, _ = _classify_solution_entities(entities)
+        page_code = _generate_universal_app_page(
+            app_title=app_title,
+            ai_state=ai_state,
+            catalog_entity=cat_ent or (entities[0] if entities else {"name": "item"}),
+            transaction_entity=tx_ent,
+            all_entities=entities,
+        )
+        page_file.write_text(page_code, encoding="utf-8")
 
 
 def scaffold_build(
@@ -866,6 +2008,7 @@ def scaffold_build(
     app_title: str,
     inject_modules: list[str],
     ai_state: dict[str, Any] | None = None,
+    spec: "AppSpec | None" = None,
 ) -> None:
     """Seed a build directory by copying the scaffold template.
 
@@ -917,8 +2060,12 @@ def scaffold_build(
     # Apply substitutions to all text files carrying placeholders.
     _substitute_tree(root, mapping)
 
-    # Pre-populate slots from ai_state if available for immediate validity
-    if ai_state:
+    if spec is not None:
+        from app.services.spec_codegen import write_generated
+
+        write_generated(root, spec)
+    elif ai_state:
+        # Pre-populate slots from ai_state if available for immediate validity
         try:
             _auto_synthesize_slots(root, ai_state, app_title)
         except Exception as exc:
@@ -986,8 +2133,58 @@ def _endpoint_summary(api_spec_content: dict[str, Any]) -> str:
 
 
 def build_mvp_prompt(
-    ai_state: dict[str, Any], target_dir: str, app_title: str | None = None
+    ai_state_or_spec: Any, target_dir: str, app_title: str | None = None
 ) -> str:
+    from app.services.app_spec import AppSpec
+
+    if isinstance(ai_state_or_spec, AppSpec):
+        spec = ai_state_or_spec
+        actions = "\n".join(
+            f"- `{a.method} {a.path}` → `{a.name}()`: {a.summary}\n"
+            + "\n".join(f"    - {r}" for r in a.rules)
+            for a in spec.actions
+        ) or "- (none — pure CRUD app; focus on screens)"
+        screens = "\n".join(
+            f"- **{s.name}** `{s.route}` — {s.purpose}. Uses entities {s.uses_entities}, "
+            f"actions {s.uses_actions}. Must support: {'; '.join(s.key_interactions)}"
+            for s in spec.screens
+        )
+        tests = "\n".join(f"- `test_{t.name}`: {t.description}" for t in spec.acceptance_tests)
+        return f"""# Build: {spec.app_name}
+{spec.one_liner}
+**Core value (must actually work):** {spec.core_value}
+
+Project root: `{target_dir}`. Read `spec.json` first — it is the source of truth.
+
+## Already done (LOCKED — do not edit)
+backend/models.py, schemas.py, routers.py (full CRUD for every entity, FK checks),
+backend/tests/ (acceptance tests = definition of done), spec.json, frontend/src/lib/types.ts.
+CRUD: `GET/POST /api/v1/{{plural}}`, `GET/PATCH/DELETE /api/v1/{{plural}}/{{id}}`, filter `?<ref>_id=`.
+
+## Your job
+1. **backend/actions.py** — replace every `raise HTTPException(501, ...)` with a real
+   implementation of the rules below using the async SQLAlchemy `session`. Keep paths,
+   function names and signatures. Return plain JSON-serialisable dicts.
+{actions}
+
+2. **frontend** (Next.js App Router, Tailwind, `src/lib/api.ts` client, types from `src/lib/types.ts`):
+   create one `page.tsx` per screen at `frontend/src/app/<route>/page.tsx` ("use client").
+   Each page loads and mutates REAL data through the API — no hardcoded sample arrays.
+   Replace `{{/* __MODULE_LINKS__ */}}` in `src/app/page.tsx` with navigation to the screens.
+{screens}
+
+## Acceptance tests you must make pass
+{tests}
+Run them yourself if bash is available: `cd backend && python -m pytest -q`.
+
+## Rules
+- Implement rules generally; never special-case test inputs.
+- Validation errors → HTTPException(400); missing rows → 404; conflicts → 409.
+- No new dependencies. No secrets. Do not start servers.
+- Finish with: files changed + which tests you expect to pass.
+"""
+
+    ai_state = ai_state_or_spec
     """Compose a compact MVP build prompt for the OpenCode agent.
 
     A full working scaffold (FastAPI + Next.js + infra) is copied into the
@@ -1068,9 +2265,11 @@ def build_mvp_prompt(
             "`__ROUTER_INSERTION_POINT__`) and register it in `main.py`.",
             "4. **demo auth** — keep the provided JWT helper; add a simple `auth/login` + "
             "`auth/register` endpoint if the API spec includes one.",
-            "5. **frontend** — one CRUD page per module under `src/app/{module_slug}/`, a "
-            "dashboard card per module in `src/app/page.tsx` (replace `__MODULE_LINKS__`), "
-            "wired through the typed client in `src/lib/api.ts`.",
+            "5. **frontend** — craft an authentic, production-grade domain application in `src/app/page.tsx`: "
+            "include an interactive catalog/showcase with search and category filters, a slide-over action/cart drawer "
+            "with real-time total calculations, and an operations/admin tracking board with live workflow status progression "
+            "and telemetry metrics. Under `src/app/{module_slug}/`, provide full-featured domain studio pages. "
+            "CRITICAL: Do NOT generate a barebones todo list or generic CRUD table with placeholder labels.",
             "6. **Alembic** — one initial migration for the full schema.",
             "",
             "## Architecture context",
@@ -1113,6 +2312,7 @@ async def run_build(
     build_number: int,
     *,
     title: str | None = None,
+    user_prompt: str = "",
     check_npm: bool = False,
     allow_offline: bool = False,
 ) -> dict[str, Any]:
@@ -1122,21 +2322,39 @@ async def run_build(
             "OpenCode sidecar is unreachable. Ensure the opencode service is running."
         )
 
+    from app.services.app_spec import AppSpec, SpecError, generate_app_spec
+
+    spec_data = ai_state.get("app_spec")
+    spec: AppSpec | None = None
+    if isinstance(spec_data, dict):
+        try:
+            spec = AppSpec.model_validate(spec_data)
+        except Exception:
+            spec = None
+    if spec is None and user_prompt:
+        try:
+            spec = await generate_app_spec(ai_state, user_prompt)
+        except Exception as exc:
+            logger.info("generate_app_spec bypassed (%s); continuing with artifact synthesis", exc)
+
     target_dir = _container_target(solution_id, build_number)
     local_dir = build_workspace_dir(solution_id, build_number)
 
-    app_title = title or (
+    app_title = title or (spec.app_name if spec else (
         ai_state.get("solution_title") or ai_state.get("business_description") or "MVP"
+    ))
+    modules = [e.name for e in spec.entities] if spec else (
+        ai_state.get("confirmed_modules") or ai_state.get("identified_solutions", [])
     )
-    modules = ai_state.get("confirmed_modules") or ai_state.get("identified_solutions", [])
     scaffold_build(
         local_dir,
         app_title=app_title,
         inject_modules=[str(m) for m in modules],
         ai_state=ai_state,
+        spec=spec,
     )
 
-    prompt = build_mvp_prompt(ai_state, target_dir, app_title=title)
+    prompt = build_mvp_prompt(spec if spec else ai_state, target_dir, app_title=title)
 
     session_id: str = "auto-synthesized"
     sidecar_ok = await health()
@@ -1195,12 +2413,21 @@ async def run_build(
             )
 
     files = list_build_files(local_dir)
-    return {
+    res: dict[str, Any] = {
         "session_id": session_id,
         "local_dir": str(local_dir),
         "file_count": len(files),
         "files": relative_paths(local_dir),
     }
+    if spec:
+        res["app_spec"] = spec.model_dump()
+        res["quality"] = {
+            "tests_passed": 0,
+            "tests_failed": 0,
+            "repair_turns": 0,
+            "actions": [a.name for a in spec.actions],
+        }
+    return res
 
 
 async def run_premade_build(

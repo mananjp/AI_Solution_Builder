@@ -87,6 +87,8 @@ async def test_verify_and_repair_passes_cleanly(tmp_path: Path):
     (backend / "routers.py").write_text(
         "from fastapi import APIRouter\nrouter = APIRouter()\n", encoding="utf-8"
     )
+    (backend / "tests").mkdir(exist_ok=True)
+    (backend / "tests" / "test_ok.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
 
     frontend = tmp_path / "frontend"
     frontend.mkdir()
@@ -114,6 +116,8 @@ async def test_verify_and_repair_successful_repair_turn(tmp_path: Path):
     )
     (backend / "schemas.py").write_text("class Item:\n    pass\n", encoding="utf-8")
     (backend / "routers.py").write_text("class Router:\n    pass\n", encoding="utf-8")
+    (backend / "tests").mkdir(exist_ok=True)
+    (backend / "tests" / "test_ok.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
 
     frontend = tmp_path / "frontend"
     frontend.mkdir()

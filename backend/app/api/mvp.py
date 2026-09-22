@@ -213,7 +213,7 @@ async def execute_build_job(build_id: UUID) -> None:
 
             if (
                 template_slug
-                and template_slug in ("todo", "calculator", "portfolio")
+                and template_slug in ("todo", "calculator", "portfolio", "restaurant_ordering")
                 and builder.run_build is _ORIG_RUN_BUILD
             ):
                 logger.info(
@@ -228,11 +228,13 @@ async def execute_build_job(build_id: UUID) -> None:
                     title=title,
                 )
             else:
+                user_msg = (solution.ai_state or {}).get("user_message", "") or solution.description or ""
                 result = await builder.run_build(
                     solution.id,
                     ai_state,
                     build.build_number,
                     title=title,
+                    user_prompt=user_msg,
                     check_npm=settings.MVP_VERIFY_NPM,
                     allow_offline=True,
                 )
@@ -255,6 +257,10 @@ async def execute_build_job(build_id: UUID) -> None:
             build.file_count = result["file_count"]
             build.file_list = result["files"]
             build.error_message = None
+            if result.get("app_spec"):
+                solution.ai_state = {**(solution.ai_state or {}), "app_spec": result["app_spec"]}
+            if result.get("quality"):
+                build.app_config = {**(build.app_config or {}), "quality": result["quality"]}
 
             # Mark associated BuildJob completed
             job_res = await db.execute(select(BuildJob).where(BuildJob.build_id == build_id))
@@ -654,7 +660,12 @@ async def deploy_build(
 
     if zip_data is None:
         template_slug = (build.app_config or {}).get("template")
-        if template_slug and template_slug in ("todo", "calculator", "portfolio"):
+        if template_slug and template_slug in (
+            "todo",
+            "calculator",
+            "portfolio",
+            "restaurant_ordering",
+        ):
             try:
                 title = (build.app_config or {}).get("app_name")
                 await builder.run_premade_build(
@@ -875,3 +886,50 @@ async def rollback_build(
         "target_commit_sha": payload.target_commit_sha,
         "message": f"Successfully rolled back deployment to commit {payload.target_commit_sha[:7]}",
     }
+
+
+# ── AppSpec Approval Gate ──────────────────────────────────────────────
+
+
+@router.post("/mvp/{solution_id}/spec", response_model=dict[str, Any])
+async def create_app_spec(
+    solution_id: UUID,
+    payload: dict[str, Any] | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Generate and return an AppSpec for a solution."""
+    solution = await _get_solution_for_user(db, solution_id, current_user)
+    user_prompt = (payload or {}).get("prompt") or (solution.ai_state or {}).get("user_message", "") or solution.description or solution.title
+    from app.services.app_spec import generate_app_spec, SpecError
+
+    try:
+        spec = await generate_app_spec(solution.ai_state or {}, user_prompt)
+        spec_dict = spec.model_dump()
+        solution.ai_state = {**(solution.ai_state or {}), "app_spec": spec_dict}
+        await db.commit()
+        return spec_dict
+    except SpecError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.put("/mvp/{solution_id}/spec", response_model=dict[str, Any])
+async def update_app_spec(
+    solution_id: UUID,
+    payload: dict[str, Any],
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Validate and store a user-edited AppSpec for a solution."""
+    solution = await _get_solution_for_user(db, solution_id, current_user)
+    from app.services.app_spec import AppSpec
+    from pydantic import ValidationError
+
+    try:
+        spec = AppSpec.model_validate(payload)
+        spec_dict = spec.model_dump()
+        solution.ai_state = {**(solution.ai_state or {}), "app_spec": spec_dict}
+        await db.commit()
+        return spec_dict
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

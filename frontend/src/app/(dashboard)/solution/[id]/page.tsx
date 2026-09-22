@@ -72,11 +72,11 @@ export default function SolutionViewerPage() {
             <span>Build &amp; Deploy MVP</span>
           </Link>
           <Link
-            href="/chat"
+            href={`/solution/${solutionId}/mvp`}
             className="btn btn-ghost border border-[var(--border)] bg-[var(--bg)]"
           >
             <MessageSquare className="w-3.5 h-3.5" />
-            <span>Iterate</span>
+            <span>Chat with AI Architect</span>
           </Link>
           <button
             onClick={() => setShowExportModal(true)}

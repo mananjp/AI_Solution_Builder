@@ -1,16 +1,23 @@
 """
-AI Solution Builder — MVP Build Verification & Bounded Repair Engine
+AI Solution Builder — MVP Build Verification & Repair Engine (behavioural)
 
-Performs verification checkpoints on generated MVP workspaces before marking builds
-complete. Validates Python syntax/AST compilation, project integrity, and frontend
-scaffolding. On failure, feeds errors back into the OpenCode session for bounded repair turns
-(capped at 1–2 retries) before surfacing actionable errors to the user.
+A build is "complete" only when:
+  1. Python compiles and project structure is intact (static checks),
+  2. generated/locked files (models, schemas, CRUD, tests, spec) were not altered,
+  3. the spec's acceptance tests PASS against the real FastAPI app (SQLite),
+  4. (optional) the frontend builds with `npm run build`.
+
+On failure, real pytest/compiler output is fed back to the coding agent for
+bounded repair turns. Tampered locked files are restored before each check.
 """
 
 import json
 import logging
+import os
+import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -18,15 +25,34 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-MAX_REPAIR_TURNS = 2
+MAX_REPAIR_TURNS = int(getattr(settings, "MVP_MAX_REPAIR_TURNS", 4))
+TEST_TIMEOUT_S = int(getattr(settings, "MVP_TEST_TIMEOUT_S", 180))
+_SAFE_ENV_KEYS = (
+
+    "PATH",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "PYTHONPATH",
+    "TMPDIR",
+    "SYSTEMROOT",
+    "WINDIR",
+    "SYSTEMDRIVE",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+)
 
 
 class VerificationError(RuntimeError):
     """Raised when an MVP build fails verification after repair attempts."""
 
-    def __init__(self, message: str, errors: list[str] | None = None) -> None:
+    def __init__(
+        self, message: str, errors: list[str] | None = None, report: dict[str, Any] | None = None
+    ) -> None:
         super().__init__(message)
         self.errors = errors or []
+        self.report = report or {}
 
 
 def verify_python_syntax(py_file: Path) -> str | None:
@@ -140,16 +166,128 @@ def verify_frontend_integrity(frontend_dir: Path, run_build: bool = False) -> li
     return errors
 
 
-def verify_workspace(workspace_dir: Path, check_npm: bool = False) -> list[str]:
-    """Perform comprehensive verification on a generated workspace."""
-    errors: list[str] = []
-    if not workspace_dir.exists():
-        return [f"Workspace directory does not exist: {workspace_dir}"]
 
-    errors.extend(verify_backend_integrity(workspace_dir / "backend"))
+# ── Locked-file protection ──────────────────────────────────────────────
+
+
+def snapshot_locked(workspace_dir: Path) -> dict[str, bytes]:
+    """Read locked generated files so they can be restored if the agent edits them."""
+    lock = workspace_dir / ".locked.json"
+    if not lock.exists():
+        return {}
+    rels = json.loads(lock.read_text()).keys()
+    return {r: (workspace_dir / r).read_bytes() for r in rels if (workspace_dir / r).exists()}
+
+
+def restore_locked(workspace_dir: Path, snapshot: dict[str, bytes]) -> list[str]:
+    """Restore any tampered locked file; returns the list of restored paths."""
+    restored = []
+    for rel, data in snapshot.items():
+        p = workspace_dir / rel
+        if not p.exists() or p.read_bytes() != data:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(data)
+            restored.append(rel)
+    if restored:
+        logger.warning("Restored agent-modified locked files: %s", restored)
+    return restored
+
+
+# ── Behavioural acceptance tests ────────────────────────────────────────
+
+_SUMMARY_RE = re.compile(r"(\d+) passed|(\d+) failed|(\d+) error", re.I)
+
+
+def run_acceptance_tests(backend_dir: Path) -> dict[str, Any]:
+    """Run generated acceptance tests in a subprocess with a scrubbed env (no platform secrets)."""
+    tests_dir = backend_dir / "tests"
+    if not tests_dir.exists():
+        return {"ran": False, "passed": 0, "failed": 0, "errors": ["No acceptance tests found (tests/)."]}
+
+    env = {k: os.environ[k] for k in _SAFE_ENV_KEYS if k in os.environ}
+    env.update({"APP_ENV": "test", "DEBUG": "false", "PYTHONDONTWRITEBYTECODE": "1"})
+    (backend_dir / "test.db").unlink(missing_ok=True)
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", "-q", "-x", "--no-header", "-p", "no:cacheprovider",
+             "-p", "no:warnings", "--tb=short", "--show-capture=no", "-rf"],
+            cwd=backend_dir, env=env, capture_output=True, text=True, timeout=TEST_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        return {"ran": True, "passed": 0, "failed": 1, "errors": ["Acceptance tests timed out."]}
+    finally:
+        (backend_dir / "test.db").unlink(missing_ok=True)
+
+    out = (proc.stdout or "") + (proc.stderr or "")
+    passed = sum(int(m.group(1)) for m in _SUMMARY_RE.finditer(out) if m.group(1))
+    failed = sum(int(m.group(2) or m.group(3) or 0) for m in _SUMMARY_RE.finditer(out) if m.group(2) or m.group(3))
+    errors: list[str] = []
+    if proc.returncode != 0:
+        # Keep the most useful tail: assertion lines + short traceback, capped for the prompt.
+        errors.append("Acceptance tests failed:\n" + out[-3500:])
+    return {"ran": True, "passed": passed, "failed": failed, "errors": errors}
+
+
+def verify_workspace(workspace_dir: Path, check_npm: bool = False) -> list[str]:
+    """Static + behavioural verification. Returns a list of human-readable errors."""
+    return verify_workspace_report(workspace_dir, check_npm=check_npm)["errors"]
+
+
+def verify_workspace_report(workspace_dir: Path, check_npm: bool = False) -> dict[str, Any]:
+    if not workspace_dir.exists():
+        return {"errors": [f"Workspace directory does not exist: {workspace_dir}"], "tests": {}}
+    errors: list[str] = list(verify_backend_integrity(workspace_dir / "backend"))
+    tests: dict[str, Any] = {}
+    if not errors:  # only run behaviour once it compiles
+        tests = run_acceptance_tests(workspace_dir / "backend")
+        errors.extend(tests["errors"])
+    actions = workspace_dir / "backend" / "actions.py"
+    if actions.exists() and "raise HTTPException(501" in actions.read_text(encoding="utf-8"):
+        errors.append("actions.py still contains 501 'not implemented' stubs.")
+    errors.extend(verify_screens(workspace_dir))
     should_run_build = bool(check_npm and getattr(settings, "MVP_VERIFY_NPM", False))
     errors.extend(verify_frontend_integrity(workspace_dir / "frontend", run_build=should_run_build))
+    return {"errors": errors, "tests": tests}
+
+
+def verify_screens(workspace_dir: Path) -> list[str]:
+    """Every spec screen must exist as a real page that talks to the API."""
+    spec_file, app_dir = workspace_dir / "spec.json", workspace_dir / "frontend" / "src" / "app"
+    if not spec_file.exists() or not app_dir.exists():
+        return []
+    errors = []
+    for screen in json.loads(spec_file.read_text()).get("screens", []):
+        route = str(screen.get("route", "/")).strip("/")
+        page = app_dir / route / "page.tsx" if route else app_dir / "page.tsx"
+        if not page.exists():
+            errors.append(f"Screen '{screen.get('name')}' missing: expected {page.relative_to(workspace_dir)}")
+            continue
+        src = page.read_text(encoding="utf-8")
+        if "__MODULE_LINKS__" in src or "__APP_TITLE__" in src:
+            errors.append(f"{page.relative_to(workspace_dir)} still has template placeholders.")
+        if screen.get("uses_entities") or screen.get("uses_actions"):
+            if "api." not in src and "fetch(" not in src:
+                errors.append(f"{page.relative_to(workspace_dir)} never calls the API (static mock UI).")
     return errors
+
+
+def _repair_prompt(target_dir: str, turn: int, max_turns: int, errors: list[str], restored: list[str]) -> str:
+    joined = "\n\n".join(errors)[:6000]
+    tamper = (
+        f"\nNOTE: you modified locked files {restored}; they were restored. Do NOT edit them — "
+        "fix `backend/actions.py` or frontend files instead.\n"
+        if restored
+        else ""
+    )
+    return (
+        f"# Verification failed — repair turn {turn}/{max_turns}\n\n"
+        f"Project: `{target_dir}`. Read `spec.json` and the failing test output below.\n{tamper}\n"
+        f"```\n{joined}\n```\n\n"
+        "Fix the ROOT CAUSE in `backend/actions.py` (business logic) or frontend pages.\n"
+        "- Never edit models.py, schemas.py, routers.py, tests/, or spec.json.\n"
+        "- Never special-case test values; implement the rules generally.\n"
+        "- Reply with the files changed and a one-line cause for each failure."
+    )
 
 
 async def verify_and_repair(
@@ -160,81 +298,35 @@ async def verify_and_repair(
     send_prompt_fn: Any = None,
     check_npm: bool = False,
 ) -> dict[str, Any]:
-    """Run verification checkpoint with bounded repair loop.
-
-    1. Checks Python syntax, backend files, and frontend structure.
-    2. If errors are found and session_id is live, feeds compiler output back
-       into OpenCode for bounded repair turns (up to max_repair_turns).
-    3. If verification passes, returns result dict.
-    4. If errors persist after the budget, raises VerificationError with real details.
-    """
-    errors = verify_workspace(workspace_dir, check_npm=check_npm)
+    """Verify; on failure feed real errors to the agent for bounded repair turns."""
+    workspace_dir = Path(workspace_dir)
+    locked = snapshot_locked(workspace_dir)
+    restored = restore_locked(workspace_dir, locked)
+    report = verify_workspace_report(workspace_dir, check_npm=check_npm)
+    errors = report["errors"]
     if not errors:
-        logger.info("Verification passed on initial check for %s", workspace_dir.name)
-        return {"verified": True, "repair_turns": 0, "errors": []}
-
-    logger.warning(
-        "Build %s failed initial verification with %d error(s): %s",
-        workspace_dir.name,
-        len(errors),
-        errors,
-    )
+        return {"verified": True, "repair_turns": 0, "errors": [], "tests": report["tests"]}
 
     if not session_id or not send_prompt_fn or max_repair_turns <= 0:
-        error_msg = "; ".join(errors)
-        raise VerificationError(
-            f"Build verification failed: {error_msg}",
-            errors=errors,
-        )
+        raise VerificationError("Build verification failed: " + "; ".join(e[:300] for e in errors[:3]),
+                                errors=errors, report=report)
 
     for turn in range(1, max_repair_turns + 1):
-        logger.info(
-            "Starting repair turn %d/%d for session %s (workspace=%s)",
-            turn,
-            max_repair_turns,
-            session_id,
-            workspace_dir.name,
-        )
-
-        formatted_errors = "\n".join(f"- {e}" for e in errors)
-        repair_prompt = (
-            f"# Verification Checkpoint Failed — Repair Turn {turn}/{max_repair_turns}\n\n"
-            f"The project in `{target_dir}` failed automated verification with the following compiler/linter errors:\n\n"
-            f"```\n{formatted_errors}\n```\n\n"
-            f"**Your task:** Fix the broken files in `{target_dir}` to resolve these exact errors.\n"
-            "- Do not rewrite the whole project or change the directory structure.\n"
-            "- Edit only the specific files and lines causing the errors.\n"
-            "- Ensure all Python syntax, imports, FastAPI route signatures, and React JSX/TS types are valid.\n"
-            "- Report which files you fixed when done."
-        )
-
+        logger.info("Repair turn %d/%d (session=%s)", turn, max_repair_turns, session_id)
         try:
-            await send_prompt_fn(session_id, repair_prompt)
+            await send_prompt_fn(session_id, _repair_prompt(target_dir, turn, max_repair_turns, errors, restored))
         except Exception as exc:
-            logger.error("Failed to send repair prompt to session %s: %s", session_id, exc)
+            logger.error("Repair prompt failed for session %s: %s", session_id, exc)
             break
-
-        # Re-verify after repair turn
-        errors = verify_workspace(workspace_dir, check_npm=check_npm)
+        restored = restore_locked(workspace_dir, locked)
+        report = verify_workspace_report(workspace_dir, check_npm=check_npm)
+        errors = report["errors"]
         if not errors:
-            logger.info(
-                "Build %s passed verification after repair turn %d/%d",
-                workspace_dir.name,
-                turn,
-                max_repair_turns,
-            )
-            return {"verified": True, "repair_turns": turn, "errors": []}
+            return {"verified": True, "repair_turns": turn, "errors": [], "tests": report["tests"]}
 
-        logger.warning(
-            "Build %s still has %d error(s) after repair turn %d: %s",
-            workspace_dir.name,
-            len(errors),
-            turn,
-            errors,
-        )
-
-    error_summary = "; ".join(errors[:5])
     raise VerificationError(
-        f"Build verification failed after {max_repair_turns} repair attempt(s): {error_summary}",
+        f"Build verification failed after {max_repair_turns} repair attempt(s): "
+        + "; ".join(e[:300] for e in errors[:3]),
         errors=errors,
+        report=report,
     )

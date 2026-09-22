@@ -423,6 +423,173 @@ _PORTFOLIO = {
 }
 
 
+_RESTAURANT_ORDERING = {
+    "business_description": (
+        "An online food menu and ordering platform for restaurants and cafes. "
+        "Customers can browse culinary dishes, filter by category/diet, add items to their "
+        "interactive cart, and submit live dine-in or takeout orders. Restaurant admins and kitchen staff "
+        "can monitor and update incoming orders with live status tracking."
+    ),
+    "industry": "food_and_beverage",
+    "solution_title": "Bistro & Cafe Ordering",
+    "identified_solutions": ["menu_catalog", "order_management"],
+    "confirmed_modules": ["dishes", "orders"],
+    "hld": {
+        "content": {
+            "system_overview": (
+                "Bistro & Cafe Ordering is a modern food ordering system with a customer storefront "
+                "and an admin kitchen display system. Next.js 15 frontend, FastAPI backend, PostgreSQL, and JWT auth."
+            ),
+            "architecture": "Monolith",
+            "components": [
+                {
+                    "name": "Customer Storefront",
+                    "description": "Interactive menu with cart drawer and instant checkout",
+                },
+                {
+                    "name": "Kitchen Orders Board",
+                    "description": "Live admin order status progression dashboard",
+                },
+                {
+                    "name": "API",
+                    "description": "FastAPI REST backend with /api/v1/dishes and /api/v1/orders",
+                },
+                {"name": "Database", "description": "PostgreSQL with dish and order models"},
+            ],
+            "tech_stack": {
+                "frontend": "Next.js 15, React, TypeScript, Tailwind CSS, Lucide Icons",
+                "backend": "Python 3.12, FastAPI, SQLAlchemy 2.0, Pydantic v2",
+                "database": "PostgreSQL 16",
+                "auth": "JWT",
+            },
+        }
+    },
+    "lld": {
+        "content": {
+            "modules": [
+                {
+                    "name": "dishes",
+                    "description": "Menu catalog with categories, pricing, and dietary badges",
+                    "endpoints": [
+                        {
+                            "method": "GET",
+                            "path": "/api/v1/dishes",
+                            "description": "List all menu items",
+                        },
+                        {
+                            "method": "POST",
+                            "path": "/api/v1/dishes",
+                            "description": "Add new dish to menu",
+                        },
+                        {
+                            "method": "DELETE",
+                            "path": "/api/v1/dishes/{dish_id}",
+                            "description": "Remove dish from menu",
+                        },
+                    ],
+                    "models": [
+                        {
+                            "name": "Dish",
+                            "fields": [
+                                "id",
+                                "name",
+                                "category",
+                                "price",
+                                "description",
+                                "dietary",
+                                "is_available",
+                                "created_at",
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "name": "orders",
+                    "description": "Order placement and live kitchen status tracking",
+                    "endpoints": [
+                        {
+                            "method": "GET",
+                            "path": "/api/v1/orders",
+                            "description": "List all customer orders",
+                        },
+                        {
+                            "method": "POST",
+                            "path": "/api/v1/orders",
+                            "description": "Place customer order",
+                        },
+                        {
+                            "method": "PATCH",
+                            "path": "/api/v1/orders/{order_id}",
+                            "description": "Update order status",
+                        },
+                    ],
+                    "models": [
+                        {
+                            "name": "Order",
+                            "fields": [
+                                "id",
+                                "table_number",
+                                "total_amount",
+                                "status",
+                                "created_at",
+                            ],
+                        }
+                    ],
+                },
+            ],
+            "data_flow": "Frontend Customer Cart -> /api/v1/orders -> Kitchen Display Dashboard",
+        }
+    },
+    "er_diagram": {
+        "content": {
+            "entities": [
+                {
+                    "name": "dish",
+                    "fields": [
+                        {"name": "id", "type": "UUID", "pk": True},
+                        {"name": "name", "type": "VARCHAR(255)"},
+                        {"name": "category", "type": "VARCHAR(100)"},
+                        {"name": "price", "type": "FLOAT"},
+                        {"name": "description", "type": "TEXT"},
+                        {"name": "dietary", "type": "VARCHAR(100)"},
+                        {"name": "is_available", "type": "BOOLEAN"},
+                        {"name": "created_at", "type": "TIMESTAMPTZ"},
+                    ],
+                },
+                {
+                    "name": "order",
+                    "fields": [
+                        {"name": "id", "type": "UUID", "pk": True},
+                        {"name": "table_number", "type": "VARCHAR(255)"},
+                        {"name": "total_amount", "type": "FLOAT"},
+                        {"name": "status", "type": "VARCHAR(50)"},
+                        {"name": "created_at", "type": "TIMESTAMPTZ"},
+                    ],
+                },
+            ]
+        }
+    },
+    "api_spec": {
+        "content": {
+            "base_url": "/api/v1",
+            "endpoints": [
+                {"method": "GET", "path": "/api/v1/dishes", "summary": "Get menu dishes"},
+                {"method": "POST", "path": "/api/v1/dishes", "summary": "Create new dish"},
+                {"method": "GET", "path": "/api/v1/orders", "summary": "Get active orders"},
+                {"method": "POST", "path": "/api/v1/orders", "summary": "Submit order"},
+                {
+                    "method": "PATCH",
+                    "path": "/api/v1/orders/{id}",
+                    "summary": "Update order status",
+                },
+            ],
+        }
+    },
+    "wireframes": [],
+    "bpmn_flows": [],
+}
+
+
 class MVPTemplate:
     """Metadata for one starter template plus its ready-to-build ai_state."""
 
@@ -472,6 +639,12 @@ TEMPLATES: list[MVPTemplate] = [
         title="Portfolio Website",
         description="Landing page, project showcase, and contact form.",
         ai_state=_PORTFOLIO,
+    ),
+    MVPTemplate(
+        slug="restaurant_ordering",
+        title="Restaurant Menu & Ordering",
+        description="Customer menu storefront, dynamic cart drawer, and live kitchen orders admin dashboard.",
+        ai_state=_RESTAURANT_ORDERING,
     ),
 ]
 
@@ -559,6 +732,8 @@ def apply_template_files(build_dir: Any, slug: str, app_title: str | None = None
         _apply_calculator_template(backend_dir, frontend_dir, title)
     elif slug == "portfolio":
         _apply_portfolio_template(backend_dir, frontend_dir, title)
+    elif slug == "restaurant_ordering":
+        _apply_restaurant_template(backend_dir, frontend_dir, title)
 
 
 def _apply_todo_template(backend_dir: Any, frontend_dir: Any, title: str) -> None:
@@ -1396,3 +1571,215 @@ export default function Home() {
 }
 """.replace("__APP_TITLE__", title)
     (f_dir / "src" / "app" / "page.tsx").write_text(page_content, encoding="utf-8")
+
+
+def _apply_restaurant_template(backend_dir: Any, frontend_dir: Any, title: str) -> None:
+    from pathlib import Path
+
+    from app.services.mvp_builder import (
+        _generate_admin_orders_page,
+        _generate_dish_management_page,
+        _generate_restaurant_storefront_page,
+    )
+
+    b_dir = Path(backend_dir)
+    f_dir = Path(frontend_dir)
+
+    models_content = '''"""SQLAlchemy models for Restaurant Ordering app."""
+from __future__ import annotations
+import uuid
+from datetime import UTC, datetime
+from sqlalchemy import Boolean, DateTime, Float, String, Text
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+class Base(DeclarativeBase):
+    pass
+
+class Dish(Base):
+    __tablename__ = "dish"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str] = mapped_column(String(100), nullable=False, default="Mains")
+    price: Mapped[float] = mapped_column(Float, nullable=False, default=12.99)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    dietary: Mapped[str] = mapped_column(String(100), nullable=False, default="Chef Special")
+    is_available: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+class Order(Base):
+    __tablename__ = "order"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    table_number: Mapped[str] = mapped_column(String(255), nullable=False, default="Table 1")
+    total_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="Pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+'''
+    (b_dir / "models.py").write_text(models_content, encoding="utf-8")
+
+    schemas_content = '''"""Pydantic schemas for Restaurant Ordering app."""
+from __future__ import annotations
+import uuid
+from datetime import datetime
+from typing import Optional
+from pydantic import BaseModel, ConfigDict
+
+class DishBase(BaseModel):
+    name: str
+    category: str = "Mains"
+    price: float = 12.99
+    description: str = ""
+    dietary: str = "Chef Special"
+    is_available: bool = True
+
+class DishCreate(DishBase):
+    pass
+
+class DishRead(DishBase):
+    id: uuid.UUID
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+class OrderBase(BaseModel):
+    table_number: str
+    total_amount: float
+    status: str = "Pending"
+
+class OrderCreate(OrderBase):
+    pass
+
+class OrderUpdate(BaseModel):
+    status: Optional[str] = None
+    table_number: Optional[str] = None
+    total_amount: Optional[float] = None
+
+class OrderRead(OrderBase):
+    id: uuid.UUID
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+'''
+    (b_dir / "schemas.py").write_text(schemas_content, encoding="utf-8")
+
+    routers_content = '''"""API routers for Restaurant Ordering app."""
+from __future__ import annotations
+import uuid
+from typing import List
+from fastapi import APIRouter, HTTPException, status
+from sqlalchemy import select, text
+try:
+    from .core.config import settings
+    from .deps import SessionDep
+    from .models import Dish, Order
+    from .schemas import DishCreate, DishRead, OrderCreate, OrderRead, OrderUpdate
+except (ImportError, ValueError):
+    from core.config import settings
+    from deps import SessionDep
+    from models import Dish, Order
+    from schemas import DishCreate, DishRead, OrderCreate, OrderRead, OrderUpdate
+
+router = APIRouter()
+
+@router.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok", "service": settings.APP_NAME}
+
+@router.get("/ready")
+async def ready(session: SessionDep) -> dict[str, str]:
+    await session.execute(text("SELECT 1"))
+    return {"status": "ready", "database": "ok"}
+
+@router.get("/dishes", response_model=List[DishRead])
+async def list_dishes(session: SessionDep) -> List[Dish]:
+    res = await session.execute(select(Dish).order_by(Dish.created_at.asc()))
+    items = list(res.scalars().all())
+    if not items:
+        seeds = [
+            Dish(name="Truffle Mushroom Risotto", category="Mains", price=19.5, description="Creamy arborio rice infused with black truffle emulsion and wild forest mushrooms.", dietary="Vegetarian"),
+            Dish(name="Artisan Margherita Pizza", category="Mains", price=14.0, description="San Marzano tomato base, fresh buffalo mozzarella, fragrant basil, cold-pressed olive oil.", dietary="Vegetarian"),
+            Dish(name="Crispy Calamari & Herb Aioli", category="Starters", price=12.0, description="Golden fried calamari rings dusted with sea salt, smoked paprika, and garlic aioli.", dietary="Seafood"),
+            Dish(name="Charred Burrata & Peach Salad", category="Starters", price=13.5, description="Handcrafted Italian burrata with sweet grilled peaches, balsamic glaze, and micro arugula.", dietary="Gluten-Free"),
+            Dish(name="Classic Tiramisu al Mascarpone", category="Desserts", price=9.5, description="Espresso-soaked savoiardi ladyfingers layered with velvety mascarpone crema.", dietary="Signature"),
+            Dish(name="Cold Brew Espresso Tonic", category="Beverages", price=5.5, description="Single-origin Ethiopian cold brew layered over crisp citrus tonic water with rosemary.", dietary="Vegan"),
+        ]
+        for s in seeds:
+            session.add(s)
+        await session.commit()
+        for s in seeds:
+            await session.refresh(s)
+        return seeds
+    return items
+
+@router.post("/dishes", response_model=DishRead, status_code=status.HTTP_201_CREATED)
+async def create_dish(payload: DishCreate, session: SessionDep) -> Dish:
+    dish = Dish(**payload.model_dump())
+    session.add(dish)
+    await session.commit()
+    await session.refresh(dish)
+    return dish
+
+@router.delete("/dishes/{dish_id}")
+async def delete_dish(dish_id: uuid.UUID, session: SessionDep) -> dict[str, bool]:
+    dish = await session.get(Dish, dish_id)
+    if dish:
+        await session.delete(dish)
+        await session.commit()
+    return {"ok": True}
+
+@router.get("/orders", response_model=List[OrderRead])
+async def list_orders(session: SessionDep) -> List[Order]:
+    res = await session.execute(select(Order).order_by(Order.created_at.desc()))
+    items = list(res.scalars().all())
+    if not items:
+        seeds = [
+            Order(table_number="Table 4 (Alex M.)", total_amount=43.5, status="In Kitchen"),
+            Order(table_number="Table 7 (Sarah K.)", total_amount=29.0, status="Pending"),
+            Order(table_number="Takeout #104 (David)", total_amount=19.5, status="Ready"),
+        ]
+        for s in seeds:
+            session.add(s)
+        await session.commit()
+        for s in seeds:
+            await session.refresh(s)
+        return seeds
+    return items
+
+@router.post("/orders", response_model=OrderRead, status_code=status.HTTP_201_CREATED)
+async def create_order(payload: OrderCreate, session: SessionDep) -> Order:
+    order = Order(**payload.model_dump())
+    session.add(order)
+    await session.commit()
+    await session.refresh(order)
+    return order
+
+@router.patch("/orders/{order_id}", response_model=OrderRead)
+async def update_order(order_id: uuid.UUID, payload: OrderUpdate, session: SessionDep) -> Order:
+    order = await session.get(Order, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    for k, v in payload.model_dump(exclude_unset=True).items():
+        setattr(order, k, v)
+    await session.commit()
+    await session.refresh(order)
+    return order
+
+@router.delete("/orders/{order_id}")
+async def delete_order(order_id: uuid.UUID, session: SessionDep) -> dict[str, bool]:
+    order = await session.get(Order, order_id)
+    if order:
+        await session.delete(order)
+        await session.commit()
+    return {"ok": True}
+'''
+    (b_dir / "routers.py").write_text(routers_content, encoding="utf-8")
+
+    (f_dir / "src" / "app" / "page.tsx").write_text(
+        _generate_restaurant_storefront_page(title), encoding="utf-8"
+    )
+
+    orders_dir = f_dir / "src" / "app" / "orders"
+    orders_dir.mkdir(parents=True, exist_ok=True)
+    (orders_dir / "page.tsx").write_text(_generate_admin_orders_page(title), encoding="utf-8")
+
+    dishes_dir = f_dir / "src" / "app" / "dishes"
+    dishes_dir.mkdir(parents=True, exist_ok=True)
+    (dishes_dir / "page.tsx").write_text(_generate_dish_management_page(title), encoding="utf-8")

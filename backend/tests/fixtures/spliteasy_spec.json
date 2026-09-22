@@ -1,0 +1,17 @@
+{"app_name":"SplitEasy","one_liner":"Split group expenses","core_value":"Computes who owes whom",
+"entities":[
+ {"name":"group","plural":"groups","fields":[{"name":"name","type":"string"}]},
+ {"name":"member","plural":"members","fields":[{"name":"group_id","type":"ref","ref":"group"},{"name":"name","type":"string"}]},
+ {"name":"expense","plural":"expenses","fields":[{"name":"group_id","type":"ref","ref":"group"},{"name":"paid_by_id","type":"ref","ref":"member"},{"name":"amount","type":"float"},{"name":"description","type":"string"},{"name":"category","type":"enum","enum_values":["food","travel","other"],"required":false,"default":"other"}]}],
+"actions":[{"name":"balances","method":"GET","path":"/actions/groups/{group_id}/balances","summary":"Net balance per member","rules":["share = total/members","balance = paid - share rounded 2dp","404 if group missing"],"output_example":{"total":90,"balances":[{"member_id":1,"balance":60}]}}],
+"screens":[{"name":"Group","route":"/groups/[id]","purpose":"see balances","uses_entities":["group"],"uses_actions":["balances"],"key_interactions":["add expense"]}],
+"acceptance_tests":[
+ {"name":"crud group","description":"create and fetch","steps":[{"method":"POST","path":"/groups","body":{"name":"Goa"},"expect_status":201,"expect":{"name":"Goa"},"save":{"g":"id"}},{"method":"GET","path":"/groups/{g}","expect":{"name":"Goa"}}]},
+ {"name":"bad ref","description":"member in missing group","steps":[{"method":"POST","path":"/members","body":{"group_id":999,"name":"A"},"expect_status":404}]},
+ {"name":"balances split","description":"3 people, A pays 90","steps":[
+  {"method":"POST","path":"/groups","body":{"name":"Trip"},"expect_status":201,"save":{"g":"id"}},
+  {"method":"POST","path":"/members","body":{"group_id":"{g}","name":"A"},"expect_status":201,"save":{"a":"id"}},
+  {"method":"POST","path":"/members","body":{"group_id":"{g}","name":"B"},"expect_status":201},
+  {"method":"POST","path":"/members","body":{"group_id":"{g}","name":"C"},"expect_status":201},
+  {"method":"POST","path":"/expenses","body":{"group_id":"{g}","paid_by_id":"{a}","amount":90,"description":"dinner","category":"food"},"expect_status":201},
+  {"method":"GET","path":"/actions/groups/{g}/balances","expect":{"total":90,"balances.0.balance":60,"balances.1.balance":-30}}]}]}
