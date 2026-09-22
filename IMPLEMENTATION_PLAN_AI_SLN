@@ -1,0 +1,254 @@
+# AI Solution Builder — Implementation Plan
+
+Repo: `mananjp/AI_Solution_Builder` (main, 80 commits) · Reviewed from source, not just README.
+Goal: Prompt/Doc → Blueprint → **Approval** → Solution → Deploy → Live System, with explainability, multilingual, voice, RBAC, mobile, and a real monetization loop.
+
+---
+
+## 0. Current State Audit
+
+| Area | Exists today | Gap / Issue (evidence) | Severity |
+|---|---|---|---|
+| Agent pipeline | LangGraph: BA → router → Architect → UX → Process → DB/API → Code → Blueprint (`agents/graph.py`) | No **human approval gate** between blueprint and build; router auto-generates when `confidence ≥ 0.7` | 🔴 |
+| Requirement understanding | BA returns `clarification_questions`, `pain_points` | BA drops assistant turns from history (`business_analyst.py:37` only appends `role=="user"`) → loses what it already asked; no structured "missing requirements" / NFR checklist | 🔴 |
+| Explainability | — | `DiscoveryState` has no `assumptions`, `rationale`, `evidence`, `confidence` per artifact | 🔴 |
+| Ingestion | text, PDF, DOCX, CSV/XLSX, OpenAPI, URL | No **voice**, no images/screenshots, no "existing system" (DB DSN / repo URL) import; RAG `embedding` column never populated (`docs/tickets/SEMANTIC_RETRIEVAL_RAG_PIPELINE.md`) | 🟠 |
+| Multilingual | `core/i18n.py`, 12 langs, LLM translation | Only `hi` for Indic; missing gu, mr, bn, ta, te, kn, ml, pa, ur, or, as; UI strings not localized; translation fail-open silently | 🟠 |
+| Regeneration | Per-artifact versions (`api/artifacts.py`) | No **cascade** (edit ER → API/code stale); on agent failure it fabricates a "revised" artifact by prepending feedback to old text (line ~335) and **credits already deducted, no refund** | 🔴 |
+| Post-deploy edits | `deploy` with `force: true` | No diff/patch flow: regenerate → rebuild → redeploy same repo/service | 🟠 |
+| Deployment | GitHub push + Render API (`render_deployer.py`) | No Vercel API deployer; no live-status/URL surfaced end-to-end; no rollback | 🟠 |
+| Auth / RBAC | JWT, OAuth, guest, `require_admin` | Every registration → `role="admin"` (`auth.py:94,305,351`); `member`/`guest` never enforced; no per-workspace roles; PATs stored in `user.settings` (verify encryption) | 🔴 |
+| Mobile | Capacitor Android, PWA | No iOS project; `cleartext: true`, default `localhost:3000`; no tablet layouts verified | 🟠 |
+| Billing | Plans, credit ledger, `/billing/topup` | **`/topup` grants unlimited free credits with no payment** (`billing.py:155`) — exploitable; no gateway, no cost justification | 🔴 |
+| UI/UX | Next.js 16, Tailwind 4, Inter/Playfair/Devanagari fonts | Large monolithic pages (chat 549, landing 633 lines); no design tokens/spacing scale audit; blueprint not reviewable as one approvable doc | 🟡 |
+| Enterprise artifacts | HLD, LLD, ER, OpenAPI, BPMN, wireframes, DDL, Terraform | No integrations catalog, security/threat model artifact, NFR/SLA sheet, cost estimate | 🟡 |
+
+---
+
+## 1. Phased Roadmap
+
+| Phase | Theme | Est. | Depends on |
+|---|---|---|---|
+| P0 | Security & correctness fixes | 2–3 d | — |
+| P1 | Requirement Intelligence + Explainability | 5 d | P0 |
+| P2 | Blueprint Approval Gate + Cascading Regeneration | 4 d | P1 |
+| P3 | Inputs: Voice, RAG, Existing Systems, Indic languages | 5 d | P1 |
+| P4 | Deploy → Live (Vercel + Render) + Redeploy/Rollback | 4 d | P2 |
+| P5 | RBAC, Web/Android/iOS/Tablet | 4 d | P0 |
+| P6 | Monetization (gateway + justified credit model) | 3 d | P0 |
+| P7 | UI/UX overhaul | 4 d | P2 |
+| P8 | USP features + demo script | 3 d | all |
+
+---
+
+## P0 — Security & Correctness (do first)
+
+| # | Change | Files | Acceptance |
+|---|---|---|---|
+| 0.1 | Remove free top-up; gate behind payment webhook (P6) or `require_admin` | `api/billing.py` | Non-admin `POST /topup` → 403 |
+| 0.2 | Registration assigns `member`; first user of a new org = `owner` | `api/auth.py` | Test: 2nd user in org is not admin |
+| 0.3 | Regeneration failure → **no fake artifact**; return 502 + refund credits (ledger reversal row) | `api/artifacts.py`, `core/credits.py` (`refund_credit()`) | Failing agent leaves version count unchanged, balance restored |
+| 0.4 | Deduct credits **after** success or use reserve→commit/release pattern | `core/credits.py` | Same for generation & MVP build |
+| 0.5 | Encrypt `github_token`/`render_api_key`/`vercel_token` at rest (Fernet, key from env) | `core/secrets.py`, `models/user.py` | DB dump shows ciphertext |
+| 0.6 | BA agent keeps full history (user + assistant) | `agents/nodes/business_analyst.py` | Clarification answers not re-asked |
+| 0.7 | Capacitor: `cleartext:false`, require `CAP_SERVER_URL` in prod | `frontend/capacitor.config.ts` | Build fails without URL |
+
+---
+
+## P1 — Requirement Intelligence + Explainability
+
+### 1.1 Extend state (`agents/state.py`)
+```python
+class Evidence(TypedDict):
+    source: str          # "user_msg" | "doc:<name>#p3" | "url:<host>" | "template:<id>" | "inferred"
+    excerpt: str         # ≤200 chars
+class Decision(TypedDict):
+    id: str; topic: str; choice: str
+    rationale: str
+    alternatives: list[str]
+    assumptions: list[str]
+    evidence: list[Evidence]
+    confidence: float    # 0–1
+    impact: Literal["low","medium","high"]
+class Requirement(TypedDict):
+    id: str; kind: Literal["functional","nfr","compliance","integration"]
+    text: str; status: Literal["stated","inferred","missing","suggested"]
+    priority: Literal["must","should","could"]
+    evidence: list[Evidence]
+# DiscoveryState += requirements, decisions, open_questions, suggested_features, assumptions_log
+```
+
+### 1.2 New / changed agents
+| Agent | Output | Notes |
+|---|---|---|
+| `requirement_gap_agent` (new, after BA) | `requirements` with `missing`/`suggested`, prioritized `open_questions` (max 5, each with *why it matters*) | Checklist: auth, roles, payments, notifications, reporting, audit, data retention, compliance (GDPR/DPDP India), scale, offline, i18n |
+| `feature_advisor_agent` (new) | `suggested_features` + ROI rationale ("competitors in X usually have Y") | Uses `agents/templates.py` industry library as evidence |
+| Every generation node | Must emit `decisions[]` via shared Pydantic schema | Wrap LLM calls with `with_structured_output()` instead of ```` ```json ```` splitting |
+
+### 1.3 Explainability surfaces
+- API: `GET /solutions/{id}/decisions`, `GET /artifacts/{id}/explain`.
+- UI: "Why?" drawer on every artifact → rationale, assumptions (editable → triggers regeneration), evidence links with doc excerpt highlight, confidence badge.
+- Export: "Decision Record" appendix (ADR format) in PDF/DOCX.
+
+**Acceptance:** each artifact has ≥1 decision with ≥1 evidence; editing an assumption marks dependent artifacts stale.
+
+---
+
+## P2 — Blueprint Approval Gate + Cascading Regeneration
+
+### 2.1 Solution lifecycle state machine (`models/solution.py`)
+`draft → clarifying → blueprint_ready → approved → building → built → deployed → live` (+ `changes_requested`).
+- Router: after `blueprint_generator` stop at `blueprint_ready` (never auto-build).
+- `POST /solutions/{id}/approve` (role ≥ `approver`), `POST /solutions/{id}/request-changes {comments}`.
+- MVP build endpoint rejects unless `approved`.
+- Approval snapshot: freeze artifact versions into `blueprint_versions` table (hash) so builds are reproducible.
+
+### 2.2 Dependency graph for regeneration
+```
+requirements → hld → lld → er_diagram → database_schema → api_spec → code
+                   └→ wireframes ──────────────────────────────────┘
+                   └→ bpmn
+```
+- `app/services/artifact_graph.py`: `downstream(artifact_type)`; on change mark dependents `stale=True`.
+- `POST /solutions/{id}/regenerate {targets, feedback, cascade: bool}` → runs only affected nodes (reuse `generation_graph` with entry-point override).
+- UI: stale badges + "Regenerate affected (N credits)" button; side-by-side **diff view** between versions (JSON diff for schemas, text diff for docs, visual diff for wireframes).
+- UI/UX customization: theme tokens (colors, font, radius, density) stored in `solution.ui_theme`, applied to wireframes and to the MVP template's `tailwind.config.ts`.
+
+---
+
+## P3 — Inputs & Multilingual
+
+| # | Feature | Implementation |
+|---|---|---|
+| 3.1 | **Voice input** | Frontend: `MediaRecorder` → `POST /upload/audio`; Backend: Whisper (Groq `whisper-large-v3` / OpenAI) with language auto-detect; fallback Web Speech API client-side. Mobile: `@capacitor-community/speech-recognition` |
+| 3.2 | Voice output (optional) | TTS of summaries/questions (browser `speechSynthesis`) |
+| 3.3 | Images / screenshots | Accept PNG/JPG of existing screens/whiteboards → vision LLM → description into `uploaded_context` |
+| 3.4 | Existing systems | `POST /upload/system`: (a) Postgres/MySQL DSN read-only introspection → ER; (b) public GitHub repo URL → file tree + README + models scan; (c) SOP text → BPMN "as-is" |
+| 3.5 | RAG | Implement ticket `docs/tickets/SEMANTIC_RETRIEVAL_RAG_PIPELINE.md`: chunk → embed (multilingual model e.g. `intfloat/multilingual-e5-small`, dim 384 matches column) → top-k per agent; chunk IDs become `Evidence.source` |
+| 3.6 | Indic + major languages | Extend `SUPPORTED_LANGUAGES`: gu, mr, bn, ta, te, kn, ml, pa, ur, or, as, ar, id, vi, tr; RTL support for ur/ar |
+| 3.7 | Pipeline language policy | Reason internally in English; translate **user-facing** fields (questions, rationales, summaries) to target; keep code/identifiers English; store `source_lang` on solution |
+| 3.8 | UI i18n | `next-intl`; extract strings; language switcher; Noto font families per script (Gujarati, Tamil, Bengali, …) |
+| 3.9 | Generated app i18n | MVP template ships `next-intl` + locale files generated for chosen languages |
+
+**Acceptance:** Gujarati voice note → Gujarati clarification questions → English code → Gujarati UI in generated app.
+
+---
+
+## P4 — Deploy → Live System
+
+| # | Change | Notes |
+|---|---|---|
+| 4.1 | `services/vercel_deployer.py` | Vercel REST: create project from GitHub repo, set `NEXT_PUBLIC_API_URL` env, trigger deploy, poll `readyState` |
+| 4.2 | Orchestrator `services/deploy_orchestrator.py` | Order: DB (Neon API or Render PG) → backend (Render) → get URL → frontend (Vercel) with backend URL → smoke test `/health` |
+| 4.3 | Target selection | `deploy_targets: {frontend: vercel|render, backend: render|fly}` in request |
+| 4.4 | Live status | SSE `GET /deployments/{id}/events`; persist `Deployment` model (status, urls, commit_sha, logs_url) |
+| 4.5 | Redeploy after edits | Regenerate → rebuild → **commit to same repo** (new commit, not new repo) → auto redeploy; keep previous deployment id for **rollback** endpoint |
+| 4.6 | Platform-managed option | Optional: deploy under platform's own Vercel/Render team (no user tokens) — billable in P6 |
+| 4.7 | Post-deploy verification | Hit generated CRUD endpoints with synthetic data; show green checklist to user |
+
+---
+
+## P5 — Auth, RBAC, Platforms
+
+### RBAC matrix
+| Permission | owner | admin | approver | editor | viewer | guest |
+|---|---|---|---|---|---|---|
+| Billing / plans | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Manage members | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Approve blueprint | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Generate / regenerate | ✅ | ✅ | ✅ | ✅ | ❌ | limited |
+| Deploy | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| View / comment | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+- `core/security.py`: `require_permission("solution:approve")` dependency; per-workspace `WorkspaceMember(role)` table + Alembic migration.
+- Invite flow (email token), audit log entry on every role change.
+- **Generated apps** get RBAC too: roles derived from BA `stakeholders` → seeded roles + route guards in template.
+
+### Platforms
+| Target | Action |
+|---|---|
+| Android | Existing Capacitor; add splash/icons, deep links, push (FCM) |
+| iOS | `npx cap add ios`; commit `frontend/ios`; CI build via GitHub macOS runner (unsigned) |
+| Tablet | Breakpoints `md`/`lg` 2-pane layouts (chat + artifact side-by-side); test iPad/Android tablet viewports |
+| Generated app | Template adds Capacitor config + PWA manifest so user's product is also mobile-installable |
+
+---
+
+## P6 — Monetization (justified)
+
+### Cost basis (show in UI)
+| Action | Approx LLM tokens | Credits | Rationale |
+|---|---|---|---|
+| Clarification turn | ~4k | 1 | single BA/gap call |
+| Blueprint generation | ~60–90k (7 agents) | 10 | multi-agent pipeline |
+| Single-artifact regen | ~8–15k | 2 | one node |
+| Cascade regen | sum of nodes | 2 × nodes | transparent pre-quote |
+| MVP build | ~150k + compute | 25 | code synthesis + verify |
+| Deploy (platform-hosted) | infra | 5 + monthly hosting | hosting passthrough |
+| Export | ~0 | 0–1 | cheap; loss-leader |
+
+### Plans (example, INR/USD)
+| Plan | Price | Credits/mo | Limits |
+|---|---|---|---|
+| Free | 0 | 30 | 1 workspace, watermark, no deploy |
+| Starter | ₹799 / $12 | 200 | 3 workspaces, Vercel/Render deploy |
+| Pro | ₹2,499 / $39 | 800 | team 5, RBAC, custom domain |
+| Enterprise | custom | pooled | SSO, audit export, on-prem LLM |
+
+- Pay-per-generation packs (100 credits ₹399).
+- Gateway: **Razorpay** (India, UPI) + Stripe (global); `POST /billing/checkout`, verified webhook → ledger credit (replaces P0.1).
+- **Pre-flight quote**: every metered action shows "This will cost N credits" before running; show actual tokens after.
+- Refunds on failure (P0.3). Usage dashboard: credits by action, per member.
+
+---
+
+## P7 — UI/UX
+
+| # | Task |
+|---|---|
+| 7.1 | Design tokens in `globals.css`: 4/8-pt spacing scale, type scale (12/14/16/20/24/32), radius, shadows, light/dark |
+| 7.2 | Split monolith pages (`chat/page.tsx`, `page.tsx`) into components; shared `PageShell`, `EmptyState`, `Skeleton` |
+| 7.3 | Guided stepper across top: Input → Clarify → Blueprint → Approve → Build → Deploy → Live |
+| 7.4 | Blueprint review page: single scrollable doc w/ TOC, artifact tabs, "Why?" drawers, comment + approve bar |
+| 7.5 | Responsive audit 360 / 768 / 1024 / 1440 px; Playwright screenshot tests |
+| 7.6 | Accessibility: focus rings, ARIA on viewers, contrast AA, keyboard nav in wireframe canvas |
+| 7.7 | Fonts: keep Inter for UI; add Noto Sans scripts per language; drop decorative serif from body text |
+
+---
+
+## P8 — USP / Innovation (pick 3–4 to demo)
+
+| USP | Why it's differentiating |
+|---|---|
+| **Decision Ledger** (P1) | Every choice traceable to evidence; editable assumptions re-flow the design |
+| **"What you missed" panel** | Gap agent surfaces compliance (DPDP/GST/HIPAA), edge cases, NFRs automatically |
+| **Live sandbox before build** | Existing Workable runtime → users click-test data model pre-approval |
+| **Impact preview** | Before regen, show which artifacts/files/endpoints change + credit cost |
+| **Business viability sidecar** | Cost-to-run estimate (hosting/month), build effort, risks |
+| **Vernacular voice-first** | Speak in Gujarati/Tamil → deployed app, targeting Bharat SMBs |
+| **Drift detection** | Compare deployed repo vs approved blueprint; flag manual edits |
+
+---
+
+## 2. Testing & CI
+
+- Backend: pytest for approval gate, RBAC matrix (param tests), credit reserve/refund, cascade graph, deployer (mock HTTP via `respx`).
+- LLM: golden-set eval (10 BRDs incl. 3 non-English) scoring gap detection recall + decision evidence coverage.
+- Frontend: Playwright E2E happy path (prompt → approve → build → mock deploy) on mobile + desktop viewports.
+- CI: add iOS build job, Playwright job; keep coverage ≥ 80%.
+
+## 3. Demo Script (judge-facing, ~7 min)
+1. Gujarati voice note describing a clinic appointment business.
+2. AI asks 4 questions (in Gujarati) + "What you missed": DPDP consent, SMS reminders, no-show fees.
+3. Blueprint: HLD, ER, API, BPMN, wireframes — open "Why?" on DB choice → evidence from voice transcript.
+4. Edit an assumption ("multi-branch") → impact preview → cascade regen → diff.
+5. Approver role approves (show viewer can't).
+6. Build → deploy (Render API + Vercel) → live URL → open on phone (Android/iOS shell).
+7. Change a UI theme post-deploy → redeploy same repo → rollback.
+8. Billing page: credits spent per step vs quote.
+
+## 4. Risks / Flags
+- Free LLM (`opencode/big-pickle`) may be too weak for complex enterprise builds — keep provider pluggable, measure build pass rate.
+- Deploying with user PATs: scope minimally, encrypt, allow revoke.
+- Existing-DB introspection must be read-only and never persist credentials.
+- Don't claim full "enterprise scale" in demo without load/perf evidence.

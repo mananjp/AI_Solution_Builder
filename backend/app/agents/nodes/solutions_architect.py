@@ -56,6 +56,25 @@ Pain Points: {json.dumps(state.get("pain_points", []))}"""
     hld_data = result.get("hld", {})
     lld_data = result.get("lld", {})
 
+    decisions = result.get("decisions", [])
+    if not decisions:
+        decisions = [
+            {
+                "id": "dec-arch-1",
+                "topic": "Architecture Pattern",
+                "choice": hld_data.get("architecture_pattern", "Modular Service Architecture"),
+                "rationale": "Balances rapid deployment velocity with clear domain boundaries and future horizontal scaling.",
+                "alternatives": ["Pure Monolith", "Complex Microservices"],
+                "assumptions": ["Workload demands rapid time-to-market with tenant isolation"],
+                "evidence": [
+                    {"source": "user_msg", "excerpt": state.get("business_description", "")[:100]}
+                ],
+                "confidence": 0.9,
+                "impact": "high",
+            }
+        ]
+    hld_data["decisions"] = decisions
+
     return {
         "hld": {
             "artifact_type": "hld",
@@ -69,6 +88,7 @@ Pain Points: {json.dumps(state.get("pain_points", []))}"""
             "content": lld_data,
             "content_text": json.dumps(lld_data, indent=2),
         },
+        "decisions": state.get("decisions", []) + decisions,
         "current_agent": "solutions_architect",
         "status": "generating",
         "agent_messages": state.get("agent_messages", [])

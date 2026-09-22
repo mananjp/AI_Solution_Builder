@@ -4,9 +4,11 @@ AI Solution Builder — Solution API Routes
 CRUD for solutions + artifact retrieval.
 """
 
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -147,3 +149,240 @@ async def delete_solution(
     if not solution:
         raise HTTPException(status_code=404, detail="Solution not found")
     await db.delete(solution)
+
+
+@router.get("/{solution_id}/decisions")
+async def get_solution_decisions(
+    solution_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Retrieve the aggregated decision record log across all solution artifacts."""
+    result = await db.execute(
+        select(Solution)
+        .options(selectinload(Solution.artifacts))
+        .join(Workspace, Workspace.id == Solution.workspace_id)
+        .where(
+            Solution.id == solution_id,
+            Workspace.org_id == current_user.org_id,
+        )
+    )
+    solution = result.scalar_one_or_none()
+    if not solution:
+        raise HTTPException(status_code=404, detail="Solution not found")
+
+    decisions: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+
+    # 1. Decisions recorded in AI state
+    ai_state = solution.ai_state or {}
+    for dec in ai_state.get("decisions", []):
+        d_id = dec.get("id") or dec.get("topic")
+        if d_id and d_id not in seen_ids:
+            seen_ids.add(d_id)
+            decisions.append(dec)
+
+    # 2. Decisions attached to artifacts
+    for art in solution.artifacts:
+        art_content = art.content or {}
+        for dec in art_content.get("decisions", []):
+            d_id = dec.get("id") or dec.get("topic")
+            if d_id and d_id not in seen_ids:
+                seen_ids.add(d_id)
+                decisions.append(dec)
+
+    return {
+        "solution_id": str(solution.id),
+        "title": solution.title,
+        "total_decisions": len(decisions),
+        "decisions": decisions,
+        "assumptions_log": ai_state.get("assumptions_log", []),
+        "requirements": ai_state.get("requirements", []),
+    }
+
+
+class RequestChangesPayload(BaseModel):
+    comments: str
+
+
+class CascadingRegeneratePayload(BaseModel):
+    targets: list[str]
+    feedback: str = ""
+    cascade: bool = True
+
+
+class UIThemePayload(BaseModel):
+    primary_color: str | None = None
+    font_family: str | None = None
+    border_radius: str | None = None
+    density: str | None = None
+    extra_tokens: dict[str, Any] | None = None
+
+
+@router.post("/{solution_id}/approve")
+async def approve_solution(
+    solution_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Approve the blueprint, freezing artifact versions and permitting MVP build."""
+    from datetime import UTC, datetime
+
+    if current_user.role not in ("owner", "admin", "approver"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Approver, admin, or owner role required to approve blueprints",
+        )
+
+    result = await db.execute(
+        select(Solution)
+        .options(selectinload(Solution.artifacts))
+        .join(Workspace, Workspace.id == Solution.workspace_id)
+        .where(
+            Solution.id == solution_id,
+            Workspace.org_id == current_user.org_id,
+        )
+    )
+    solution = result.scalar_one_or_none()
+    if not solution:
+        raise HTTPException(status_code=404, detail="Solution not found")
+
+    snapshot = {
+        str(art.id): {
+            "artifact_type": art.artifact_type,
+            "version": art.version,
+            "title": art.title,
+        }
+        for art in solution.artifacts
+    }
+
+    solution.status = "approved"
+    solution.approval_status = "approved"
+    solution.approved_by = current_user.id
+    solution.approved_at = datetime.now(UTC)
+    solution.approval_snapshot = snapshot
+    await db.commit()
+
+    return {
+        "status": "approved",
+        "approval_status": "approved",
+        "solution_id": str(solution.id),
+        "approved_by": str(current_user.id),
+        "approved_at": solution.approved_at.isoformat(),
+        "artifacts_snapshotted": len(snapshot),
+    }
+
+
+@router.post("/{solution_id}/request-changes")
+async def request_changes(
+    solution_id: UUID,
+    payload: RequestChangesPayload,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Request changes on the solution blueprint with review feedback."""
+    result = await db.execute(
+        select(Solution)
+        .join(Workspace, Workspace.id == Solution.workspace_id)
+        .where(
+            Solution.id == solution_id,
+            Workspace.org_id == current_user.org_id,
+        )
+    )
+    solution = result.scalar_one_or_none()
+    if not solution:
+        raise HTTPException(status_code=404, detail="Solution not found")
+
+    solution.status = "changes_requested"
+    solution.approval_status = "changes_requested"
+    solution.approval_comments = payload.comments
+    await db.commit()
+
+    return {
+        "status": "changes_requested",
+        "approval_status": "changes_requested",
+        "solution_id": str(solution.id),
+        "comments": payload.comments,
+    }
+
+
+@router.post("/{solution_id}/regenerate")
+async def cascade_regenerate(
+    solution_id: UUID,
+    payload: CascadingRegeneratePayload,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Calculate cascading regeneration impact and mark affected downstream artifacts stale."""
+    from app.services.artifact_graph import mark_dependents_stale
+
+    result = await db.execute(
+        select(Solution)
+        .join(Workspace, Workspace.id == Solution.workspace_id)
+        .where(
+            Solution.id == solution_id,
+            Workspace.org_id == current_user.org_id,
+        )
+    )
+    solution = result.scalar_one_or_none()
+    if not solution:
+        raise HTTPException(status_code=404, detail="Solution not found")
+
+    all_affected: set[str] = set(payload.targets)
+    if payload.cascade:
+        for target in payload.targets:
+            downstream = await mark_dependents_stale(db, solution.id, target)
+            all_affected.update(downstream)
+
+    credit_estimate = len(all_affected) * 2
+
+    return {
+        "status": "success",
+        "solution_id": str(solution.id),
+        "primary_targets": payload.targets,
+        "affected_artifacts": sorted(all_affected),
+        "estimated_credits": credit_estimate,
+        "cascade": payload.cascade,
+    }
+
+
+@router.patch("/{solution_id}/theme")
+async def update_solution_theme(
+    solution_id: UUID,
+    payload: UIThemePayload,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Customize UI/UX design tokens for wireframes and MVP template."""
+    result = await db.execute(
+        select(Solution)
+        .join(Workspace, Workspace.id == Solution.workspace_id)
+        .where(
+            Solution.id == solution_id,
+            Workspace.org_id == current_user.org_id,
+        )
+    )
+    solution = result.scalar_one_or_none()
+    if not solution:
+        raise HTTPException(status_code=404, detail="Solution not found")
+
+    theme = dict(solution.ui_theme or {})
+    if payload.primary_color:
+        theme["primary_color"] = payload.primary_color
+    if payload.font_family:
+        theme["font_family"] = payload.font_family
+    if payload.border_radius:
+        theme["border_radius"] = payload.border_radius
+    if payload.density:
+        theme["density"] = payload.density
+    if payload.extra_tokens:
+        theme.update(payload.extra_tokens)
+
+    solution.ui_theme = theme
+    await db.commit()
+
+    return {
+        "status": "success",
+        "solution_id": str(solution.id),
+        "ui_theme": theme,
+    }

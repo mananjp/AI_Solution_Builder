@@ -88,9 +88,17 @@ class Settings(BaseSettings):
     DEFAULT_LANGUAGE: str = "en"
     TRANSLATION_ENABLED: bool = True
 
-    # ── One-Click Deploy (GitHub & Render) ─────────
+    # ── One-Click Deploy (GitHub, Render & Vercel) ──
     GITHUB_TOKEN: str = ""
     RENDER_API_KEY: str = ""
+    VERCEL_TOKEN: str = ""
+    VERCEL_TEAM_ID: str = ""
+
+    # ── Payment Gateways (Razorpay & Stripe) ───────
+    RAZORPAY_KEY_ID: str = ""
+    RAZORPAY_KEY_SECRET: str = ""
+    STRIPE_API_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
 
     # ── Row-Level Security ────────────────────────
     RLS_ENABLED: bool = False

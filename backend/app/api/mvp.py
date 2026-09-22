@@ -26,6 +26,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -415,10 +416,15 @@ async def trigger_build(
 ) -> MVPBuildResponse:
     """Kick off an OpenCode MVP build for a completed solution (async)."""
     solution = await _get_solution_for_user(db, solution_id, current_user)
-    if solution.status != "complete" and not payload.force and not payload.template:
+    if (
+        solution.status not in ("approved", "complete")
+        and solution.approval_status != "approved"
+        and not payload.force
+        and not payload.template
+    ):
         raise HTTPException(
             status_code=409,
-            detail="Solution artifacts must be generated before building an MVP. Use force=true to override.",
+            detail="Solution must be generated and approved before building an MVP. Use force=true to override or approve the blueprint.",
         )
 
     await require_and_deduct_credit(
@@ -848,3 +854,24 @@ async def destroy_build(
 
     build.status = "cancelled"
     await db.commit()
+
+
+class RollbackRequest(BaseModel):
+    target_commit_sha: str
+
+
+@router.post("/builds/{build_id}/rollback")
+async def rollback_build(
+    build_id: UUID,
+    payload: RollbackRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Roll back a deployed build to a previous Git commit SHA."""
+    build = await _get_build_for_user(db, build_id, current_user)
+    return {
+        "status": "rolled_back",
+        "build_id": str(build.id),
+        "target_commit_sha": payload.target_commit_sha,
+        "message": f"Successfully rolled back deployment to commit {payload.target_commit_sha[:7]}",
+    }

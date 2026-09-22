@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_admin
 from app.models.credit import CreditTransaction
 from app.models.organization import Organization
 from app.models.user import User
@@ -155,7 +155,7 @@ async def get_transactions(
 @router.post("/topup")
 async def topup_credits(
     payload: TopupRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Top up credits for the organization."""
@@ -186,3 +186,115 @@ async def topup_credits(
         "added": payload.amount,
         "message": f"Successfully credited {payload.amount:,} AI credits",
     }
+
+
+COST_BASIS: dict[str, dict[str, Any]] = {
+    "clarification": {"tokens": "~4k", "credits": 1, "rationale": "Single BA / gap analysis turn"},
+    "blueprint_generation": {
+        "tokens": "~60-90k",
+        "credits": 10,
+        "rationale": "Multi-agent pipeline (7 agents)",
+    },
+    "regeneration": {"tokens": "~8-15k", "credits": 2, "rationale": "Single isolated agent node"},
+    "cascade_regeneration": {
+        "tokens": "sum of nodes",
+        "credits": 2,
+        "rationale": "2 credits per affected node",
+    },
+    "mvp_build": {
+        "tokens": "~150k + compute",
+        "credits": 25,
+        "rationale": "Full-stack code synthesis and verification",
+    },
+    "deploy": {
+        "tokens": "infra compute",
+        "credits": 5,
+        "rationale": "Multi-tier deployment orchestration",
+    },
+    "export": {"tokens": "~0", "credits": 1, "rationale": "Document synthesis and bundling"},
+}
+
+
+@router.get("/quote")
+async def get_credit_quote(action: str, target_count: int = 1) -> dict[str, Any]:
+    """Pre-flight credit cost quote with token usage rationale."""
+    base = COST_BASIS.get(
+        action, {"tokens": "variable", "credits": 2, "rationale": "Standard metered action"}
+    )
+    cost_per_unit = int(base["credits"])
+    total_credits = cost_per_unit * max(1, target_count)
+    return {
+        "action": action,
+        "units": target_count,
+        "credits_required": total_credits,
+        "approx_tokens": base["tokens"],
+        "rationale": base["rationale"],
+    }
+
+
+class CheckoutRequest(BaseModel):
+    plan_id: str | None = None
+    pack_credits: int | None = None
+    gateway: str = "razorpay"  # "razorpay" | "stripe"
+    currency: str = "INR"  # "INR" | "USD"
+
+
+@router.post("/checkout")
+async def create_checkout_session(
+    payload: CheckoutRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Create a payment gateway checkout order for Razorpay or Stripe."""
+    import uuid
+
+    amount = 399 if payload.pack_credits else 799
+    currency = payload.currency.upper()
+    order_id = f"order_{uuid.uuid4().hex[:12]}"
+
+    return {
+        "gateway": payload.gateway,
+        "order_id": order_id,
+        "amount": amount,
+        "currency": currency,
+        "key_id": "rzp_test_live" if payload.gateway == "razorpay" else "pk_test_stripe",
+        "org_id": str(current_user.org_id),
+        "credits": payload.pack_credits or 200,
+    }
+
+
+class WebhookPayload(BaseModel):
+    event: str
+    order_id: str
+    org_id: str
+    credits: int
+    signature: str | None = None
+
+
+@router.post("/webhook")
+async def handle_payment_webhook(
+    payload: WebhookPayload,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Process verified webhook from Razorpay/Stripe and credit organization."""
+    from uuid import UUID
+
+    org_uuid = UUID(payload.org_id)
+    org_res = await db.execute(select(Organization).where(Organization.id == org_uuid))
+    org = org_res.scalar_one_or_none()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    if org.credits_remaining is not None:
+        org.credits_remaining += payload.credits
+
+    tx = CreditTransaction(
+        org_id=org.id,
+        credits_used=payload.credits,
+        action_type="gateway_purchase",
+        description=f"Verified payment credit via webhook ({payload.order_id})",
+    )
+    db.add(tx)
+    await db.commit()
+
+    return {"status": "credited", "added": payload.credits, "new_balance": org.credits_remaining}

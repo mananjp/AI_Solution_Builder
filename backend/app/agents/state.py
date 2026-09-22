@@ -13,6 +13,32 @@ class ModuleRecommendation(TypedDict):
     reason: str
 
 
+class Evidence(TypedDict, total=False):
+    source: str  # "user_msg" | "doc:<name>#p3" | "url:<host>" | "template:<id>" | "inferred"
+    excerpt: str  # <= 200 chars
+
+
+class Decision(TypedDict, total=False):
+    id: str
+    topic: str
+    choice: str
+    rationale: str
+    alternatives: list[str]
+    assumptions: list[str]
+    evidence: list[Evidence]
+    confidence: float  # 0.0–1.0
+    impact: str  # "low" | "medium" | "high"
+
+
+class Requirement(TypedDict, total=False):
+    id: str
+    kind: str  # "functional" | "nfr" | "compliance" | "integration"
+    text: str
+    status: str  # "stated" | "inferred" | "missing" | "suggested"
+    priority: str  # "must" | "should" | "could"
+    evidence: list[Evidence]
+
+
 class ArtifactOutput(TypedDict):
     artifact_type: str
     title: str
@@ -38,6 +64,13 @@ class DiscoveryState(TypedDict, total=False):
     confidence_score: float  # 0.0–1.0
     identified_solutions: list[str]
     clarification_questions: list[str]
+
+    # ── Requirement Intelligence & Explainability ──
+    requirements: list[Requirement]
+    decisions: list[Decision]
+    open_questions: list[dict[str, Any]]
+    suggested_features: list[dict[str, Any]]
+    assumptions_log: list[dict[str, Any]]
 
     # ── Recommendation (for undirected users) ────
     recommended_modules: list[ModuleRecommendation]

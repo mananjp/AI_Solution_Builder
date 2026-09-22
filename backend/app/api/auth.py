@@ -91,7 +91,7 @@ async def create_anonymous_user(db: AsyncSession = Depends(get_db)) -> Anonymous
         email=guest_email,
         full_name="Guest Architect",
         hashed_password=None,
-        role="admin",
+        role="guest",
         auth_provider="anonymous",
         is_anonymous=True,
         org_id=org.id,
@@ -302,7 +302,7 @@ async def oauth_callback(
             auth_provider=provider,
             provider_user_id=provider_user_id,
             is_anonymous=False,
-            role="admin",
+            role="owner",
             org_id=org.id,
         )
         db.add(user)
@@ -332,23 +332,40 @@ async def register(payload: UserRegister, db: AsyncSession = Depends(get_db)) ->
 
     # Get or create the free plan
     free_plan_result = await db.execute(select(Plan).where(Plan.name == "free"))
-    free_plan = free_plan_result.scalar_one_or_none()
+    free_plan = free_plan_result.scalars().first()
     if not free_plan:
         free_plan = Plan(name="free", monthly_credits=200, max_workable_systems=1, price_usd=0)
         db.add(free_plan)
         await db.flush()
 
-    # Create organization
-    org = Organization(name=payload.org_name, plan_id=free_plan.id, credits_remaining=200)
-    db.add(org)
-    await db.flush()
+    # Check if an organization with org_name already exists
+    org_result = await db.execute(
+        select(Organization)
+        .where(Organization.name == payload.org_name)
+        .order_by(Organization.created_at.desc())
+    )
+    org = org_result.scalars().first()
+
+    if not org:
+        org = Organization(name=payload.org_name, plan_id=free_plan.id, credits_remaining=200)
+        db.add(org)
+        await db.flush()
+        user_role = "owner"
+    else:
+        from sqlalchemy import func
+
+        user_count_result = await db.execute(
+            select(func.count(User.id)).where(User.org_id == org.id)
+        )
+        user_count = user_count_result.scalar() or 0
+        user_role = "owner" if user_count == 0 else "member"
 
     # Create user
     user = User(
         email=payload.email,
         full_name=payload.full_name,
         hashed_password=hash_password(payload.password),
-        role="admin",
+        role=user_role,
         org_id=org.id,
     )
     db.add(user)
@@ -441,6 +458,12 @@ async def update_settings(
             settings["render_api_key"] = encrypt_secret(api_key)
         else:
             settings.pop("render_api_key", None)
+    if payload.vercel_token is not None:
+        token = payload.vercel_token.strip()
+        if token:
+            settings["vercel_token"] = encrypt_secret(token)
+        else:
+            settings.pop("vercel_token", None)
     current_user.settings = settings
     flag_modified(current_user, "settings")
     await db.commit()

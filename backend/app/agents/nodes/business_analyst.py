@@ -9,7 +9,7 @@ import json
 import logging
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from app.agents.prompts import BUSINESS_ANALYST_SYSTEM
 from app.agents.state import DiscoveryState
@@ -25,17 +25,23 @@ async def business_analyst_node(state: DiscoveryState) -> dict[str, Any]:
     llm = get_llm(temperature=0.3, max_tokens=4096)
 
     # Build conversation context
-    messages: list[HumanMessage | SystemMessage] = [SystemMessage(content=BUSINESS_ANALYST_SYSTEM)]
+    messages: list[BaseMessage] = [SystemMessage(content=BUSINESS_ANALYST_SYSTEM)]
 
     # Include any uploaded document context
     context_parts = []
     if state.get("uploaded_context"):
         context_parts.append(f"UPLOADED DOCUMENT CONTEXT:\n{state['uploaded_context']}")
 
-    # Include conversation history
+    # Include conversation history (both user turns and assistant clarifications)
     for msg in state.get("conversation_history", []):
-        if msg["role"] == "user":
-            messages.append(HumanMessage(content=msg["content"]))
+        role = msg.get("role")
+        content = msg.get("content", "")
+        if role == "user":
+            messages.append(HumanMessage(content=content))
+        elif role == "assistant":
+            messages.append(AIMessage(content=content))
+        elif role == "system":
+            messages.append(SystemMessage(content=content))
 
     # Current message with context
     current_message = state.get("user_message", "")

@@ -10,7 +10,7 @@ import logging
 from typing import Any, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +20,7 @@ from app.agents.nodes.database_api_agent import database_api_agent_node
 from app.agents.nodes.solutions_architect import solutions_architect_node
 from app.agents.nodes.ux_agent import ux_agent_node
 from app.agents.state import DiscoveryState
-from app.core.credits import require_and_deduct_credit
+from app.core.credits import refund_credit, require_and_deduct_credit
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.artifact import ArtifactComment, SolutionArtifact
@@ -328,14 +328,22 @@ async def regenerate_artifact(
             new_text = f"Regenerated {payload.artifact_type}: {payload.user_feedback}"
             new_content = {"custom_spec": payload.user_feedback}
     except Exception as err:
-        logger.warning(
-            f"Agent execution failed during regeneration, using synthesized revision: {err}"
+        logger.error(
+            f"Agent execution failed during regeneration of {payload.artifact_type}: {err}",
+            exc_info=True,
         )
-        new_text = (
-            f"-- Revised {payload.artifact_type.upper()} (v{next_version})\n-- Changes applied: {payload.user_feedback}\n\n"
-            + (latest_artifact.content_text if latest_artifact else "")
+        await refund_credit(
+            db,
+            current_user,
+            "regenerate",
+            description=f"Refund for failed {payload.artifact_type} regeneration",
+            solution_id=payload.solution_id,
         )
-        new_content = {"revision_notes": payload.user_feedback}
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Regeneration agent failed for {payload.artifact_type}: {err}",
+        ) from err
 
     # Save new artifact version
     new_artifact = SolutionArtifact(
@@ -363,4 +371,57 @@ async def regenerate_artifact(
             "content_text": new_artifact.content_text,
             "created_at": new_artifact.created_at.isoformat() if new_artifact.created_at else None,
         },
+    }
+
+
+@router.get("/{artifact_id}/explain")
+async def explain_artifact(
+    artifact_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Retrieve explainability details (decisions, assumptions, evidence, confidence) for an artifact."""
+    result = await db.execute(
+        select(SolutionArtifact)
+        .join(Solution, Solution.id == SolutionArtifact.solution_id)
+        .join(Workspace, Workspace.id == Solution.workspace_id)
+        .where(
+            SolutionArtifact.id == artifact_id,
+            Workspace.org_id == current_user.org_id,
+        )
+    )
+    artifact = result.scalar_one_or_none()
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    content = artifact.content or {}
+    decisions = content.get("decisions", [])
+
+    assumptions: list[str] = []
+    evidence: list[dict[str, Any]] = []
+    confidences: list[float] = []
+
+    for dec in decisions:
+        assumptions.extend(dec.get("assumptions", []))
+        evidence.extend(dec.get("evidence", []))
+        if "confidence" in dec:
+            confidences.append(float(dec["confidence"]))
+
+    if "evidence" in content and isinstance(content["evidence"], list):
+        evidence.extend(content["evidence"])
+    if "assumptions" in content and isinstance(content["assumptions"], list):
+        assumptions.extend(content["assumptions"])
+
+    avg_confidence = sum(confidences) / len(confidences) if confidences else 0.90
+
+    return {
+        "artifact_id": str(artifact.id),
+        "solution_id": str(artifact.solution_id),
+        "artifact_type": artifact.artifact_type,
+        "title": artifact.title,
+        "version": artifact.version,
+        "decisions": decisions,
+        "assumptions": list(dict.fromkeys(assumptions)),
+        "evidence": evidence,
+        "confidence": round(avg_confidence, 2),
     }

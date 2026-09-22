@@ -134,6 +134,51 @@ async def require_and_deduct_credit(
     return {"credits_remaining": org.credits_remaining, "deducted": cost, "cost": cost}
 
 
+async def refund_credit(
+    db: AsyncSession,
+    user: User,
+    action_type: str,
+    cost: int | None = None,
+    description: str = "",
+    solution_id: UUID | str | None = None,
+) -> dict[str, Any]:
+    """Refund credits for a failed metered action and log a reversal transaction.
+
+    Orgs with a NULL balance are unlimited and skip refunding.
+    """
+    from app.models.organization import Organization
+
+    action = "regeneration" if action_type in ("regeneration", "regenerate") else action_type
+    refund_amount = cost if cost is not None else action_cost(action)
+    if refund_amount <= 0:
+        return {"credits_remaining": None, "refunded": 0}
+
+    org_result = await db.execute(select(Organization).where(Organization.id == user.org_id))
+    org = org_result.scalar_one_or_none()
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    if org.credits_remaining is not None:
+        org.credits_remaining += refund_amount
+
+    tx = CreditTransaction(
+        org_id=org.id,
+        action_type=f"{action}_refund",
+        credits_used=refund_amount,  # positive = balance restored
+        description=description or f"Refund for failed {action}",
+        solution_id=solution_id,
+    )
+    db.add(tx)
+    logger.info(
+        "Credit refunded org=%s action=%s amount=%s remaining=%s",
+        org.id,
+        action,
+        refund_amount,
+        org.credits_remaining,
+    )
+    return {"credits_remaining": org.credits_remaining, "refunded": refund_amount}
+
+
 async def credit_usage(db: AsyncSession, org_id: str, limit: int = 100) -> dict[str, Any]:
     """Aggregate metering summary for the /billing/credits endpoint."""
     total = await db.execute(

@@ -116,9 +116,79 @@ async def require_admin(
 ) -> User:
     """Dependency that only admits users with an admin role."""
 
-    if current_user.role != "admin":
+    if current_user.role not in ("admin", "owner", "superadmin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required",
         )
     return current_user
+
+
+ROLE_PERMISSIONS: dict[str, set[str]] = {
+    "owner": {
+        "billing:manage",
+        "members:manage",
+        "solution:approve",
+        "solution:generate",
+        "solution:regenerate",
+        "solution:deploy",
+        "solution:view",
+        "solution:comment",
+    },
+    "admin": {
+        "members:manage",
+        "solution:approve",
+        "solution:generate",
+        "solution:regenerate",
+        "solution:deploy",
+        "solution:view",
+        "solution:comment",
+    },
+    "approver": {
+        "solution:approve",
+        "solution:generate",
+        "solution:regenerate",
+        "solution:deploy",
+        "solution:view",
+        "solution:comment",
+    },
+    "editor": {
+        "solution:generate",
+        "solution:regenerate",
+        "solution:view",
+        "solution:comment",
+    },
+    "member": {
+        "solution:generate",
+        "solution:regenerate",
+        "solution:view",
+        "solution:comment",
+    },
+    "viewer": {
+        "solution:view",
+        "solution:comment",
+    },
+    "guest": {
+        "solution:generate",
+        "solution:view",
+        "solution:comment",
+    },
+}
+
+
+def require_permission(permission: str) -> Any:
+    """Dependency generator that verifies current_user holds the given permission."""
+
+    async def _check(current_user: User = Depends(get_current_user)) -> User:
+        user_role = current_user.role or "member"
+        if user_role == "superadmin":
+            return current_user
+        allowed = ROLE_PERMISSIONS.get(user_role, set())
+        if permission not in allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission denied: '{permission}' required for this action",
+            )
+        return current_user
+
+    return _check

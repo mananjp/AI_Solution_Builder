@@ -72,6 +72,18 @@ services:
         value: ""
       - key: CORS_ORIGINS
         value: https://ai-solution-builder.onrender.com,https://*.vercel.app
+      - key: VERCEL_TOKEN
+        sync: false
+      - key: VERCEL_TEAM_ID
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: STRIPE_API_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
 
   # ── Builder (opencode + background worker) ─────────────────────────────────
   - name: ai-solution-builder-builder

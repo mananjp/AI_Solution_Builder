@@ -30,7 +30,7 @@ class CreditGrantRequest(BaseModel):
 
 
 def _require_admin(user: User) -> None:
-    if user.role not in ("admin", "superadmin"):
+    if user.role not in ("admin", "superadmin", "owner"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Elevated administrator role required"
         )

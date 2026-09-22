@@ -17,7 +17,52 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 # BCP 47-style codes normalized lowercase; zh-cn/zh-tw collapse to zh
-SUPPORTED_LANGUAGES = {"en", "es", "fr", "de", "pt", "it", "nl", "ru", "hi", "ja", "ko", "zh"}
+SUPPORTED_LANGUAGES = {
+    # Core & Western
+    "en",
+    "es",
+    "fr",
+    "de",
+    "pt",
+    "it",
+    "nl",
+    "ru",
+    # Indic Languages
+    "hi",
+    "gu",
+    "mr",
+    "bn",
+    "ta",
+    "te",
+    "kn",
+    "ml",
+    "pa",
+    "ur",
+    "or",
+    "as",
+    # Asian & Middle Eastern
+    "ja",
+    "ko",
+    "zh",
+    "ar",
+    "fa",
+    "he",
+    "id",
+    "vi",
+    "tr",
+}
+
+RTL_LANGUAGES = {"ar", "ur", "fa", "he"}
+
+
+def is_rtl(code: str) -> bool:
+    """Return True if the language uses a right-to-left script."""
+    raw = (code or "").strip().lower().split("-")[0].split("_")[0]
+    if raw in RTL_LANGUAGES:
+        return True
+    norm = normalize_language_code(code, default="en")
+    return norm in RTL_LANGUAGES
+
 
 _LANG_RE = re.compile(r"^([a-z]{2,3})(?:[-_]([a-z0-9]{2,8}))?(?:;q=[0-9.]+)?$", re.IGNORECASE)
 

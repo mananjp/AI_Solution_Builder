@@ -16,7 +16,7 @@ from sqlalchemy.future import select
 
 from app.agents.graph import discovery_graph
 from app.core.config import settings
-from app.core.database import Base, get_db
+from app.core.database import Base, get_db, normalize_database_url
 from app.models.solution import Solution
 from main import app
 
@@ -30,10 +30,10 @@ TEST_USER = {
 
 @pytest_asyncio.fixture()
 async def client_and_db():
-    engine = create_async_engine(settings.DATABASE_URL, echo=False)
+    engine = create_async_engine(normalize_database_url(settings.DATABASE_URL), echo=False)
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
         await conn.execute(sa_text("CREATE EXTENSION IF NOT EXISTS vector"))
+        await conn.run_sync(Base.metadata.create_all)
 
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 

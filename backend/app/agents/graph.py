@@ -20,7 +20,9 @@ from app.agents.nodes.business_analyst import business_analyst_node
 from app.agents.nodes.business_recommendation import business_recommendation_node
 from app.agents.nodes.code_synthesizer import code_synthesizer_node
 from app.agents.nodes.database_api_agent import database_api_agent_node
+from app.agents.nodes.feature_advisor import feature_advisor_node
 from app.agents.nodes.process_intelligence import process_intelligence_node
+from app.agents.nodes.requirement_gap import requirement_gap_node
 from app.agents.nodes.solutions_architect import solutions_architect_node
 from app.agents.nodes.ux_agent import ux_agent_node
 from app.agents.state import DiscoveryState
@@ -69,12 +71,17 @@ def build_discovery_graph() -> StateGraph:  # type: ignore[type-arg]
 
     # ── Add Nodes ────────────────────────────────
     graph.add_node("business_analysis", business_analyst_node)
+    graph.add_node("requirement_gap", requirement_gap_node)
+    graph.add_node("feature_advisor", feature_advisor_node)
     graph.add_node("business_recommendation", business_recommendation_node)
 
     # Entry + analysis routing
     graph.set_entry_point("business_analysis")
+    graph.add_edge("business_analysis", "requirement_gap")
+    graph.add_edge("requirement_gap", "feature_advisor")
+
     graph.add_conditional_edges(
-        "business_analysis",
+        "feature_advisor",
         clarification_router,
         {
             "ask_clarification": END,  # Wait for user input

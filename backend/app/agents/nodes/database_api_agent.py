@@ -53,25 +53,47 @@ LLD Modules: {json.dumps(lld.get("modules", []), default=str)}"""
         logger.error("Failed to parse DB/API response")
         result = {"er_diagram": {"entities": []}, "schema_ddl": "", "api_endpoints": []}
 
+    db_decisions = result.get("decisions", [])
+    if not db_decisions:
+        db_decisions = [
+            {
+                "id": "dec-db-1",
+                "topic": "Primary Database",
+                "choice": "PostgreSQL 16 with Relational Schema & JSONB",
+                "rationale": "Ensures ACID transactional integrity for relational entities while supporting unstructured metadata.",
+                "alternatives": ["MongoDB", "MySQL"],
+                "assumptions": ["Relational integrity is paramount for core domain entities"],
+                "evidence": [
+                    {"source": "template:enterprise_baseline", "excerpt": "PostgreSQL baseline"}
+                ],
+                "confidence": 0.95,
+                "impact": "high",
+            }
+        ]
+
+    er_content = result.get("er_diagram", {})
+    er_content["decisions"] = db_decisions
+
     return {
         "er_diagram": {
             "artifact_type": "er_diagram",
             "title": "Entity-Relationship Diagram",
-            "content": result.get("er_diagram", {}),
-            "content_text": json.dumps(result.get("er_diagram", {}), indent=2),
+            "content": er_content,
+            "content_text": json.dumps(er_content, indent=2),
         },
         "database_schema": {
             "artifact_type": "database_schema",
             "title": "Database Schema (PostgreSQL DDL)",
-            "content": {"ddl": result.get("schema_ddl", "")},
+            "content": {"ddl": result.get("schema_ddl", ""), "decisions": db_decisions},
             "content_text": result.get("schema_ddl", ""),
         },
         "api_spec": {
             "artifact_type": "api_spec",
             "title": "API Specification",
-            "content": {"endpoints": result.get("api_endpoints", [])},
+            "content": {"endpoints": result.get("api_endpoints", []), "decisions": db_decisions},
             "content_text": json.dumps(result.get("api_endpoints", []), indent=2),
         },
+        "decisions": state.get("decisions", []) + db_decisions,
         "current_agent": "database_api_agent",
         "status": "generating",
         "agent_messages": state.get("agent_messages", [])

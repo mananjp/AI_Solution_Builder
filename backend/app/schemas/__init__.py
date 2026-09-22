@@ -84,6 +84,7 @@ class UserSettingsUpdate(BaseModel):
 
     github_token: str | None = Field(None, min_length=1, max_length=1000)
     render_api_key: str | None = Field(None, min_length=1, max_length=1000)
+    vercel_token: str | None = Field(None, min_length=1, max_length=1000)
 
 
 # ── Organization ──────────────────────────────────
