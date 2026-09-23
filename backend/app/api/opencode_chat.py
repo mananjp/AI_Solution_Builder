@@ -985,9 +985,35 @@ async def chat(
                         except (SpecError, Exception) as exc:
                             logger.warning(
                                 "AppSpec generation failed for chat build (%s); "
-                                "build will use legacy synthesis",
+                                "generating deterministic fallback AppSpec",
                                 exc,
                             )
+                            from app.services.app_spec import fallback_app_spec
+
+                            spec_obj = fallback_app_spec(
+                                solution.ai_state or {},
+                                combined_prompt,
+                                uploaded_context=payload.uploaded_context or "",
+                                conversation_history=history_msgs,
+                            )
+                            solution.ai_state = {
+                                **(solution.ai_state or {}),
+                                "app_spec": spec_obj.model_dump(),
+                            }
+
+                    if spec_obj is None:
+                        from app.services.app_spec import fallback_app_spec
+
+                        spec_obj = fallback_app_spec(
+                            solution.ai_state or {},
+                            solution.title,
+                            uploaded_context=payload.uploaded_context or "",
+                            conversation_history=solution.conversation_history or [],
+                        )
+                        solution.ai_state = {
+                            **(solution.ai_state or {}),
+                            "app_spec": spec_obj.model_dump(),
+                        }
 
                     builder.scaffold_build(
                         ws_dir,

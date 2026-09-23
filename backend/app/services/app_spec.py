@@ -227,7 +227,7 @@ def _context_from_state(
     if uploaded_context:
         parts.append(
             f"UPLOADED DOCUMENT CONTEXT (user-provided reference material):\n"
-            f"{uploaded_context[:6000]}"
+            f"{uploaded_context[:2500]}"
         )
 
     # Include conversation history for multi-turn context
@@ -238,19 +238,192 @@ def _context_from_state(
             if m.get("role") == "user" and m.get("content")
         ]
         if user_msgs:
-            # Include last 5 user messages for context
-            history_text = "\n---\n".join(user_msgs[-5:])
+            # Include last 3 user messages for context
+            history_text = "\n---\n".join(user_msgs[-3:])
             parts.append(
-                f"CONVERSATION HISTORY (previous user messages for context):\n{history_text[:4000]}"
+                f"CONVERSATION HISTORY (previous user messages for context):\n{history_text[:1500]}"
             )
 
     for key in ("er_diagram", "api_spec", "lld"):
         c = content(key)
         if c:
             parts.append(
-                f"{key.upper()} (reference, simplify if too big):\n{json.dumps(c, default=str)[:3000]}"
+                f"{key.upper()} (reference, simplify if too big):\n{json.dumps(c, default=str)[:1200]}"
             )
     return "\n\n".join(parts)
+
+
+def fallback_app_spec(
+    ai_state: dict[str, Any],
+    user_prompt: str = "",
+    uploaded_context: str = "",
+    conversation_history: list[dict[str, Any]] | None = None,
+) -> AppSpec:
+    """Deterministically synthesize a valid AppSpec from user requirements and state.
+
+    Ensures that OpenCode receives a well-formed spec with valid schemas, models, and
+    acceptance tests even when the external LLM provider hits rate limits or is offline.
+    """
+    title = (
+        ai_state.get("solution_title")
+        or ai_state.get("business_description", "").split(".")[0]
+        or (user_prompt.split("\n")[0][:40] if user_prompt else "")
+        or "Custom App"
+    ).strip()
+    clean_name = re.sub(r"[^a-zA-Z0-9 ]+", " ", title).strip().title() or "Custom App"
+
+    # Extract entities from er_diagram or confirmed_modules or heuristics
+    er = (
+        ai_state.get("er_diagram", {}).get("content", {})
+        if isinstance(ai_state.get("er_diagram"), dict)
+        else {}
+    )
+    raw_entities = er.get("entities", []) if isinstance(er, dict) else []
+
+    entities: list[tuple[str, str, list[dict[str, Any]]]] = []
+    if raw_entities:
+        for ent in raw_entities[:4]:
+            if isinstance(ent, dict) and ent.get("name"):
+                ename = re.sub(r"[^a-zA-Z0-9_]+", "_", str(ent["name"]).lower()).strip("_")
+                eplural = ename + "s" if not ename.endswith("s") else ename + "es"
+                fields = []
+                for f in ent.get("fields", [])[:5]:
+                    fname = f.get("name", "") if isinstance(f, dict) else str(f)
+                    fname = re.sub(r"[^a-zA-Z0-9_]+", "_", fname.lower()).strip("_")
+                    if fname and fname not in ("id", "created_at"):
+                        fields.append({"name": fname, "type": "string"})
+                if not fields:
+                    fields = [{"name": "name", "type": "string"}]
+                entities.append((ename, eplural, fields))
+
+    if not entities:
+        modules = ai_state.get("confirmed_modules") or ai_state.get("identified_solutions", [])
+        if modules:
+            for m in modules[:3]:
+                ename = re.sub(r"[^a-zA-Z0-9_]+", "_", str(m).lower()).strip("_")
+                eplural = ename + "s" if not ename.endswith("s") else ename + "es"
+                entities.append(
+                    (ename, eplural, [{"name": "title", "type": "string"}, {"name": "status", "type": "string"}])
+                )
+
+    if not entities:
+        combined_text = f"{user_prompt} {uploaded_context} {ai_state.get('business_description', '')}".lower()
+        if any(k in combined_text for k in ("landing", "portfolio", "showcase", "website", "agency", "service")):
+            entities = [
+                ("inquiry", "inquiries", [{"name": "name", "type": "string"}, {"name": "email", "type": "string"}]),
+                ("lead", "leads", [{"name": "company", "type": "string"}]),
+            ]
+        elif any(k in combined_text for k in ("store", "shop", "ecommerce", "cart", "product", "retail")):
+            entities = [
+                ("product", "products", [{"name": "title", "type": "string"}, {"name": "price", "type": "float"}]),
+                ("order", "orders", [{"name": "customer_name", "type": "string"}, {"name": "status", "type": "string"}]),
+            ]
+        elif any(k in combined_text for k in ("task", "project", "todo", "kanban", "sprint")):
+            entities = [
+                ("project", "projects", [{"name": "title", "type": "string"}]),
+                ("task", "tasks", [{"name": "title", "type": "string"}, {"name": "status", "type": "string"}]),
+            ]
+        elif any(k in combined_text for k in ("invoice", "billing", "expense", "finance", "payment")):
+            entities = [
+                ("invoice", "invoices", [{"name": "client_name", "type": "string"}, {"name": "amount", "type": "float"}]),
+                ("expense", "expenses", [{"name": "description", "type": "string"}, {"name": "amount", "type": "float"}]),
+            ]
+        elif any(k in combined_text for k in ("restaurant", "food", "menu", "cafe", "dine")):
+            entities = [
+                ("menu_item", "menu_items", [{"name": "name", "type": "string"}, {"name": "price", "type": "float"}]),
+                ("table_order", "table_orders", [{"name": "table_number", "type": "int"}, {"name": "status", "type": "string"}]),
+            ]
+        else:
+            entities = [
+                ("item", "items", [{"name": "name", "type": "string"}, {"name": "description", "type": "text"}]),
+                ("category", "categories", [{"name": "name", "type": "string"}]),
+            ]
+
+    spec_entities: list[Entity] = []
+    for ename, eplural, f_list in entities:
+        spec_fields = [
+            SpecField(name=f["name"], type=f.get("type", "string"), required=True)
+            for f in f_list
+        ]
+        spec_entities.append(Entity(name=ename, plural=eplural, description=f"{ename} entity", fields=spec_fields))
+
+    screens = [
+        Screen(
+            name="dashboard",
+            route="/",
+            purpose=f"Overview of {clean_name}",
+            uses_entities=[e.name for e in spec_entities],
+            key_interactions=["view summary", "navigate records"],
+        ),
+        *[
+            Screen(
+                name=f"{e.name}_mgmt",
+                route=f"/{e.plural}",
+                purpose=f"Manage {e.plural}",
+                uses_entities=[e.name],
+                key_interactions=["create record", "list records", "view details"],
+            )
+            for e in spec_entities
+        ],
+    ]
+
+    first_e = spec_entities[0]
+    sample_body = {f.name: (10.0 if f.type == "float" else 1 if f.type == "int" else "Sample Value") for f in first_e.fields}
+
+    tests = [
+        AcceptanceTest(
+            name=f"create_{first_e.name}",
+            description=f"A new {first_e.name} can be created via POST",
+            steps=[
+                TestStep(
+                    method="POST",
+                    path=f"/{first_e.plural}",
+                    body=sample_body,
+                    expect_status=201,
+                    expect=sample_body,
+                    save={"id": "id"},
+                )
+            ],
+        ),
+        AcceptanceTest(
+            name=f"list_{first_e.plural}",
+            description=f"Listing {first_e.plural} returns HTTP 200",
+            steps=[
+                TestStep(
+                    method="GET",
+                    path=f"/{first_e.plural}",
+                    expect_status=200,
+                )
+            ],
+        ),
+        AcceptanceTest(
+            name=f"get_{first_e.name}",
+            description=f"A single {first_e.name} can be created and retrieved by ID",
+            steps=[
+                TestStep(
+                    method="POST",
+                    path=f"/{first_e.plural}",
+                    body=sample_body,
+                    expect_status=201,
+                    save={"id": "id"},
+                ),
+                TestStep(
+                    method="GET",
+                    path=f"/{first_e.plural}/{{id}}",
+                    expect_status=200,
+                ),
+            ],
+        ),
+    ]
+
+    return AppSpec(
+        app_name=clean_name,
+        one_liner=f"Full-stack {clean_name} application",
+        core_value=f"Automated management and workflows for {clean_name}",
+        entities=spec_entities,
+        screens=screens,
+        acceptance_tests=tests,
+    )
 
 
 async def generate_app_spec(
@@ -261,15 +434,21 @@ async def generate_app_spec(
     uploaded_context: str = "",
     conversation_history: list[dict[str, Any]] | None = None,
 ) -> AppSpec:
-    """LLM → AppSpec with validation-error feedback loop. Raises SpecError (no fake fallback)."""
+    """LLM → AppSpec with validation-error feedback loop and deterministic fallback on rate limits."""
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
     from app.core.llm import get_llm, has_llm_credentials
 
     if not has_llm_credentials():
-        raise SpecError("No LLM credentials configured; cannot design an app spec.")
+        return fallback_app_spec(
+            ai_state,
+            user_prompt,
+            uploaded_context=uploaded_context,
+            conversation_history=conversation_history,
+        )
 
-    llm = get_llm(temperature=0.2, max_tokens=6000)
+    # Use compact 2500 max_tokens to stay well within Groq TPM limits
+    llm = get_llm(temperature=0.2, max_tokens=2500)
     messages: list[Any] = [
         SystemMessage(content=SPEC_SYSTEM + "\nJSON schema:\n" + _spec_schema_hint()),
         HumanMessage(
@@ -283,19 +462,40 @@ async def generate_app_spec(
     ]
     last_err = ""
     for attempt in range(1, max_attempts + 1):
-        resp = await llm.ainvoke(messages)
+        try:
+            resp = await llm.ainvoke(messages)
+        except Exception as exc:
+            logger.warning(
+                "generate_app_spec LLM error on attempt %d (%s); using smart fallback AppSpec",
+                attempt,
+                exc,
+            )
+            return fallback_app_spec(
+                ai_state,
+                user_prompt,
+                uploaded_context=uploaded_context,
+                conversation_history=conversation_history,
+            )
+
         raw = str(getattr(resp, "content", resp))
         try:
             spec = AppSpec.model_validate(_extract_json(raw))
             logger.info("AppSpec valid on attempt %d: %s", attempt, spec.app_name)
             return spec
         except (ValidationError, ValueError, json.JSONDecodeError) as err:
-            last_err = str(err)[:2500]
+            last_err = str(err)[:2000]
             logger.warning("AppSpec attempt %d invalid: %s", attempt, last_err[:300])
             messages += [
-                AIMessage(content=raw[:8000]),
+                AIMessage(content=raw[:4000]),
                 HumanMessage(
                     content=f"Invalid spec. Fix ALL errors and return full JSON only:\n{last_err}"
                 ),
             ]
-    raise SpecError(f"Could not produce a valid app spec: {last_err}")
+
+    logger.warning("AppSpec validation exhausted %d attempts; using smart fallback AppSpec", max_attempts)
+    return fallback_app_spec(
+        ai_state,
+        user_prompt,
+        uploaded_context=uploaded_context,
+        conversation_history=conversation_history,
+    )

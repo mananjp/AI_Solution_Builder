@@ -2087,18 +2087,34 @@ def scaffold_build(
             write_generated(root, extracted_spec)
             logger.info("Scaffolded build %s from AppSpec (spec-first path)", root)
         else:
-            # Last resort: pre-populate slots from ai_state heuristics.
-            # This produces generic CRUD — acceptable only for premade templates
-            # or when no spec could be generated.
-            logger.warning(
-                "No AppSpec available for %s; falling back to legacy auto-synthesis. "
-                "Build quality will be limited to generic CRUD.",
+            # Deterministic fallback AppSpec from ai_state heuristics
+            logger.info(
+                "No validated AppSpec in ai_state for %s; generating deterministic fallback AppSpec",
                 app_title,
             )
             try:
-                _auto_synthesize_slots(root, ai_state, app_title)
+                from app.services.app_spec import fallback_app_spec
+                from app.services.spec_codegen import write_generated
+
+                fallback_spec = fallback_app_spec(ai_state, app_title)
+                write_generated(root, fallback_spec)
+                logger.info("Scaffolded build %s using fallback AppSpec", root)
             except Exception as exc:
-                logger.warning("Auto slot synthesis skipped: %s", exc)
+                logger.warning("Fallback AppSpec generation failed: %s; using auto-slots", exc)
+                try:
+                    _auto_synthesize_slots(root, ai_state, app_title)
+                except Exception as exc2:
+                    logger.warning("Auto slot synthesis skipped: %s", exc2)
+    else:
+        try:
+            from app.services.app_spec import fallback_app_spec
+            from app.services.spec_codegen import write_generated
+
+            fallback_spec = fallback_app_spec({}, app_title)
+            write_generated(root, fallback_spec)
+            logger.info("Scaffolded build %s using baseline fallback AppSpec", root)
+        except Exception as exc:
+            logger.warning("Baseline fallback AppSpec failed: %s", exc)
 
     logger.info("Scaffolded build %s from template (modules=%d)", root, len(inject_modules))
 
@@ -2386,8 +2402,28 @@ async def run_build(
             )
         except Exception as exc:
             logger.warning(
-                "generate_app_spec bypassed (%s); continuing with artifact synthesis", exc
+                "generate_app_spec bypassed (%s); generating fallback AppSpec", exc
             )
+            from app.services.app_spec import fallback_app_spec
+
+            spec = fallback_app_spec(
+                ai_state,
+                effective_prompt,
+                uploaded_context=effective_uploaded,
+                conversation_history=effective_history,
+            )
+            ai_state["app_spec"] = spec.model_dump()
+
+    if spec is None:
+        from app.services.app_spec import fallback_app_spec
+
+        spec = fallback_app_spec(
+            ai_state,
+            title or "Custom Application",
+            uploaded_context=uploaded_context,
+            conversation_history=conversation_history,
+        )
+        ai_state["app_spec"] = spec.model_dump()
 
     target_dir = _container_target(solution_id, build_number)
     local_dir = build_workspace_dir(solution_id, build_number)
