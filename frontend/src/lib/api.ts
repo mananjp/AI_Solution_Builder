@@ -27,10 +27,12 @@ import {
 
 function normalizeApiUrl(url?: string | null): string {
   if (!url) return '';
-  return url
+  const trimmed = url
     .replace('ai-solution-builder-app.onrender.com', 'ai-solution-builder.onrender.com')
     .replace(/\/+$/, '');
+  return trimmed.endsWith('/api/v1') ? trimmed : `${trimmed}/api/v1`;
 }
+
 
 const rawApiUrl =
   typeof window !== 'undefined'
@@ -114,39 +116,48 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  let response: Response | undefined;
-  try {
-    response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers,
-    });
-  } catch (err) {
-    if (
-      typeof window !== 'undefined' &&
-      API_BASE_URL !== '/api/v1' &&
-      !API_BASE_URL.startsWith('/')
-    ) {
-      try {
-        response = await fetch(`/api/v1${endpoint}`, {
-          ...options,
-          headers,
-        });
-      } catch {
-        // Fallback proxy failed as well
-      }
-    }
+  const primaryUrl = `${API_BASE_URL}${endpoint}`;
+  const urlsToTry: string[] = [primaryUrl];
 
-    if (!response) {
-      const isNetworkError =
-        err instanceof TypeError &&
-        (err.message.toLowerCase().includes('fetch') || err.message.toLowerCase().includes('network'));
-      if (isNetworkError) {
-        throw new Error(
-          `Unable to reach backend (${API_BASE_URL}). The backend service may be waking up from idle sleep or BACKEND_URL / NEXT_PUBLIC_API_URL is unconfigured.`
-        );
+  if (!primaryUrl.includes('/api/v1')) {
+    urlsToTry.push(`${API_BASE_URL}/api/v1${endpoint}`);
+  }
+  if (typeof window !== 'undefined' && API_BASE_URL !== '/api/v1') {
+    urlsToTry.push(`/api/v1${endpoint}`);
+  }
+
+  const uniqueUrls = Array.from(new Set(urlsToTry));
+  let response: Response | undefined;
+  let lastError: unknown;
+
+  for (let i = 0; i < uniqueUrls.length; i++) {
+    const url = uniqueUrls[i];
+    try {
+      const res = await fetch(url, {
+        ...options,
+        headers,
+      });
+
+      if (res.status === 404 && i < uniqueUrls.length - 1) {
+        continue;
       }
-      throw err;
+      response = res;
+      break;
+    } catch (err) {
+      lastError = err;
     }
+  }
+
+  if (!response) {
+    const isNetworkError =
+      lastError instanceof TypeError &&
+      (lastError.message.toLowerCase().includes('fetch') || lastError.message.toLowerCase().includes('network'));
+    if (isNetworkError) {
+      throw new Error(
+        `Unable to reach backend (${API_BASE_URL}). The backend service may be waking up from idle sleep or BACKEND_URL / NEXT_PUBLIC_API_URL is unconfigured.`
+      );
+    }
+    throw lastError || new Error(`Failed to request ${endpoint}`);
   }
 
   if (!response.ok) {
@@ -707,36 +718,58 @@ async function streamSSE(
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
-  let response: Response | undefined;
-  try {
-    response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-    });
-  } catch (err) {
-    if (
-      typeof window !== 'undefined' &&
-      API_BASE_URL !== '/api/v1' &&
-      !API_BASE_URL.startsWith('/')
-    ) {
-      try {
-        response = await fetch(`/api/v1${endpoint}`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(payload),
-        });
-      } catch {
-        // Fallback failed
-      }
+  const primaryUrl = `${API_BASE_URL}${endpoint}`;
+  const urlsToTry: string[] = [primaryUrl];
+
+  if (!primaryUrl.includes('/api/v1')) {
+    urlsToTry.push(`${API_BASE_URL}/api/v1${endpoint}`);
+  }
+  if (typeof window !== 'undefined') {
+    if (API_BASE_URL !== '/api/v1') {
+      urlsToTry.push(`/api/v1${endpoint}`);
     }
-    if (!response) {
-      throw err;
+    urlsToTry.push(endpoint);
+  }
+
+  const uniqueUrls = Array.from(new Set(urlsToTry));
+  let response: Response | undefined;
+  let lastError: Error | undefined;
+
+  for (let i = 0; i < uniqueUrls.length; i++) {
+    const url = uniqueUrls[i];
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      if (res.status === 404 && i < uniqueUrls.length - 1) {
+        continue;
+      }
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        const msg =
+          errorData?.error?.message ||
+          errorData?.detail ||
+          (typeof errorData?.error === 'string' ? errorData.error : null) ||
+          `Chat stream failed with status ${res.status}`;
+        throw new Error(msg);
+      }
+
+      response = res;
+      break;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (i === uniqueUrls.length - 1) {
+        throw lastError;
+      }
     }
   }
 
-  if (!response.ok) {
-    throw new Error(`Chat stream failed with status ${response.status}`);
+  if (!response) {
+    throw lastError || new Error('Failed to connect to chat stream');
   }
 
   const reader = response.body?.getReader();

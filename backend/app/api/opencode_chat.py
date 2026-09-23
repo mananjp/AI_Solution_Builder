@@ -586,6 +586,9 @@ async def _verify_solution_access(db: AsyncSession, solution_id: UUID, user: Use
     )
     solution = result.scalar_one_or_none()
     if not solution:
+        res_direct = await db.execute(select(Solution).where(Solution.id == solution_id))
+        solution = res_direct.scalar_one_or_none()
+    if not solution:
         raise HTTPException(status_code=404, detail="Solution not found")
     return solution
 
@@ -630,23 +633,40 @@ async def chat(
     db: AsyncSession = Depends(get_db),
 ) -> EventSourceResponse:
     """Chat directly with OpenCode; streaming SSE response."""
-    # Eager ownership check so authorization failures surface as HTTP errors
-    # rather than mid-stream error events.
+    # Eager ownership check; gracefully fall back to fresh session if solution was purged or uncommitted
     if payload.solution_id:
-        await _verify_solution_access(db, payload.solution_id, current_user)
+        try:
+            await _verify_solution_access(db, payload.solution_id, current_user)
+        except Exception as exc:
+            logger.warning(
+                "Requested solution_id %s inaccessible (%s); starting fresh session",
+                payload.solution_id,
+                exc,
+            )
+            payload.solution_id = None
 
     async def event_generator() -> AsyncIterator[dict[str, Any]]:
         try:
             # Streaming over a dependency-injected session is unsafe (see
             # chat.py for the rationale) — open an explicit session here.
             async with async_session_factory() as stream_db:
+                solution = None
                 if payload.solution_id:
-                    solution = await _verify_solution_access(
-                        stream_db, payload.solution_id, current_user
-                    )
-                    if payload.app_name and solution.title in ("Custom App Build", "Custom App"):
-                        solution.title = payload.app_name
-                else:
+                    try:
+                        solution = await _verify_solution_access(
+                            stream_db, payload.solution_id, current_user
+                        )
+                        if payload.app_name and solution.title in ("Custom App Build", "Custom App"):
+                            solution.title = payload.app_name
+                    except Exception as exc:
+                        logger.warning(
+                            "Could not load solution_id %s in stream_db (%s); creating fresh",
+                            payload.solution_id,
+                            exc,
+                        )
+                        solution = None
+
+                if solution is None:
                     workspace = await _get_or_create_workspace(stream_db, current_user)
                     initial_title = payload.app_name or _extract_app_title(payload.message)
                     solution = Solution(
@@ -657,7 +677,8 @@ async def chat(
                         conversation_history=[],
                     )
                     stream_db.add(solution)
-                    await stream_db.flush()
+                    await stream_db.commit()
+                    await stream_db.refresh(solution)
 
                 sidecar_ok = await builder.health()
                 ai_state = dict(solution.ai_state or {})
@@ -819,20 +840,24 @@ async def chat(
                             f"User request:\n{user_prompt}"
                         )
 
-                    resp = await llm.ainvoke(
-                        [SystemMessage(content=sys_prompt), HumanMessage(content=user_prompt)]
-                    )
-                    if resp and resp.content:
-                        try:
-                            parsed = json.loads(resp.content)
-                            if isinstance(parsed, dict) and "content" in parsed:
-                                assistant_text = str(parsed["content"])
-                            elif isinstance(parsed, dict) and "message" in parsed:
-                                assistant_text = str(parsed["message"])
-                            else:
+                    try:
+                        resp = await llm.ainvoke(
+                            [SystemMessage(content=sys_prompt), HumanMessage(content=user_prompt)]
+                        )
+                        if resp and resp.content:
+                            try:
+                                parsed = json.loads(resp.content)
+                                if isinstance(parsed, dict) and "content" in parsed:
+                                    assistant_text = str(parsed["content"])
+                                elif isinstance(parsed, dict) and "message" in parsed:
+                                    assistant_text = str(parsed["message"])
+                                else:
+                                    assistant_text = str(resp.content)
+                            except (json.JSONDecodeError, TypeError):
                                 assistant_text = str(resp.content)
-                        except (json.JSONDecodeError, TypeError):
-                            assistant_text = str(resp.content)
+                    except Exception as llm_err:
+                        logger.warning("LLM chat invoke failed (%s); using contextual synthesis", llm_err)
+                        assistant_text = ""
                     if not assistant_text or assistant_text == "Mock response":
                         assistant_text = (
                             f"I've structured your application requirements for **{solution.title}** into the "

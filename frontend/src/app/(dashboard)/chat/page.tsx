@@ -210,7 +210,11 @@ function ChatContent() {
         }
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unable to reach SUTRA intelligence layer.');
+      const msg = e instanceof Error ? e.message : 'Unable to reach SUTRA intelligence layer.';
+      setError(msg);
+      if (msg.includes('404') || msg.toLowerCase().includes('not found') || msg.toLowerCase().includes('solution')) {
+        setSolutionId(null);
+      }
       setBuildProgress(null);
       setIsStreaming(false);
     }

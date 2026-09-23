@@ -214,6 +214,9 @@ app.include_router(upload_router, prefix="/api/v1")
 app.include_router(workable_router, prefix="/api/v1")
 app.include_router(mvp_router, prefix="/api/v1")
 app.include_router(opencode_router, prefix="/api/v1")
+# Mount opencode and chat routers at root as well to guarantee zero 404s if API_BASE_URL omits /api/v1
+app.include_router(opencode_router)
+app.include_router(chat_router)
 
 
 @app.get("/", tags=["System"])
