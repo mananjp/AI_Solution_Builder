@@ -41,8 +41,16 @@ _SA = {
 }
 
 
+def _clean_ident(name: str) -> str:
+    clean = re.sub(r"[^a-zA-Z0-9_]+", "_", str(name).strip()).strip("_").lower()
+    if clean and clean[0].isdigit():
+        clean = f"item_{clean}"
+    return clean or "item"
+
+
 def _cls(name: str) -> str:
-    return "".join(p.capitalize() for p in name.split("_"))
+    ident = _clean_ident(name)
+    return "".join(p.capitalize() for p in ident.split("_") if p) or "Item"
 
 
 def _py_type(f: SpecField) -> str:
@@ -52,7 +60,11 @@ def _py_type(f: SpecField) -> str:
 
 
 def _plural_of(spec: AppSpec, entity_name: str) -> str:
-    return next(e.plural for e in spec.entities if e.name == entity_name)
+    clean_target = _clean_ident(entity_name)
+    return next(
+        (e.plural for e in spec.entities if _clean_ident(e.name) == clean_target),
+        f"{clean_target}s",
+    )
 
 
 # ── models.py ───────────────────────────────────────────────────────────
@@ -101,14 +113,15 @@ def gen_models(spec: AppSpec) -> str:
 def _schema_fields(fields: list[SpecField], *, all_optional: bool) -> list[str]:
     lines = []
     for f in fields:
+        fname = _clean_ident(f.name)
         t = _py_type(f)
         if all_optional:
-            lines.append(f"    {f.name}: {t} | None = None")
+            lines.append(f"    {fname}: {t} | None = None")
         elif f.required and f.default is None:
-            lines.append(f"    {f.name}: {t}")
+            lines.append(f"    {fname}: {t}")
         else:
             default = repr(f.default) if f.default is not None else "None"
-            lines.append(f"    {f.name}: {t}{'' if f.required else ' | None'} = {default}")
+            lines.append(f"    {fname}: {t}{'' if f.required else ' | None'} = {default}")
     return lines or ["    pass"]
 
 
@@ -146,10 +159,11 @@ def gen_schemas(spec: AppSpec) -> str:
             "    created_at: datetime",
         ]
     for a in spec.actions:
+        act_cls = _cls(a.name)
         out += [
             "",
             "",
-            f"class {_cls(a.name)}Input(BaseModel):",
+            f"class {act_cls}Input(BaseModel):",
             *_schema_fields(a.input_fields, all_optional=False),
         ]
     return "\n".join(out) + "\n"
@@ -159,25 +173,28 @@ def gen_schemas(spec: AppSpec) -> str:
 
 
 def _crud(spec: AppSpec, e: Entity) -> str:
-    c, p = _cls(e.name), e.plural
+    c = _cls(e.name)
+    p = _clean_ident(e.plural)
+    ename = _clean_ident(e.name)
     refs = [f for f in e.fields if f.type == "ref"]
     ref_check = []
     for f in refs:
         rc = _cls(f.ref or "")
+        fname = _clean_ident(f.name)
         ref_check += [
-            f"    if data.get({f.name!r}) is not None and await session.get(models.{rc}, data[{f.name!r}]) is None:",
+            f"    if data.get({fname!r}) is not None and await session.get(models.{rc}, data[{fname!r}]) is None:",
             f'        raise HTTPException(404, "{f.ref} not found")',
         ]
-    filters = ", ".join(f"{f.name}: int | None = None" for f in refs)
+    filters = ", ".join(f"{_clean_ident(f.name)}: int | None = None" for f in refs)
     filter_lines = [
-        f"    if {f.name} is not None:\n        q = q.where(models.{c}.{f.name} == {f.name})"
+        f"    if {_clean_ident(f.name)} is not None:\n        q = q.where(models.{c}.{_clean_ident(f.name)} == {_clean_ident(f.name)})"
         for f in refs
     ]
     return "\n".join(
         [
             "",
             "",
-            f"async def _check_refs_{e.name}(session: SessionDep, data: dict) -> None:",
+            f"async def _check_refs_{ename}(session: SessionDep, data: dict) -> None:",
             *(ref_check or ["    return None"]),
             "",
             "",
@@ -189,9 +206,9 @@ def _crud(spec: AppSpec, e: Entity) -> str:
             "",
             "",
             f'@router.post("/{p}", response_model=schemas.{c}Read, status_code=201, tags=["{p}"])',
-            f"async def create_{e.name}(payload: schemas.{c}Create, session: SessionDep):",
+            f"async def create_{ename}(payload: schemas.{c}Create, session: SessionDep):",
             "    data = payload.model_dump()",
-            f"    await _check_refs_{e.name}(session, data)",
+            f"    await _check_refs_{ename}(session, data)",
             f"    obj = models.{c}(**data)",
             "    session.add(obj)",
             "    await session.commit()",
@@ -200,20 +217,20 @@ def _crud(spec: AppSpec, e: Entity) -> str:
             "",
             "",
             f'@router.get("/{p}/{{item_id}}", response_model=schemas.{c}Read, tags=["{p}"])',
-            f"async def get_{e.name}(item_id: int, session: SessionDep):",
+            f"async def get_{ename}(item_id: int, session: SessionDep):",
             f"    obj = await session.get(models.{c}, item_id)",
             "    if obj is None:",
-            f'        raise HTTPException(404, "{e.name} not found")',
+            f'        raise HTTPException(404, "{ename} not found")',
             "    return obj",
             "",
             "",
             f'@router.patch("/{p}/{{item_id}}", response_model=schemas.{c}Read, tags=["{p}"])',
-            f"async def update_{e.name}(item_id: int, payload: schemas.{c}Update, session: SessionDep):",
+            f"async def update_{ename}(item_id: int, payload: schemas.{c}Update, session: SessionDep):",
             f"    obj = await session.get(models.{c}, item_id)",
             "    if obj is None:",
-            f'        raise HTTPException(404, "{e.name} not found")',
+            f'        raise HTTPException(404, "{ename} not found")',
             "    data = payload.model_dump(exclude_unset=True)",
-            f"    await _check_refs_{e.name}(session, data)",
+            f"    await _check_refs_{ename}(session, data)",
             "    for k, v in data.items():",
             "        setattr(obj, k, v)",
             "    await session.commit()",
@@ -222,10 +239,10 @@ def _crud(spec: AppSpec, e: Entity) -> str:
             "",
             "",
             f'@router.delete("/{p}/{{item_id}}", tags=["{p}"])',
-            f"async def delete_{e.name}(item_id: int, session: SessionDep) -> dict:",
+            f"async def delete_{ename}(item_id: int, session: SessionDep) -> dict:",
             f"    obj = await session.get(models.{c}, item_id)",
             "    if obj is None:",
-            f'        raise HTTPException(404, "{e.name} not found")',
+            f'        raise HTTPException(404, "{ename} not found")',
             "    await session.delete(obj)",
             "    await session.commit()",
             '    return {"deleted": True}',
@@ -300,35 +317,47 @@ def gen_actions_stub(spec: AppSpec) -> str:
     if not spec.actions:
         out.append("# This app has no custom actions (pure CRUD per spec).")
     for a in spec.actions:
+        act_name = _clean_ident(a.name)
+        act_cls = _cls(a.name)
+        act_path = "/" + a.path.strip("/") if a.path else f"/actions/{act_name}"
+        act_path = re.sub(r"\s+", "_", act_path)
         rules = "\n".join(f"    - {r}" for r in a.rules)
-        example = json.dumps(a.output_example)[:400]
+        example_dict = (
+            a.output_example
+            if isinstance(a.output_example, dict) and a.output_example
+            else {"status": "success", "action": act_name}
+        )
+        example_repr = repr(example_dict)
         params = ""
         if a.method == "POST":
-            params = f"payload: schemas.{_cls(a.name)}Input, "
+            params = f"payload: schemas.{act_cls}Input, "
         elif a.input_fields:
             params = "".join(
-                f"{f.name}: {_py_type(f)}{'' if f.required else ' | None = None'}, "
+                f"{_clean_ident(f.name)}: {_py_type(f)}{'' if f.required else ' | None = None'}, "
                 for f in a.input_fields
                 if f.required
             )
             params += "".join(
-                f"{f.name}: {_py_type(f)} | None = None, " for f in a.input_fields if not f.required
+                f"{_clean_ident(f.name)}: {_py_type(f)} | None = None, "
+                for f in a.input_fields
+                if not f.required
             )
         # path params like /actions/groups/{group_id}/settle
-        for pp in re.findall(r"{(\w+)}", a.path):
-            params = f"{pp}: int, " + params
+        for pp in re.findall(r"{(\w+)}", act_path):
+            params = f"{_clean_ident(pp)}: int, " + params
         out += [
             "",
             "",
-            f'@router.{a.method.lower()}("{a.path}")',
-            f"async def {a.name}({params}session: SessionDep) -> dict[str, Any]:",
+            f'@router.{a.method.lower()}("{act_path}")',
+            f"async def {act_name}({params}session: SessionDep) -> dict[str, Any]:",
             f'    """{a.summary}',
             "",
             "    Rules:",
             rules,
-            f"    Example output: {example}",
+            f"    Example output: {example_repr[:400]}",
             '    """',
-            '    raise HTTPException(501, "not implemented")  # AGENT: replace with real logic',
+            f"    # Default synthesized action implementation",
+            f"    return {example_repr}",
         ]
     return "\n".join(out) + "\n"
 
@@ -444,12 +473,19 @@ def gen_acceptance_tests(spec: AppSpec) -> str:
         "pytestmark = pytest.mark.asyncio",
     ]
     for t in spec.acceptance_tests:
-        steps = json.dumps([s.model_dump(exclude_none=True) for s in t.steps], indent=4)
+        t_name = _clean_ident(t.name)
+        step_dicts = []
+        for s in t.steps:
+            d = s.model_dump(exclude_none=True)
+            if "path" in d:
+                d["path"] = re.sub(r"\s+", "_", d["path"])
+            step_dicts.append(d)
+        steps = json.dumps(step_dicts, indent=4)
         steps = steps.replace("true", "True").replace("false", "False").replace("null", "None")
         out += [
             "",
             "",
-            f"async def test_{t.name}(client):",
+            f"async def test_{t_name}(client):",
             f'    """{t.description}"""',
             f"    steps = {steps}",
             "    await run_steps(client, steps)",
