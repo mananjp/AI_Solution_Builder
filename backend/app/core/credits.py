@@ -160,9 +160,7 @@ async def refund_credit(
     if refund_amount <= 0:
         return {"credits_remaining": None, "refunded": 0}
 
-    org_result = await db.execute(
-        select(Organization).where(Organization.id == org_identifier)
-    )
+    org_result = await db.execute(select(Organization).where(Organization.id == org_identifier))
     org = org_result.scalar_one_or_none()
     if org is None:
         raise HTTPException(status_code=404, detail="Organization not found")

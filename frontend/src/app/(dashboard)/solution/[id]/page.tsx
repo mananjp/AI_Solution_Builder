@@ -13,7 +13,6 @@ import {
   ShieldCheck,
   AlertCircle,
   HelpCircle,
-  Sparkles,
   GitBranch,
 } from 'lucide-react';
 import ArtifactViewer from '@/components/ArtifactViewer';

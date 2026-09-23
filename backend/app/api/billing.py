@@ -287,7 +287,9 @@ def _verify_webhook_signature(*, raw_body: bytes, signature: str, secret: str) -
         ts, sig = _parse_stripe_signature(signature)
         if not ts:
             return False
-        expected = hmac.new(secret.encode(), f"{ts}.{raw_body.decode('utf-8', 'replace')}".encode(), hashlib.sha256).hexdigest()
+        expected = hmac.new(
+            secret.encode(), f"{ts}.{raw_body.decode('utf-8', 'replace')}".encode(), hashlib.sha256
+        ).hexdigest()
         return hmac.compare_digest(sig, expected)
     expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(signature, expected)

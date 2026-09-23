@@ -271,9 +271,9 @@ export const solutionApi = {
       solution_id: string;
       title: string;
       total_decisions: number;
-      decisions: any[];
-      assumptions_log: any[];
-      requirements: any[];
+      decisions: Record<string, unknown>[];
+      assumptions_log: Record<string, unknown>[];
+      requirements: Record<string, unknown>[];
     }>(`/solutions/${id}/decisions`);
   },
 
@@ -502,28 +502,38 @@ export const mvpApi = {
     );
   },
 
-  async getSpec(solutionId: string): Promise<{ app_spec: any; cached?: boolean }> {
-    return request<{ app_spec: any; cached?: boolean }>(`/mvp/${solutionId}/spec`);
+  async getSpec(
+    solutionId: string
+  ): Promise<{ app_spec: Record<string, unknown>; cached?: boolean }> {
+    return request<{ app_spec: Record<string, unknown>; cached?: boolean }>(
+      `/mvp/${solutionId}/spec`
+    );
   },
 
   async generateSpec(
     solutionId: string,
     prompt?: string
-  ): Promise<{ app_spec: any; cached?: boolean }> {
-    return request<{ app_spec: any; cached?: boolean }>(`/mvp/${solutionId}/spec`, {
-      method: 'POST',
-      body: JSON.stringify({ prompt }),
-    });
+  ): Promise<{ app_spec: Record<string, unknown>; cached?: boolean }> {
+    return request<{ app_spec: Record<string, unknown>; cached?: boolean }>(
+      `/mvp/${solutionId}/spec`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ prompt }),
+      }
+    );
   },
 
   async updateSpec(
     solutionId: string,
     spec: Record<string, unknown>
-  ): Promise<{ status: string; app_spec: any }> {
-    return request<{ status: string; app_spec: any }>(`/mvp/${solutionId}/spec`, {
-      method: 'PUT',
-      body: JSON.stringify({ app_spec: spec }),
-    });
+  ): Promise<{ status: string; app_spec: Record<string, unknown> }> {
+    return request<{ status: string; app_spec: Record<string, unknown> }>(
+      `/mvp/${solutionId}/spec`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ app_spec: spec }),
+      }
+    );
   },
 };
 

@@ -2428,8 +2428,7 @@ async def run_build(
             if fallback_errors:
                 raise MVPBuilderError(
                     "Synthesized fallback build failed verification "
-                    f"({len(fallback_errors)} error(s)): "
-                    + "; ".join(fallback_errors[:5])
+                    f"({len(fallback_errors)} error(s)): " + "; ".join(fallback_errors[:5])
                 ) from exc
     else:
         logger.info(

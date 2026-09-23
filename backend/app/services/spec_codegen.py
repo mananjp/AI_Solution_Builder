@@ -727,7 +727,7 @@ def _gen_entity_page(spec: AppSpec, entity: Entity, route: str) -> str:
             cells.append(f'<td className="px-3 py-2">{{row.{f.name} ? "Yes" : "No"}}</td>')
             assigns.append(f"      body[{key}] = form[{key}] === true;")
             form_fields.append(
-                "<label className=\"flex items-center gap-2\">\n"
+                '<label className="flex items-center gap-2">\n'
                 f'          <input type="checkbox" className="h-4 w-4 rounded border-slate-300" '
                 f"checked={{field({key}) === true}} onChange={{(e) => set({key}, e.target.checked)}} />"
                 f'\n          <span className="text-sm font-medium">{label}</span>\n'
@@ -735,10 +735,10 @@ def _gen_entity_page(spec: AppSpec, entity: Entity, route: str) -> str:
             )
         elif f.type == "enum":
             options = "\n            ".join(
-                f'<option value={js_key(v)}>{_label(v)}</option>' for v in f.enum_values
+                f"<option value={js_key(v)}>{_label(v)}</option>" for v in f.enum_values
             )
             form_fields.append(
-                "<label className=\"flex flex-col gap-1\">\n"
+                '<label className="flex flex-col gap-1">\n'
                 f'          <span className="text-sm font-medium">{label}</span>'
                 f'\n          <select className="rounded-lg border border-slate-300 px-3 py-2" '
                 f"value={{field({key})}} onChange={{(e) => set({key}, e.target.value)}}>"
@@ -748,9 +748,7 @@ def _gen_entity_page(spec: AppSpec, entity: Entity, route: str) -> str:
         else:
             if f.type in ("int", "float", "ref"):
                 if f.required and f.default is None:
-                    assigns.append(
-                        f"      body[{key}] = Number(form[{key}] ?? 0);"
-                    )
+                    assigns.append(f"      body[{key}] = Number(form[{key}] ?? 0);")
                 else:
                     assigns.append(
                         f"      const {f.name}_v = Number(form[{key}]);\n"
@@ -766,7 +764,7 @@ def _gen_entity_page(spec: AppSpec, entity: Entity, route: str) -> str:
                         f"body[{key}] = String(form[{key}]);"
                     )
             form_fields.append(
-                "<label className=\"flex flex-col gap-1\">\n"
+                '<label className="flex flex-col gap-1">\n'
                 f'          <span className="text-sm font-medium">{label}</span>'
                 f'\n          <input type={js_key(input_type)} className="rounded-lg border border-slate-300 px-3 py-2" '
                 f"value={{field({key})}} onChange={{(e) => set({key}, e.target.value)}} />\n"

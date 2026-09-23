@@ -76,9 +76,7 @@ async def test_webhook_rejects_forged_signature(client: httpx.AsyncClient, monke
 
 
 @pytest.mark.asyncio
-async def test_webhook_credits_org_on_valid_signature(
-    client: httpx.AsyncClient, monkeypatch
-):
+async def test_webhook_credits_org_on_valid_signature(client: httpx.AsyncClient, monkeypatch):
     from app.core.config import settings
 
     monkeypatch.setattr(settings, "PAYMENT_WEBHOOK_SECRET", "s3cret")
@@ -109,9 +107,7 @@ async def test_webhook_credits_org_on_valid_signature(
 
 
 @pytest.mark.asyncio
-async def test_webhook_accepts_stripe_timestamped_signature(
-    client: httpx.AsyncClient, monkeypatch
-):
+async def test_webhook_accepts_stripe_timestamped_signature(client: httpx.AsyncClient, monkeypatch):
     from app.core.config import settings
 
     monkeypatch.setattr(settings, "PAYMENT_WEBHOOK_SECRET", "s3cret")
@@ -125,9 +121,7 @@ async def test_webhook_accepts_stripe_timestamped_signature(
         }
     ).encode()
     ts = "1700000000"
-    expected = hmac.new(
-        b"s3cret", f"{ts}.{payload.decode()}".encode(), hashlib.sha256
-    ).hexdigest()
+    expected = hmac.new(b"s3cret", f"{ts}.{payload.decode()}".encode(), hashlib.sha256).hexdigest()
     resp = await client.post(
         "/api/v1/billing/webhook",
         content=payload,

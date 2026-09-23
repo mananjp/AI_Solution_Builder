@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Loader2, Volume2, Globe } from 'lucide-react';
+import { Mic, Square, Loader2, Globe } from 'lucide-react';
 import { uploadApi } from '@/lib/api';
 
 interface VoiceInputButtonProps {
