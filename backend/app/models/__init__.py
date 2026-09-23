@@ -8,7 +8,7 @@ from app.models.artifact import ArtifactComment, SolutionArtifact
 from app.models.audit import AuditLog
 from app.models.build_job import BuildJob
 from app.models.context import ContextChunk
-from app.models.credit import CreditTransaction, Plan
+from app.models.credit import CreditTransaction, PaymentOrder, Plan
 from app.models.mvp_build import MVPBuild
 from app.models.organization import Organization
 from app.models.recommendation import RecommendationEvent
@@ -26,6 +26,7 @@ __all__ = [
     "ArtifactComment",
     "Plan",
     "CreditTransaction",
+    "PaymentOrder",
     "RecommendationEvent",
     "AuditLog",
     "WorkableSchema",

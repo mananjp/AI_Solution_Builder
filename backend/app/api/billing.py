@@ -6,6 +6,8 @@ Plans, credit metering, and transaction ledgers.
 
 import hashlib
 import hmac
+import json
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -17,9 +19,10 @@ from sqlalchemy.orm import joinedload
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user, require_admin
-from app.models.credit import CreditTransaction
+from app.models.credit import CreditTransaction, PaymentOrder
 from app.models.organization import Organization
 from app.models.user import User
+from app.services.razorpay_gateway import razorpay_configured
 
 router = APIRouter(prefix="/billing", tags=["Billing & Credits"])
 
@@ -250,19 +253,80 @@ async def create_checkout_session(
     """Create a payment gateway checkout order for Razorpay or Stripe."""
     import uuid
 
-    amount = 399 if payload.pack_credits else 799
+    amount_inr = 399 if payload.pack_credits else 799
     currency = payload.currency.upper()
-    order_id = f"order_{uuid.uuid4().hex[:12]}"
+    credits = payload.pack_credits or 200
+    org_id = current_user.org_id
 
-    return {
-        "gateway": payload.gateway,
-        "order_id": order_id,
-        "amount": amount,
-        "currency": currency,
-        "key_id": "rzp_test_live" if payload.gateway == "razorpay" else "pk_test_stripe",
-        "org_id": str(current_user.org_id),
-        "credits": payload.pack_credits or 200,
-    }
+    gateway = payload.gateway.lower()
+    if gateway == "stripe":
+        # Stripe order creation is not wired up yet; keep the deterministic stub.
+        order_id = f"order_{uuid.uuid4().hex[:12]}"
+        order_payload: dict[str, Any] = {
+            "gateway": gateway,
+            "order_id": order_id,
+            "amount": amount_inr,
+            "currency": currency,
+            "key_id": "pk_test_stripe",
+            "org_id": str(org_id),
+            "credits": credits,
+        }
+    elif gateway == "razorpay" and razorpay_configured(
+        key_id=settings.RAZORPAY_KEY_ID, key_secret=settings.RAZORPAY_KEY_SECRET
+    ):
+        from app.services.razorpay_gateway import RazorpayError, create_order
+
+        receipt = f"ai_sb_{uuid.uuid4().hex[:10]}"
+        try:
+            rzp = await create_order(
+                key_id=settings.RAZORPAY_KEY_ID,
+                key_secret=settings.RAZORPAY_KEY_SECRET,
+                amount=amount_inr * 100,  # paise
+                currency=currency,
+                receipt=receipt,
+                notes={"org_id": str(org_id), "credits": credits},
+            )
+        except RazorpayError as exc:
+            raise HTTPException(status_code=502, detail=f"Checkout failed: {exc}") from exc
+
+        order_id = rzp["id"]
+        gateway_order_status = rzp.get("status", "created")
+        order_payload = {
+            "gateway": gateway,
+            "order_id": order_id,
+            "amount": amount_inr,
+            "currency": currency,
+            "key_id": settings.RAZORPAY_KEY_ID,
+            "org_id": str(org_id),
+            "credits": credits,
+            "gateway_status": gateway_order_status,
+        }
+    else:
+        # Deterministic fallback for dev/SQLite when keys are absent.
+        order_id = f"order_{uuid.uuid4().hex[:12]}"
+        order_payload = {
+            "gateway": gateway,
+            "order_id": order_id,
+            "amount": amount_inr,
+            "currency": currency,
+            "key_id": "rzp_test_live",
+            "org_id": str(org_id),
+            "credits": credits,
+        }
+
+    db.add(
+        PaymentOrder(
+            gateway=gateway,
+            gateway_order_id=order_id,
+            org_id=org_id,
+            amount=order_payload["amount"],
+            currency=currency,
+            credits=credits,
+            status="pending",
+        )
+    )
+    await db.commit()
+    return order_payload
 
 
 class WebhookPayload(BaseModel):
@@ -320,6 +384,12 @@ async def handle_payment_webhook(
     / ``Stripe-Signature``) and verified against the exact raw request body, so
     an unauthenticated caller cannot self-credit. Fails closed when the secret
     is unconfigured.
+
+    Two payload shapes are supported:
+      * Native gateway webhook (Razorpay/Stripe): ``payment.captured`` /
+        ``checkout.session.completed`` with an ``entity.order_id`` — the org
+        and credits are resolved from the stored ``PaymentOrder`` (idempotent).
+      * Legacy test payload: ``org_id`` + ``credits`` in the body.
     """
     from uuid import UUID
 
@@ -340,24 +410,59 @@ async def handle_payment_webhook(
     if not _verify_webhook_signature(raw_body=raw_body, signature=signature, secret=secret):
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
-    payload = WebhookPayload.model_validate_json(raw_body)
+    body = json.loads(raw_body.decode("utf-8", "replace"))
+    entity = body.get("entity") if isinstance(body.get("entity"), dict) else None
+    gateway_order_id = entity.get("order_id") if entity else None
 
-    org_uuid = UUID(payload.org_id)
+    if gateway_order_id:
+        order_res = await db.execute(
+            select(PaymentOrder).where(PaymentOrder.gateway_order_id == gateway_order_id)
+        )
+        order = order_res.scalar_one_or_none()
+        if not order:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Unknown gateway order: {gateway_order_id}",
+            )
+        if order.status == "captured":
+            return {
+                "status": "credited",
+                "order_id": gateway_order_id,
+                "added": order.credits,
+                "new_balance": order.credits,
+                "duplicate": True,
+            }
+        org_uuid = order.org_id
+        credits = order.credits
+        order.status = "captured"
+        order.captured_at = datetime.now(UTC)
+        if entity and entity.get("id"):
+            order.payment_id = str(entity["id"])
+    else:
+        payload = WebhookPayload.model_validate_json(raw_body)
+        org_uuid = UUID(payload.org_id)
+        credits = payload.credits
+
     org_res = await db.execute(select(Organization).where(Organization.id == org_uuid))
     org = org_res.scalar_one_or_none()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
     if org.credits_remaining is not None:
-        org.credits_remaining += payload.credits
+        org.credits_remaining += credits
 
     tx = CreditTransaction(
         org_id=org.id,
-        credits_used=payload.credits,
+        credits_used=credits,
         action_type="gateway_purchase",
-        description=f"Verified payment credit via webhook ({payload.order_id})",
+        description=f"Verified payment credit via webhook ({gateway_order_id or 'manual'})",
     )
     db.add(tx)
     await db.commit()
 
-    return {"status": "credited", "added": payload.credits, "new_balance": org.credits_remaining}
+    return {
+        "status": "credited",
+        "added": credits,
+        "new_balance": org.credits_remaining,
+        "order_id": gateway_order_id,
+    }

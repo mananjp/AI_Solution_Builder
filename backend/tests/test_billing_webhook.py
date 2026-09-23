@@ -107,6 +107,95 @@ async def test_webhook_credits_org_on_valid_signature(client: httpx.AsyncClient,
 
 
 @pytest.mark.asyncio
+async def test_webhook_native_razorpay_payload_credits_stored_order(
+    client: httpx.AsyncClient, monkeypatch
+):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "PAYMENT_WEBHOOK_SECRET", "s3cret")
+    ctx = await _register_and_org_id(client)
+
+    checkout = await client.post(
+        "/api/v1/billing/checkout",
+        json={"pack_credits": 100, "gateway": "razorpay", "currency": "INR"},
+        headers=ctx["headers"],
+    )
+    assert checkout.status_code == 200, checkout.text
+    order_id = checkout.json()["order_id"]
+
+    payload = json.dumps(
+        {
+            "event": "payment.captured",
+            "entity": {
+                "order_id": order_id,
+                "id": "pay_native123",
+                "amount": 39900,
+                "currency": "INR",
+            },
+        }
+    ).encode()
+    resp = await client.post(
+        "/api/v1/billing/webhook",
+        content=payload,
+        headers={"X-Razorpay-Signature": _sign("s3cret", payload)},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "credited"
+    assert body["added"] == 100
+    assert body["order_id"] == order_id
+
+    duplicate = await client.post(
+        "/api/v1/billing/webhook",
+        content=payload,
+        headers={"X-Razorpay-Signature": _sign("s3cret", payload)},
+    )
+    assert duplicate.status_code == 200
+    assert duplicate.json()["duplicate"] is True
+
+
+@pytest.mark.asyncio
+async def test_webhook_native_payload_unknown_order_404(
+    client: httpx.AsyncClient, monkeypatch
+):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "PAYMENT_WEBHOOK_SECRET", "s3cret")
+    ctx = await _register_and_org_id(client)
+    payload = json.dumps(
+        {
+            "event": "payment.captured",
+            "entity": {"order_id": "order_does_not_exist", "id": "pay_x"},
+        }
+    ).encode()
+    resp = await client.post(
+        "/api/v1/billing/webhook",
+        content=payload,
+        headers={"X-Razorpay-Signature": _sign("s3cret", payload)},
+    )
+    assert resp.status_code == 404
+
+    usage = await client.get("/api/v1/billing/usage", headers=ctx["headers"])
+    assert usage.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_checkout_persists_payment_order(client: httpx.AsyncClient):
+    ctx = await _register_and_org_id(client)
+    resp = await client.post(
+        "/api/v1/billing/checkout",
+        json={"pack_credits": 100, "gateway": "razorpay", "currency": "INR"},
+        headers=ctx["headers"],
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["gateway"] == "razorpay"
+    assert data["amount"] == 399
+    assert data["credits"] == 100
+    assert data["order_id"].startswith("order_")
+
+
+@pytest.mark.asyncio
 async def test_webhook_accepts_stripe_timestamped_signature(client: httpx.AsyncClient, monkeypatch):
     from app.core.config import settings
 
