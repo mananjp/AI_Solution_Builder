@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         curl \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install -g opencode-ai@1.18.31
+    && npm install -g @opencode/cli@latest
 
 # OpenCode configuration + custom agents
 RUN mkdir -p /root/.config/opencode/agents

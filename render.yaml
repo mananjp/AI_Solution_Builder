@@ -40,6 +40,8 @@ services:
         sync: false
       - key: GROQ_MODEL_NAME
         value: openai/gpt-oss-120b
+      - key: LLM_PROVIDER
+        value: groq
       - key: STORAGE_BACKEND
         value: local
       - key: CLOUDINARY_CLOUD_NAME
@@ -55,7 +57,7 @@ services:
       - key: OPENCODE_SERVER_PASSWORD
         sync: false
       - key: OPENCODE_MODEL
-        value: groq/openai/gpt-oss-120b
+        value: opencode/big-pickle
       - key: MVP_BUILD_DIR
         value: /workspace
       - key: MVP_BUILD_TIMEOUT
@@ -109,6 +111,8 @@ services:
         sync: false
       - key: GROQ_MODEL_NAME
         value: openai/gpt-oss-120b
+      - key: LLM_PROVIDER
+        value: groq
       - key: STORAGE_BACKEND
         value: local
       - key: CLOUDINARY_CLOUD_NAME
@@ -132,4 +136,4 @@ services:
       - key: OPENCODE_SERVER_PASSWORD
         sync: false
       - key: OPENCODE_MODEL
-        value: groq/openai/gpt-oss-120b
+        value: opencode/big-pickle

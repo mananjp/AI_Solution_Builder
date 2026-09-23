@@ -109,7 +109,7 @@ class Settings(BaseSettings):
     # ── OpenCode MVP Builder (sidecar) ────────────
     OPENCODE_SERVER_URL: str = "http://127.0.0.1:4096"
     OPENCODE_SERVER_PASSWORD: str = ""
-    OPENCODE_MODEL: str = "groq/openai/gpt-oss-120b"
+    OPENCODE_MODEL: str = "opencode/big-pickle"
     OPENCODE_AGENT: str = "mvp-builder"
     MVP_BUILD_TIMEOUT: int = 600  # seconds
     MVP_BUILD_DIR: str = ".data/mvp_builds"
@@ -162,6 +162,12 @@ class Settings(BaseSettings):
                 "JWT_SECRET_KEY must be set to a strong, unique secret "
                 f"(>= 32 chars) when APP_ENV='production'. Current value: {self.JWT_SECRET_KEY!r}"
             )
+        # Auto-detect real LLM provider if credentials are provided and provider is still default mock
+        if self.LLM_PROVIDER == "mock":
+            if self.GROQ_API_KEY and self.GROQ_API_KEY.strip():
+                self.LLM_PROVIDER = "groq"
+            elif self.OPENAI_API_KEY and self.OPENAI_API_KEY.strip():
+                self.LLM_PROVIDER = "openai"
         return self
 
     @property

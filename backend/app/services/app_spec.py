@@ -172,7 +172,8 @@ class AppSpec(BaseModel):
 SPEC_SYSTEM = """You design SMALL but REAL working apps. Output ONLY JSON matching the schema.
 
 Hard rules:
-- Model the user's ACTUAL app. Do not default to a generic 'items/status' CRUD app.
+- Model the user's ACTUAL app. Do not default to a generic 'items/status' CRUD or todo app.
+- If the user asks for a landing page, portfolio, or showcase website, model realistic entities (e.g. leads, inquiries, contact_messages, subscribers, testimonials) and action (e.g. /actions/submit_inquiry, /actions/subscribe_newsletter) with appropriate screens (e.g. Landing Page at "/", Admin/Inquiries at "/inquiries").
 - Put the real logic in `actions` (calculations, state transitions, validation, conflict
   checks, aggregation). Each action has precise `rules` a developer can implement
   without guessing (formulas, edge cases, error codes: 400 invalid, 404 missing, 409 conflict).
@@ -205,7 +206,12 @@ def _extract_json(text: str) -> dict[str, Any]:
     return json.loads(t[start : end + 1])  # type: ignore[no-any-return]
 
 
-def _context_from_state(ai_state: dict[str, Any], user_prompt: str) -> str:
+def _context_from_state(
+    ai_state: dict[str, Any],
+    user_prompt: str,
+    uploaded_context: str = "",
+    conversation_history: list[dict[str, Any]] | None = None,
+) -> str:
     def content(key: str) -> Any:
         v = ai_state.get(key)
         return v.get("content") if isinstance(v, dict) else None
@@ -216,6 +222,28 @@ def _context_from_state(ai_state: dict[str, Any], user_prompt: str) -> str:
         f"INDUSTRY: {ai_state.get('industry', '')}",
         f"CONFIRMED MODULES: {ai_state.get('confirmed_modules') or ai_state.get('identified_solutions') or []}",
     ]
+
+    # Include uploaded document context (PDFs, ERDs, images, PPTs)
+    if uploaded_context:
+        parts.append(
+            f"UPLOADED DOCUMENT CONTEXT (user-provided reference material):\n"
+            f"{uploaded_context[:6000]}"
+        )
+
+    # Include conversation history for multi-turn context
+    if conversation_history:
+        user_msgs = [
+            m.get("content", "")
+            for m in conversation_history
+            if m.get("role") == "user" and m.get("content")
+        ]
+        if user_msgs:
+            # Include last 5 user messages for context
+            history_text = "\n---\n".join(user_msgs[-5:])
+            parts.append(
+                f"CONVERSATION HISTORY (previous user messages for context):\n{history_text[:4000]}"
+            )
+
     for key in ("er_diagram", "api_spec", "lld"):
         c = content(key)
         if c:
@@ -226,7 +254,12 @@ def _context_from_state(ai_state: dict[str, Any], user_prompt: str) -> str:
 
 
 async def generate_app_spec(
-    ai_state: dict[str, Any], user_prompt: str = "", *, max_attempts: int = 3
+    ai_state: dict[str, Any],
+    user_prompt: str = "",
+    *,
+    max_attempts: int = 3,
+    uploaded_context: str = "",
+    conversation_history: list[dict[str, Any]] | None = None,
 ) -> AppSpec:
     """LLM → AppSpec with validation-error feedback loop. Raises SpecError (no fake fallback)."""
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -239,7 +272,14 @@ async def generate_app_spec(
     llm = get_llm(temperature=0.2, max_tokens=6000)
     messages: list[Any] = [
         SystemMessage(content=SPEC_SYSTEM + "\nJSON schema:\n" + _spec_schema_hint()),
-        HumanMessage(content=_context_from_state(ai_state, user_prompt)),
+        HumanMessage(
+            content=_context_from_state(
+                ai_state,
+                user_prompt,
+                uploaded_context=uploaded_context,
+                conversation_history=conversation_history,
+            )
+        ),
     ]
     last_err = ""
     for attempt in range(1, max_attempts + 1):

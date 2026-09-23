@@ -924,7 +924,7 @@ async def chat(
                         ),
                     }
                     # Pre-populate code slots from ai_state (spec-first when available)
-                    from app.services.app_spec import AppSpec
+                    from app.services.app_spec import AppSpec, generate_app_spec, SpecError
 
                     spec_obj = None
                     spec_data = solution.ai_state.get("app_spec")
@@ -933,6 +933,58 @@ async def chat(
                             spec_obj = AppSpec.model_validate(spec_data)
                         except Exception:
                             spec_obj = None
+
+                    # If no spec exists, generate one from the full conversation
+                    # context. This is the critical step: the LLM designs the app
+                    # structure from the user's actual requirements.
+                    if spec_obj is None:
+                        yield {
+                            "event": "build_progress",
+                            "data": json.dumps(
+                                {
+                                    "phase": "designing",
+                                    "step": 3,
+                                    "total_steps": 7,
+                                    "percentage": 50,
+                                    "message": "Designing domain models, schemas, and architecture with AI...",
+                                    "solution_id": str(solution.id),
+                                    "session_id": session_id,
+                                }
+                            ),
+                        }
+                        try:
+                            # Build a rich prompt from conversation history
+                            history_msgs = solution.conversation_history or []
+                            user_messages = [
+                                m.get("content", "")
+                                for m in history_msgs
+                                if m.get("role") == "user" and m.get("content")
+                            ]
+                            combined_prompt = "\n\n".join(user_messages[-5:]) if user_messages else payload.message
+
+                            spec_obj = await generate_app_spec(
+                                solution.ai_state or {},
+                                combined_prompt,
+                                uploaded_context=payload.uploaded_context or "",
+                                conversation_history=history_msgs,
+                            )
+                            # Persist the spec so rebuilds reuse it
+                            solution.ai_state = {
+                                **(solution.ai_state or {}),
+                                "app_spec": spec_obj.model_dump(),
+                            }
+                            logger.info(
+                                "Generated AppSpec '%s' for chat build of solution=%s",
+                                spec_obj.app_name,
+                                solution.id,
+                            )
+                        except (SpecError, Exception) as exc:
+                            logger.warning(
+                                "AppSpec generation failed for chat build (%s); "
+                                "build will use legacy synthesis",
+                                exc,
+                            )
+
                     builder.scaffold_build(
                         ws_dir,
                         app_title=solution.title,
@@ -957,7 +1009,7 @@ async def chat(
                     }
 
                     if sidecar_ok:
-                        # Sidecar available — run verify+repair loop with timeout.
+                        # Sidecar available — run verify+repair loop with full build timeout.
                         try:
                             await asyncio.wait_for(
                                 mvp_verifier.verify_and_repair(
@@ -965,12 +1017,12 @@ async def chat(
                                     session_id=session_id,
                                     target_dir=target_dir,
                                     send_prompt_fn=lambda s, t: builder.send_message(
-                                        s, t, timeout=25
+                                        s, t, timeout=settings.MVP_BUILD_TIMEOUT
                                     ),
                                     check_npm=False,
-                                    max_repair_turns=1,
+                                    max_repair_turns=settings.MVP_MAX_REPAIR_TURNS,
                                 ),
-                                timeout=35.0,
+                                timeout=float(settings.MVP_BUILD_TIMEOUT),
                             )
                         except TimeoutError:
                             logger.warning(

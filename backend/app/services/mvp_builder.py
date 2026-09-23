@@ -2067,11 +2067,38 @@ def scaffold_build(
 
         write_generated(root, spec)
     elif ai_state:
-        # Pre-populate slots from ai_state if available for immediate validity
-        try:
-            _auto_synthesize_slots(root, ai_state, app_title)
-        except Exception as exc:
-            logger.warning("Auto slot synthesis skipped: %s", exc)
+        # Try to extract a validated AppSpec from ai_state before falling
+        # back to the legacy auto-synthesizer. The spec path produces
+        # correct-by-construction CRUD, typed stubs, and acceptance tests;
+        # _auto_synthesize_slots only generates generic {name, status} CRUD.
+        extracted_spec = None
+        spec_data = ai_state.get("app_spec")
+        if isinstance(spec_data, dict):
+            try:
+                from app.services.app_spec import AppSpec
+
+                extracted_spec = AppSpec.model_validate(spec_data)
+            except Exception as exc:
+                logger.info("Could not extract AppSpec from ai_state: %s", exc)
+
+        if extracted_spec is not None:
+            from app.services.spec_codegen import write_generated
+
+            write_generated(root, extracted_spec)
+            logger.info("Scaffolded build %s from AppSpec (spec-first path)", root)
+        else:
+            # Last resort: pre-populate slots from ai_state heuristics.
+            # This produces generic CRUD — acceptable only for premade templates
+            # or when no spec could be generated.
+            logger.warning(
+                "No AppSpec available for %s; falling back to legacy auto-synthesis. "
+                "Build quality will be limited to generic CRUD.",
+                app_title,
+            )
+            try:
+                _auto_synthesize_slots(root, ai_state, app_title)
+            except Exception as exc:
+                logger.warning("Auto slot synthesis skipped: %s", exc)
 
     logger.info("Scaffolded build %s from template (modules=%d)", root, len(inject_modules))
 
@@ -2316,6 +2343,8 @@ async def run_build(
     *,
     title: str | None = None,
     user_prompt: str = "",
+    uploaded_context: str = "",
+    conversation_history: list[dict[str, Any]] | None = None,
     check_npm: bool = False,
     allow_offline: bool = False,
 ) -> dict[str, Any]:
@@ -2334,11 +2363,27 @@ async def run_build(
             spec = AppSpec.model_validate(spec_data)
         except Exception:
             spec = None
-    if spec is None and user_prompt:
+    if spec is None:
+        effective_prompt = (
+            user_prompt
+            or ai_state.get("user_message", "")
+            or ai_state.get("business_description", "")
+            or title
+            or "Custom Application"
+        )
+        effective_uploaded = uploaded_context or ai_state.get("uploaded_context", "") or ""
+        effective_history = conversation_history or ai_state.get("conversation_history") or None
         try:
-            spec = await generate_app_spec(ai_state, user_prompt)
+            spec = await generate_app_spec(
+                ai_state,
+                effective_prompt,
+                uploaded_context=effective_uploaded,
+                conversation_history=effective_history,
+            )
+            ai_state["app_spec"] = spec.model_dump()
+            logger.info("Generated AppSpec '%s' for run_build (solution=%s)", spec.app_name, solution_id)
         except Exception as exc:
-            logger.info("generate_app_spec bypassed (%s); continuing with artifact synthesis", exc)
+            logger.warning("generate_app_spec bypassed (%s); continuing with artifact synthesis", exc)
 
     target_dir = _container_target(solution_id, build_number)
     local_dir = build_workspace_dir(solution_id, build_number)
@@ -2432,12 +2477,23 @@ async def run_build(
                     f"({len(fallback_errors)} error(s)): " + "; ".join(fallback_errors[:5])
                 ) from exc
     else:
+        # OpenCode sidecar is offline. For apps with custom business actions,
+        # the scaffold alone is NOT a working app — fail honestly rather than
+        # shipping a skeleton as "complete".
+        if spec and any(spec.actions):
+            raise MVPBuilderError(
+                "OpenCode sidecar is offline. This app has custom business logic "
+                f"({len(spec.actions)} action(s): {', '.join(a.name for a in spec.actions)}) "
+                "that requires the coding agent to implement. The build cannot complete "
+                "without the sidecar. Please ensure the builder service is running and retry."
+            )
+
         logger.info(
-            "OpenCode sidecar offline; build synthesized instantly from blueprint for solution=%s",
+            "OpenCode sidecar offline; pure-CRUD build synthesized from blueprint for solution=%s",
             solution_id,
         )
-        # Even in offline mode, verify the synthesized output so broken
-        # scaffolds are never silently shipped as "complete".
+        # For pure-CRUD apps (no business actions), the spec-generated code
+        # is self-sufficient. Verify the output before shipping.
         from app.services.mvp_verifier import verify_workspace
 
         errors = verify_workspace(local_dir, check_npm=False)

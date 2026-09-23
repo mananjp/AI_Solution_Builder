@@ -221,15 +221,23 @@ async def execute_build_job(build_id: UUID) -> None:
                 user_msg = (
                     (solution.ai_state or {}).get("user_message", "") or solution.description or ""
                 )
+                uploaded_ctx = (solution.ai_state or {}).get("uploaded_context", "") or ""
+                conv_history = solution.conversation_history or []
                 result = await builder.run_build(
                     solution.id,
                     ai_state,
                     build.build_number,
                     title=title,
                     user_prompt=user_msg,
+                    uploaded_context=uploaded_ctx,
+                    conversation_history=conv_history,
                     check_npm=settings.MVP_VERIFY_NPM,
                     allow_offline=True,
                 )
+                # Persist any generated spec back to the solution
+                if ai_state.get("app_spec") and (solution.ai_state or {}).get("app_spec") != ai_state.get("app_spec"):
+                    solution.ai_state = {**(solution.ai_state or {}), "app_spec": ai_state["app_spec"]}
+                    await db.commit()
 
             # Re-fetch under row lock to guard against concurrent cancellation
             # (destroy_build may have set status='cancelled' in a separate session).
