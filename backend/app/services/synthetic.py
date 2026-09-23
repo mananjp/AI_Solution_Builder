@@ -69,8 +69,14 @@ def _fk_reference(col: Column[Any]) -> Column[Any] | None:
     return fks[0].column  # type: ignore[return-value]
 
 
-def _value_for_column(col: Column[Any], rng: random.Random) -> Any:
-    """Generate a plausible value for a column based on its name/type."""
+def _value_for_column(
+    col: Column[Any], rng: random.Random, row_index: int = 0
+) -> Any:
+    """Generate a plausible value for a column based on its name/type.
+
+    ``row_index`` (and UUID-based salts for email/url) make values unique per
+    row so UNIQUE constraints on email/url-style columns never collide.
+    """
     name = col.name.lower()
     col_type = str(col.type).upper()
 
@@ -78,13 +84,13 @@ def _value_for_column(col: Column[Any], rng: random.Random) -> Any:
         return uuid.uuid4()
 
     if "email" in name:
-        return f"{name}@example.com"
+        return f"user-{uuid.uuid4().hex[:10]}@example.com"
 
     if "phone" in name or "mobile" in name:
         return f"+91{rng.randint(7000000000, 9999999999)}"
 
     if "url" in name or "website" in name:
-        return "https://example.com"
+        return f"https://{uuid.uuid4().hex[:8]}.example.com"
 
     if "status" in name or "state" in name:
         return rng.choice(_STATUS_WORDS)
@@ -124,7 +130,36 @@ def _value_for_column(col: Column[Any], rng: random.Random) -> Any:
         return {"meta": "synthetic"}
 
     # Important: any NOT NULL column must get a value.
-    return f"sample-{rng.randint(1000, 9999)}"
+    return f"sample-{row_index}-{rng.randint(1000, 9999)}"
+
+
+def _fk_value(
+    col: Column[Any],
+    entity: str,
+    parent_pks: dict[str, list[Any]],
+    rng: random.Random,
+    row_index: int,
+) -> Any:
+    """Pick a real parent PK for a FK column, rotating across parents.
+
+    Handles the two integrity traps in synthetic seeding:
+    * empty parents (e.g. the very first row of a self-referencing table) —
+      pass None when the column allows it, otherwise leave a valid-looking value
+      (the database will reject truly invalid inserts, and the caller skips them).
+    * FK columns pointing at tables not being seeded in this run.
+    """
+    ref = _fk_reference(col)
+    if ref is None:
+        return _value_for_column(col, rng, row_index)
+
+    parent_name = ref.table.name
+    if parent_name == entity or parent_name not in parent_pks or not parent_pks[parent_name]:
+        if col.nullable:
+            return None
+        return _value_for_column(col, rng, row_index)
+
+    candidates = parent_pks[parent_name]
+    return candidates[rng.randrange(len(candidates))]
 
 
 async def _schema_tables(db: AsyncSession, schema_name: str) -> list[str]:
@@ -189,21 +224,26 @@ async def seed_synthetic_rows(
         pk = next((c for c in table.columns if c.primary_key), None)
         writeable = [c for c in table.columns if c is not pk and not c.server_default]
 
-        for _ in range(rows_per_table):
+        for row_index in range(rows_per_table):
+            rng = random.Random()
             values: dict[str, Any] = {}
             for col in writeable:
-                ref = _fk_reference(col)
-                if ref is not None and ref.table.name in parent_pks and parent_pks[ref.table.name]:
-                    values[col.name] = parent_pks[ref.table.name][0]
-                else:
-                    values[col.name] = _value_for_column(col, random.Random())
+                values[col.name] = _fk_value(col, entity, parent_pks, rng, row_index)
 
-            if pk is not None:
-                stmt = insert(table).values(**values).returning(pk)
-                row = await db.execute(stmt)
-                parent_pks.setdefault(entity, []).append(row.scalar_one())
-            else:
-                await db.execute(insert(table).values(**values))
+            try:
+                if pk is not None:
+                    stmt = insert(table).values(**values).returning(pk)
+                    row = await db.execute(stmt)
+                    parent_pks.setdefault(entity, []).append(row.scalar_one())
+                else:
+                    await db.execute(insert(table).values(**values))
+            except Exception as exc:  # noqa: BLE001
+                # One malformed row (e.g. NOT NULL FK to an unseeded parent) must not
+                # abort the entire run — log and continue with the next row.
+                logger.warning(
+                    "Skipping synthetic row for %s.%s: %s", schema_name, entity, exc
+                )
+                continue
             created += 1
 
     await db.flush()

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { solutionApi } from '@/lib/api';
 
 interface ImpactPreviewModalProps {
   isOpen: boolean;
@@ -21,35 +22,46 @@ export function ImpactPreviewModal({
   const [affected, setAffected] = useState<string[]>([]);
   const [estimatedCredits, setEstimatedCredits] = useState<number>(2);
   const [loading, setLoading] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen || !solutionId || !targetArtifact) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
-    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    setConfirmError(null);
 
-    fetch(`/api/v1/solutions/${solutionId}/regenerate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({
-        targets: [targetArtifact],
-        feedback: 'Impact evaluation',
-        cascade: cascade,
-      }),
-    })
-      .then((res) => (res.ok ? res.json() : null))
+    // dry_run only computes the dependency impact + credit quote — it must NOT
+    // mark artifacts stale just because the user opened the preview.
+    solutionApi
+      .regenerateCascade(solutionId, [targetArtifact], 'Impact evaluation', cascade, true)
       .then((data) => {
-        if (data) {
-          setAffected(data.affected_artifacts || [targetArtifact]);
-          setEstimatedCredits(data.estimated_credits || 2);
-        }
+        setAffected(data.affected_artifacts || [targetArtifact]);
+        setEstimatedCredits(data.estimated_credits || 2);
         setLoading(false);
       })
       .catch(() => setLoading(false));
   }, [isOpen, solutionId, targetArtifact, cascade]);
+
+  const handleConfirmRegenerate = async () => {
+    setConfirming(true);
+    setConfirmError(null);
+    try {
+      // Real (non-dry-run) pass: marks downstream artifacts stale so they can be
+      // regenerated, and returns the same impact list for confirmation.
+      await solutionApi.regenerateCascade(
+        solutionId,
+        [targetArtifact],
+        'Regeneration confirmed from impact preview',
+        cascade,
+        false
+      );
+      onConfirmRegenerate(cascade);
+    } catch {
+      setConfirmError('Regeneration failed. Please close and try again.');
+      setConfirming(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -132,6 +144,11 @@ export function ImpactPreviewModal({
 
         {/* Action Buttons */}
         <div className="flex items-center justify-end gap-3 pt-2">
+          {confirmError && (
+            <div className="p-3 rounded-lg bg-[#2a1414] border border-[#3d1f1f] text-xs text-[#f87171]">
+              {confirmError}
+            </div>
+          )}
           <button
             onClick={onClose}
             className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors"
@@ -139,10 +156,11 @@ export function ImpactPreviewModal({
             Cancel
           </button>
           <button
-            onClick={() => onConfirmRegenerate(cascade)}
-            className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/30 transition-all"
+            onClick={handleConfirmRegenerate}
+            disabled={confirming || loading}
+            className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/30 transition-all disabled:opacity-50"
           >
-            Regenerate ({estimatedCredits} Credits)
+            {confirming ? 'Regenerating...' : `Regenerate (${estimatedCredits} Credits)`}
           </button>
         </div>
       </div>

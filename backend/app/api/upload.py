@@ -50,12 +50,7 @@ async def upload_document(
 
     Returns the extracted text content for use in the AI chat pipeline.
     """
-    # Validate file size (max 10MB)
-    contents = await file.read()
-    if len(contents) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="File too large (max 10MB)")
-
-    # Validate file type
+    # Validate file type before reading any content
     allowed_extensions = {
         ".pdf",
         ".docx",
@@ -75,6 +70,15 @@ async def upload_document(
             status_code=400,
             detail=f"Unsupported file type. Allowed: {', '.join(sorted(allowed_extensions))}",
         )
+
+    # Reject oversized uploads without buffering the whole body (DoS guard):
+    # check the declared size first, then read at most limit+1 bytes.
+    max_bytes = 10 * 1024 * 1024
+    if getattr(file, "size", None) is not None and file.size > max_bytes:
+        raise HTTPException(status_code=413, detail="File too large (max 10MB)")
+    contents = await file.read(max_bytes + 1)
+    if len(contents) > max_bytes:
+        raise HTTPException(status_code=413, detail="File too large (max 10MB)")
 
     # Parse the document
     extracted_text = await parse_document(contents, filename)
@@ -97,8 +101,11 @@ async def upload_audio(
     Uses language auto-detection to support English, Indic languages (Gujarati,
     Hindi, Tamil, Marathi, etc.), and major global languages.
     """
-    contents = await file.read()
-    if len(contents) > 25 * 1024 * 1024:
+    max_bytes = 25 * 1024 * 1024
+    if getattr(file, "size", None) is not None and file.size > max_bytes:
+        raise HTTPException(status_code=413, detail="Audio file too large (max 25MB)")
+    contents = await file.read(max_bytes + 1)
+    if len(contents) > max_bytes:
         raise HTTPException(status_code=413, detail="Audio file too large (max 25MB)")
 
     filename = file.filename or "audio.webm"
@@ -149,8 +156,11 @@ async def upload_image(
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Upload and extract architectural context from UI screenshots, wireframes, or whiteboard photos."""
-    contents = await file.read()
-    if len(contents) > 10 * 1024 * 1024:
+    max_bytes = 10 * 1024 * 1024
+    if getattr(file, "size", None) is not None and file.size > max_bytes:
+        raise HTTPException(status_code=413, detail="Image file too large (max 10MB)")
+    contents = await file.read(max_bytes + 1)
+    if len(contents) > max_bytes:
         raise HTTPException(status_code=413, detail="Image file too large (max 10MB)")
 
     filename = file.filename or "screenshot.png"

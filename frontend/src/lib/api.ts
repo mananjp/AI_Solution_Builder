@@ -149,7 +149,9 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   }
 
   if (!response.ok) {
-    if (response.status === 401) {
+    // Treat a 401 as a session problem only for real sessions — a demo session
+    // must not be torn down or hard-redirected mid-flow.
+    if (response.status === 401 && !isDemoSession()) {
       removeAuthToken();
       if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
         // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- api layer has no router access
@@ -306,7 +308,8 @@ export const solutionApi = {
     id: string,
     targets: string[],
     feedback: string = '',
-    cascade: boolean = true
+    cascade: boolean = true,
+    dryRun: boolean = false
   ) {
     return request<{
       status: string;
@@ -317,7 +320,7 @@ export const solutionApi = {
       cascade: boolean;
     }>(`/solutions/${id}/regenerate`, {
       method: 'POST',
-      body: JSON.stringify({ targets, feedback, cascade }),
+      body: JSON.stringify({ targets, feedback, cascade, dry_run: dryRun }),
     });
   },
 
@@ -399,9 +402,11 @@ export const workableApi = {
 
 // ── Export Engine ────────────────────────────────
 export const exportApi = {
+  // Returns a URL without any auth material — the JWT must travel in the
+  // Authorization header (downloadExport below) so it never leaks into logs,
+  // referrers, or browser history via a ?token= query param.
   getExportUrl(solutionId: string, format: 'json' | 'markdown' | 'zip'): string {
-    const token = getAuthToken();
-    return `${API_BASE_URL}/export/${solutionId}/${format}${token ? `?token=${token}` : ''}`;
+    return `${API_BASE_URL}/export/${solutionId}/${format}`;
   },
 
   async downloadExport(solutionId: string, format: 'json' | 'markdown' | 'zip', filename?: string) {
@@ -726,6 +731,7 @@ async function streamSSE(
 
   const decoder = new TextDecoder();
   let buffer = '';
+  let completed = false;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -738,7 +744,7 @@ async function streamSSE(
     let currentEvent = 'message';
     for (const line of lines) {
       const trimmed = line.trim();
-      if (!trimmed) continue;
+      if (!trimmed || trimmed.startsWith(':')) continue;
 
       if (trimmed.startsWith('event:')) {
         currentEvent = trimmed.replace('event:', '').trim();
@@ -747,6 +753,7 @@ async function streamSSE(
         try {
           const parsed = JSON.parse(rawData);
           if (currentEvent === 'complete') {
+            completed = true;
             handlers.onComplete?.(parsed);
           } else if (currentEvent === 'error') {
             handlers.onError?.(parsed);
@@ -758,6 +765,12 @@ async function streamSSE(
         }
       }
     }
+  }
+
+  // EOF without an explicit `complete` event (truncated/keep-alive stream):
+  // still signal completion with the last-known data so handlers can render.
+  if (!completed) {
+    handlers.onComplete?.({});
   }
 }
 

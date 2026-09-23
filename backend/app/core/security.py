@@ -8,6 +8,7 @@ role-gated `require_admin` dependency for the admin/ governance surface.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
     from app.models.user import User
 
 # ── Password Hashing ─────────────────────────────
+logger = logging.getLogger(__name__)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ── Bearer Token Scheme ──────────────────────────
@@ -108,6 +110,22 @@ async def get_current_user(
 
     request.state.user_sub = str(user.id)
     request.state.org_id = str(user.org_id) if user.org_id else None
+
+    # Wire the tenant context into the DB session so workable tables protected by
+    # RLS policies are filtered per org. Only applies on Postgres (set_config is
+    # PG-only) and only when RLS is enabled.
+    if (
+        settings.RLS_ENABLED
+        and user.org_id
+        and db.get_bind().dialect.name == "postgresql"
+    ):
+        from app.services.rls import set_request_org
+
+        try:
+            await set_request_org(db, str(user.org_id))
+        except Exception:
+            logger.exception("Failed to set RLS org context for user %s", user.id)
+
     return user
 
 

@@ -29,12 +29,6 @@ interface ChatMsg {
   agent?: string;
 }
 
-let chatMsgCounter = 0;
-function createMessageId(prefix: string): string {
-  chatMsgCounter += 1;
-  return `${prefix}-${chatMsgCounter}`;
-}
-
 const SAMPLE_TEMPLATES: MVPTemplate[] = [
   {
     slug: 'restaurant_ordering',
@@ -95,6 +89,12 @@ export default function MvpPage() {
   const [chatInput, setChatInput] = useState('');
   const [isChatStreaming, setIsChatStreaming] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  // Per-instance message-id counter (module-scope counters leak across routes/HMR).
+  const chatMsgCounterRef = useRef(0);
+  const createMessageId = useCallback((prefix: string): string => {
+    chatMsgCounterRef.current += 1;
+    return `${prefix}-${chatMsgCounterRef.current}`;
+  }, []);
 
   const loadBuilds = useCallback(async () => {
     try {

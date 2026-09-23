@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.plans import get_or_create_free_plan
 from app.core.secrets import encrypt_secret
 from app.core.security import (
     create_access_token,
@@ -24,7 +25,6 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models.credit import Plan
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.workspace import Workspace
@@ -71,12 +71,7 @@ async def create_anonymous_user(db: AsyncSession = Depends(get_db)) -> Anonymous
             detail="Anonymous demo access is disabled",
         )
 
-    free_plan_result = await db.execute(select(Plan).where(Plan.name == "free"))
-    free_plan = free_plan_result.scalar_one_or_none()
-    if not free_plan:
-        free_plan = Plan(name="free", monthly_credits=200, max_workable_systems=1, price_usd=0)
-        db.add(free_plan)
-        await db.flush()
+    free_plan = await get_or_create_free_plan(db)
 
     guest_id = uuid.uuid4().hex[:8]
     org = Organization(
@@ -290,12 +285,7 @@ async def oauth_callback(
     user = user_query.scalar_one_or_none()
 
     if not user:
-        free_plan_result = await db.execute(select(Plan).where(Plan.name == "free"))
-        free_plan = free_plan_result.scalar_one_or_none()
-        if not free_plan:
-            free_plan = Plan(name="free", monthly_credits=200, max_workable_systems=1, price_usd=0)
-            db.add(free_plan)
-            await db.flush()
+        free_plan = await get_or_create_free_plan(db)
 
         org = Organization(
             name=f"{full_name}'s Workspace", plan_id=free_plan.id, credits_remaining=200
@@ -338,13 +328,8 @@ async def register(payload: UserRegister, db: AsyncSession = Depends(get_db)) ->
             detail="Email already registered",
         )
 
-    # Get or create the free plan
-    free_plan_result = await db.execute(select(Plan).where(Plan.name == "free"))
-    free_plan = free_plan_result.scalars().first()
-    if not free_plan:
-        free_plan = Plan(name="free", monthly_credits=200, max_workable_systems=1, price_usd=0)
-        db.add(free_plan)
-        await db.flush()
+    # Get or create the free plan (race-safe, idempotent)
+    free_plan = await get_or_create_free_plan(db)
 
     # Check if an organization with org_name already exists
     org_result = await db.execute(

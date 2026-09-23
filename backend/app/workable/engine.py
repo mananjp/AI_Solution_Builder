@@ -154,7 +154,10 @@ async def list_rows(
         count_stmt = count_stmt.where(*where)
     total = (await db.execute(count_stmt)).scalar() or 0
 
-    stmt = select(table).order_by(table.c.id).offset(offset).limit(page_size)
+    # Order by the real primary key — the generated schemas don't always name it
+    # `id` (e.g. `order_id`, `customer_id`), and table.c.id would crash.
+    pk_col = _primary_key(table)
+    stmt = select(table).order_by(pk_col).offset(offset).limit(page_size)
     if where is not None:
         stmt = stmt.where(*where)
     result = await db.execute(stmt)

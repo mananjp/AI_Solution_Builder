@@ -24,6 +24,7 @@ import io
 import json
 import logging
 import re
+import secrets
 import shutil
 import zipfile
 from pathlib import Path
@@ -2055,7 +2056,7 @@ def scaffold_build(
         "APP_TITLE": app_title,
         "APP_SLUG": app_name,
         "APP_DB_NAME": db_name,
-        "JWT_SECRET": "change-me-generated-jwt-secret",
+        "JWT_SECRET": secrets.token_urlsafe(48),
     }
 
     # Apply substitutions to all text files carrying placeholders.

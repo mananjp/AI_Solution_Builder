@@ -55,20 +55,24 @@ export default function DashboardPage() {
 
   // Load workspaces + solutions
   useEffect(() => {
+    let mounted = true;
     async function load() {
       try {
         const wsList = await workspaceApi.list();
+        if (!mounted) return;
         if (wsList?.length > 0) {
           setWorkspaces(wsList);
           setSelectedWorkspace(wsList[0].id);
           const sols = await solutionApi.list(wsList[0].id);
-          setSolutions(sols);
+          if (mounted) setSolutions(sols);
         } else {
           const ws = await workspaceApi.create({ name: 'Primary Workspace', description: 'Core architecture zone' });
+          if (!mounted) return;
           setWorkspaces([ws]);
           setSelectedWorkspace(ws.id);
         }
       } catch {
+        if (!mounted) return;
         const demoWs = { id: 'ws-demo', org_id: 'demo-org', name: 'Primary Workspace', description: 'Core architecture zone', created_at: new Date().toISOString() };
         setWorkspaces([demoWs]);
         setSelectedWorkspace('ws-demo');
@@ -79,6 +83,7 @@ export default function DashboardPage() {
       }
     }
     load();
+    return () => { mounted = false; };
   }, []);
 
   // Ping engine

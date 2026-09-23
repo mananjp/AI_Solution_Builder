@@ -143,8 +143,11 @@ async def test_decisions_and_explain_endpoints(auth_client, session_factory):
 # ── P2: Blueprint Approval Gate & DAG Tests ─────────────────────────────────
 def test_artifact_dag_traversal():
     # Direct downstream
-    assert get_direct_downstream("requirements") == ["hld", "wireframe", "bpmn"]
+    assert get_direct_downstream("requirements") == ["hld", "wireframe", "bpmn_flows"]
     assert get_direct_downstream("database_schema") == ["api_spec"]
+
+    # Legacy 'bpmn' name normalizes to the canonical 'bpmn_flows'
+    assert get_direct_downstream("bpmn") == []
 
     # Transitive downstream
     req_downstream = get_downstream("requirements")

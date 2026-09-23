@@ -626,6 +626,105 @@ def _mock_app_spec(messages: list[Any]) -> dict[str, Any]:
     }
 
 
+def _mock_requirement_gap() -> dict[str, Any]:
+    """Deterministic gap-analysis payload (matches requirement_gap_node's contract)."""
+    return {
+        "requirements": [
+            {
+                "id": "req-nfr-1",
+                "kind": "nfr",
+                "text": "Role-based access control (RBAC) and audit trail logging",
+                "status": "missing",
+                "priority": "must",
+                "evidence": [{"source": "mock", "excerpt": "Enterprise baseline checklist"}],
+            },
+            {
+                "id": "req-comp-1",
+                "kind": "compliance",
+                "text": "Data protection, consent management, and data residency (DPDP/GDPR)",
+                "status": "missing",
+                "priority": "must",
+                "evidence": [{"source": "mock", "excerpt": "Compliance checklist"}],
+            },
+            {
+                "id": "req-arch-1",
+                "kind": "integration",
+                "text": "Multi-channel notifications (SMS / Email / WhatsApp)",
+                "status": "suggested",
+                "priority": "should",
+                "evidence": [{"source": "mock", "excerpt": "Architecture gap analysis"}],
+            },
+            {
+                "id": "req-arch-2",
+                "kind": "functional",
+                "text": "Payment reconciliation for refunds and failed transactions",
+                "status": "suggested",
+                "priority": "should",
+                "evidence": [{"source": "mock", "excerpt": "Payments reconciliation checklist"}],
+            },
+        ],
+        "open_questions": [
+            {
+                "id": "q-comp-1",
+                "question": "Which customer data privacy and regulatory standards (e.g. DPDP, GDPR, HIPAA) apply to your users?",
+                "category": "compliance",
+                "why_it_matters": "Determines encryption-at-rest, consent capture flows, and data residency architecture.",
+                "suggested_answers": ["DPDP Act (India)", "GDPR (Europe)", "Standard commercial privacy"],
+            },
+            {
+                "id": "q-scale-1",
+                "question": "What is the expected concurrent user load and availability SLA?",
+                "category": "scale",
+                "why_it_matters": "Drives auto-scaling, caching, and backup/recovery design decisions.",
+                "suggested_answers": ["Internal team (<50 users)", "100-1,000 users", "10,000+ users"],
+            },
+        ],
+        "assumptions_log": [
+            {
+                "id": "asm-sec-1",
+                "topic": "security",
+                "assumption": "Assumed multi-tenant data isolation with RBAC enforcement",
+                "impact": "high",
+            }
+        ],
+    }
+
+
+def _mock_feature_advisor() -> dict[str, Any]:
+    """Deterministic feature-advisor payload (matches feature_advisor_node's contract)."""
+    return {
+        "suggested_features": [
+            {
+                "id": "feat-notify-1",
+                "name": "Automated Multi-Channel Notifications",
+                "description": "SMS, Email, and WhatsApp status notifications with retry policies",
+                "competitive_benchmark": "Leading platforms provide real-time order and status alerts",
+                "roi_rationale": "Reduces no-show and missed-action rates by up to 25%",
+                "complexity": "low",
+                "category": "experience",
+            },
+            {
+                "id": "feat-report-1",
+                "name": "Executive Insight Dashboard",
+                "description": "Role-scoped KPIs with scheduled PDF/email exports",
+                "competitive_benchmark": "Standard for mid-market SaaS admin consoles",
+                "roi_rationale": "Saves ~4h/week of manual reporting and improves decision velocity",
+                "complexity": "medium",
+                "category": "automation",
+            },
+            {
+                "id": "feat-recon-1",
+                "name": "Payments Reconciliation Ledger",
+                "description": "Automated matching of gateway webhooks, refunds, and settlement reports",
+                "competitive_benchmark": "Distinguishes finance-grade platforms from simple storefronts",
+                "roi_rationale": "Eliminates manual reconciliation, cutting errors and days of close time",
+                "complexity": "medium",
+                "category": "automation",
+            },
+        ]
+    }
+
+
 def _build_mock_content(messages: list[Any], state: dict[str, Any]) -> str:
     """Return node-appropriate JSON based on the system prompt marker."""
     system_text = ""
@@ -653,6 +752,10 @@ def _build_mock_content(messages: list[Any], state: dict[str, Any]) -> str:
         payload = _mock_database()
     elif "Process Intelligence" in system_text:
         payload = _mock_process_intelligence(state)
+    elif "Enterprise Solutions Analyst" in system_text:
+        payload = _mock_requirement_gap()
+    elif "Product Strategy and ROI Advisor" in system_text:
+        payload = _mock_feature_advisor()
     elif "Full-Stack Code Synthesizer" in system_text:
         payload = _mock_code()
     elif "Blueprint Generator Agent" in system_text:

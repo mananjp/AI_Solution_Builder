@@ -212,6 +212,9 @@ class CascadingRegeneratePayload(BaseModel):
     targets: list[str]
     feedback: str = ""
     cascade: bool = True
+    # When true, only computes the impact (affected artifacts + credit quote) and
+    # does NOT mutate staleness. Used by the "Impact Preview" modal.
+    dry_run: bool = False
 
 
 class UIThemePayload(BaseModel):
@@ -317,7 +320,11 @@ async def cascade_regenerate(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Calculate cascading regeneration impact and mark affected downstream artifacts stale."""
-    from app.services.artifact_graph import mark_dependents_stale
+    from app.services.artifact_graph import (
+        get_downstream,
+        mark_dependents_stale,
+        normalize_artifact_type,
+    )
 
     result = await db.execute(
         select(Solution)
@@ -331,21 +338,29 @@ async def cascade_regenerate(
     if not solution:
         raise HTTPException(status_code=404, detail="Solution not found")
 
-    all_affected: set[str] = set(payload.targets)
+    targets = [normalize_artifact_type(t) for t in payload.targets]
+
+    all_affected: set[str] = set(targets)
     if payload.cascade:
-        for target in payload.targets:
-            downstream = await mark_dependents_stale(db, solution.id, target)
-            all_affected.update(downstream)
+        for target in targets:
+            if payload.dry_run:
+                # Pure impact computation — never writes to the database, so the
+                # preview modal can be opened without corrupting staleness flags.
+                all_affected.update(get_downstream(target))
+            else:
+                downstream = await mark_dependents_stale(db, solution.id, target)
+                all_affected.update(downstream)
 
     credit_estimate = len(all_affected) * 2
 
     return {
         "status": "success",
         "solution_id": str(solution.id),
-        "primary_targets": payload.targets,
+        "primary_targets": targets,
         "affected_artifacts": sorted(all_affected),
         "estimated_credits": credit_estimate,
         "cascade": payload.cascade,
+        "dry_run": payload.dry_run,
     }
 
 

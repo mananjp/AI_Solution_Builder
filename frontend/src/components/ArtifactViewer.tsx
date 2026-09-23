@@ -17,7 +17,7 @@ import {
   PenLine
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { Artifact, ArtifactType } from '@/types';
+import { Artifact, ArtifactType, BpmnProcess } from '@/types';
 import BpmnViewer from './BpmnViewer';
 import WorkablePreview from './WorkablePreview';
 import RegenerateModal from './RegenerateModal';
@@ -30,6 +30,44 @@ interface ArtifactViewerProps {
   onArtifactUpdated?: (updated: Artifact) => void;
 }
 
+const BPMN_ALIAS: Record<string, ArtifactType> = { bpmn: 'bpmn_flows' };
+
+function toBpmnProcess(artifact?: Artifact): BpmnProcess | undefined {
+  if (!artifact) return undefined;
+  const content = (artifact.content || {}) as {
+    bpmn?: { name?: string };
+    react_flow?: {
+      nodes?: Array<{
+        id?: string;
+        type?: string;
+        data?: { label?: string };
+        position?: { x?: number; y?: number };
+      }>;
+      edges?: Array<{ id?: string; source?: string; target?: string }>;
+    };
+    swimlanes?: Array<{ id?: string; label?: string }>;
+    bottlenecks?: Array<{ module?: string; severity?: string; reason?: string }>;
+  };
+  const nodes = (content.react_flow?.nodes || []).map((n) => ({
+    id: n.id || 'node',
+    type: (['start', 'task', 'gateway', 'end', 'service'].includes(n.type || '')
+      ? n.type
+      : 'task') as BpmnProcess['nodes'][number]['type'],
+    label: n.data?.label || 'Step',
+    actor: 'Flow Participant',
+    description: `Step in the generated process at (${n.position?.x ?? 0}, ${n.position?.y ?? 0})`,
+  }));
+  return {
+    processName: content.bpmn?.name || 'Process Workflow',
+    swimlanes: (content.swimlanes || []).map((l) => l.label || l.id || 'Swimlane'),
+    nodes: nodes.length ? nodes : [{ id: 'start', type: 'start', label: 'Start', actor: 'Participant' }],
+    connections: (content.react_flow?.edges || []).map((e) => ({ from: e.source || '', to: e.target || '' })) as BpmnProcess['connections'],
+    bottlenecks: (content.bottlenecks || [])
+      .map((b) => b.reason || `Bottleneck in ${b.module || 'workflow'}`)
+      .filter(Boolean),
+  };
+}
+
 export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdated }: ArtifactViewerProps) {
   const [activeType, setActiveType] = useState<ArtifactType>('hld');
   const [copied, setCopied] = useState(false);
@@ -40,14 +78,14 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
     { type: 'hld', label: 'High-Level Design', icon: Layers },
     { type: 'lld', label: 'Low-Level Design', icon: Network },
     { type: 'workable', label: 'Mounted Live App', icon: Play, badge: 'Operational' },
-    { type: 'bpmn', label: 'BPMN 2.0 Process', icon: GitFork },
+    { type: 'bpmn_flows', label: 'BPMN 2.0 Process', icon: GitFork },
     { type: 'wireframe', label: 'UI Wireframes', icon: Layout },
     { type: 'database_schema', label: 'DB Schema & ERD', icon: Database },
     { type: 'api_spec', label: 'OpenAPI Spec', icon: FileCode2 },
     { type: 'roadmap', label: 'Roadmap & Sprints', icon: Calendar },
   ];
 
-  const currentArtifacts = artifacts.filter(a => a.artifact_type === activeType);
+  const currentArtifacts = artifacts.filter(a => a.artifact_type === activeType || BPMN_ALIAS[a.artifact_type] === activeType);
   const activeArtifact = currentArtifacts[0];
 
   const handleCopy = (text: string) => {
@@ -79,7 +117,7 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
         <div className="flex space-x-1">
           {tabs.map((tab) => {
             const Icon = tab.icon;
-            const hasData = artifacts.some(a => a.artifact_type === tab.type) || tab.type === 'workable' || tab.type === 'bpmn';
+            const hasData = artifacts.some(a => a.artifact_type === tab.type || BPMN_ALIAS[a.artifact_type] === tab.type) || tab.type === 'workable';
             const isActive = activeType === tab.type;
 
             return (
@@ -107,7 +145,7 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
 
         {/* Action buttons */}
         <div className="flex items-center gap-3 pb-2 pr-2">
-          {activeType !== 'workable' && activeType !== 'bpmn' && (
+          {activeType !== 'workable' && (
             <button
               onClick={() => setShowRegenModal(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-[var(--bg)] hover:bg-[var(--bg-3)] text-[var(--sutra-charcoal)] text-[10px] uppercase tracking-widest font-semibold border border-[var(--border)] transition-colors whitespace-nowrap shadow-sm"
@@ -144,9 +182,9 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
           <div className="h-full">
             <WorkablePreview solutionId={solutionId} />
           </div>
-        ) : activeType === 'bpmn' ? (
+        ) : activeType === 'bpmn_flows' ? (
           <div className="h-full border border-[var(--border)] bg-[var(--bg-2)] p-2 shadow-sm">
-            <BpmnViewer />
+            <BpmnViewer processData={toBpmnProcess(activeArtifact)} />
           </div>
         ) : activeArtifact ? (
           <div className="max-w-5xl mx-auto space-y-6">

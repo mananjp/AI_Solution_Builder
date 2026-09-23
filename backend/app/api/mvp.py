@@ -30,6 +30,7 @@ from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.build_locks import allocate_build_number
 from app.core.config import settings
 from app.core.credits import action_cost, refund_credit, require_and_deduct_credit
 from app.core.database import async_session_factory, get_db
@@ -114,18 +115,7 @@ async def _get_or_create_workspace(db: AsyncSession, user: User) -> Workspace:
     return workspace
 
 
-async def _next_build_number(db: AsyncSession, solution_id: UUID) -> int:
-    result = await db.execute(
-        select(MVPBuild.build_number)
-        .where(MVPBuild.solution_id == solution_id)
-        .order_by(desc(MVPBuild.build_number))
-        .limit(1)
-    )
-    last = result.scalar_one_or_none()
-    return (last or 0) + 1
-
-
-def _build_response(build: MVPBuild, include_files: bool = False) -> MVPBuildResponse:
+async def _build_response(build: MVPBuild, include_files: bool = False) -> MVPBuildResponse:
     files: list[MVPFileEntry] = []
     if include_files:
         files = [MVPFileEntry(path=p, size=0, is_dir=False) for p in (build.file_list or [])]
@@ -414,22 +404,25 @@ async def quick_build(
         solution_id=solution.id,
     )
 
-    build_number = await _next_build_number(db, solution.id)
-    workspace_dir = builder.build_workspace_dir(solution.id, build_number)
-    build = MVPBuild(
-        solution_id=solution.id,
-        build_number=build_number,
-        status="queued",
-        workspace_path=str(workspace_dir),
-        app_config={**payload.config, "app_name": payload.app_name, "template": payload.template},
-    )
-    db.add(build)
-    await db.flush()
+    lock, build_number = await allocate_build_number(db, solution.id)
+    try:
+        workspace_dir = builder.build_workspace_dir(solution.id, build_number)
+        build = MVPBuild(
+            solution_id=solution.id,
+            build_number=build_number,
+            status="queued",
+            workspace_path=str(workspace_dir),
+            app_config={**payload.config, "app_name": payload.app_name, "template": payload.template},
+        )
+        db.add(build)
+        await db.flush()
 
-    job = BuildJob(build_id=build.id, status="queued")
-    db.add(job)
-    await db.commit()
-    await db.refresh(build)
+        job = BuildJob(build_id=build.id, status="queued")
+        db.add(job)
+        await db.commit()
+        await db.refresh(build)
+    finally:
+        lock.release()
 
     if settings.WORKER_MODE == "inline":
         _spawn_build_job(build.id)
@@ -465,22 +458,25 @@ async def trigger_build(
         solution_id=solution.id,
     )
 
-    build_number = await _next_build_number(db, solution.id)
-    workspace = builder.build_workspace_dir(solution.id, build_number)
-    build = MVPBuild(
-        solution_id=solution.id,
-        build_number=build_number,
-        status="queued",
-        workspace_path=str(workspace),
-        app_config={**payload.config, "app_name": payload.app_name, "template": payload.template},
-    )
-    db.add(build)
-    await db.flush()
+    lock, build_number = await allocate_build_number(db, solution.id)
+    try:
+        workspace = builder.build_workspace_dir(solution.id, build_number)
+        build = MVPBuild(
+            solution_id=solution.id,
+            build_number=build_number,
+            status="queued",
+            workspace_path=str(workspace),
+            app_config={**payload.config, "app_name": payload.app_name, "template": payload.template},
+        )
+        db.add(build)
+        await db.flush()
 
-    job = BuildJob(build_id=build.id, status="queued")
-    db.add(job)
-    await db.commit()
-    await db.refresh(build)
+        job = BuildJob(build_id=build.id, status="queued")
+        db.add(job)
+        await db.commit()
+        await db.refresh(build)
+    finally:
+        lock.release()
 
     if settings.WORKER_MODE == "inline":
         _spawn_build_job(build.id)

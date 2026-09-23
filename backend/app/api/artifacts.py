@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.nodes.blueprint_generator import blueprint_generator_node
 from app.agents.nodes.database_api_agent import database_api_agent_node
+from app.agents.nodes.process_intelligence import process_intelligence_node
 from app.agents.nodes.solutions_architect import solutions_architect_node
 from app.agents.nodes.ux_agent import ux_agent_node
 from app.agents.state import DiscoveryState
@@ -27,6 +28,7 @@ from app.models.artifact import ArtifactComment, SolutionArtifact
 from app.models.solution import Solution
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services.artifact_graph import normalize_artifact_type
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +38,7 @@ router = APIRouter(prefix="/artifacts", tags=["Artifacts & Regeneration"])
 class RegenerateRequest(BaseModel):
     solution_id: UUID
     artifact_type: (
-        str  # 'hld', 'lld', 'wireframe', 'database_schema', 'api_spec', 'roadmap', 'bpmn'
+        str  # 'hld', 'lld', 'wireframe', 'database_schema', 'api_spec', 'roadmap', 'bpmn_flows' (legacy 'bpmn' accepted)
     )
     user_feedback: str
 
@@ -244,6 +246,9 @@ async def regenerate_artifact(
     Scoped Regeneration: Re-runs only the relevant agent node with user feedback,
     creating a new version in `solution_artifacts`.
     """
+    # Normalize legacy UI names (e.g. 'bpmn') to the canonical stored artifact type.
+    payload.artifact_type = normalize_artifact_type(payload.artifact_type)
+
     result = await db.execute(
         select(Solution)
         .join(Workspace, Workspace.id == Solution.workspace_id)
@@ -316,7 +321,7 @@ async def regenerate_artifact(
                 "content_text", f"Regenerated {payload.artifact_type} with: {payload.user_feedback}"
             )
             new_title = art.get("title", payload.artifact_type.replace("_", " ").title())
-        elif payload.artifact_type in ("roadmap", "bpmn"):
+        elif payload.artifact_type == "roadmap":
             output = await blueprint_generator_node(cast(DiscoveryState, prior_state))
             art = output.get("roadmap", {})
             new_content = art.get("content", {})
@@ -324,6 +329,19 @@ async def regenerate_artifact(
                 "content_text", f"Regenerated roadmap based on: {payload.user_feedback}"
             )
             new_title = art.get("title", "Delivery Roadmap & Milestones")
+        elif payload.artifact_type == "bpmn_flows":
+            output = await process_intelligence_node(cast(DiscoveryState, prior_state))
+            flows = output.get("bpmn_flows", [])
+            if flows:
+                flow = flows[0]
+                new_content = flow.get("content", {})
+                new_text = flow.get(
+                    "content_text", f"Regenerated BPMN workflows with: {payload.user_feedback}"
+                )
+                new_title = flow.get("title", "Process Workflows")
+            else:
+                new_text = f"Regenerated BPMN workflows with: {payload.user_feedback}"
+                new_content = {"flows": [], "react_flow": {"nodes": [], "edges": []}}
         else:
             new_text = f"Regenerated {payload.artifact_type}: {payload.user_feedback}"
             new_content = {"custom_spec": payload.user_feedback}

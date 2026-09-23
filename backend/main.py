@@ -65,6 +65,11 @@ async def lifespan(app: FastAPI):
             if is_postgres:
                 await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             await conn.run_sync(Base.metadata.create_all)
+            # Seed the default plans so anonymous/register flows never hit a
+            # missing `plans` table (previously only seeded via a PG-only migration).
+            from app.core.plans import ensure_default_plans_sync
+
+            await conn.run_sync(ensure_default_plans_sync)
             if is_postgres:
                 # Ensure all existing guest/demo accounts gain unlimited credits immediately
                 await conn.execute(
@@ -144,7 +149,11 @@ async def lifespan(app: FastAPI):
             "Database tables created/verified, demo accounts set to unlimited, and legacy build errors healed"
         )
     except Exception as exc:
-        logger.warning("Database setup non-fatal warning: %s", exc)
+        logger.error(
+            "Database setup failed — the API will be degraded until this is fixed: %s",
+            exc,
+            exc_info=True,
+        )
 
     # Force garbage collection to reclaim startup import and schema reflection memory
     import gc

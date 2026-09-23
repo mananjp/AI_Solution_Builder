@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { getAuthToken } from '@/lib/api';
 
 interface Decision {
   id: string;
@@ -44,7 +45,7 @@ export function ExplainabilityDrawer({
     if (!isOpen || !artifactId) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
-    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const token = getAuthToken();
     fetch(`/api/v1/artifacts/${artifactId}/explain`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })

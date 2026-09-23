@@ -28,6 +28,7 @@ export type ArtifactType =
   | 'api_spec'
   | 'roadmap'
   | 'bpmn'
+  | 'bpmn_flows'
   | 'workable';
 
 export interface Artifact {

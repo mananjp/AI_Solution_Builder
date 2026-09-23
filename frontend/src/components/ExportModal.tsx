@@ -25,6 +25,7 @@ export default function ExportModal({
   onClose,
 }: ExportModalProps) {
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -60,14 +61,15 @@ export default function ExportModal({
 
   const handleDownload = async (format: 'json' | 'markdown' | 'zip') => {
     setDownloading(format);
+    setError(null);
     try {
       await exportApi.downloadExport(
         solutionId,
         format,
         `${solutionTitle.toLowerCase().replace(/[^a-z0-9]/g, '_')}_export.${format === 'zip' ? 'zip' : format === 'json' ? 'json' : 'md'}`
       );
-    } catch {
-      window.open(exportApi.getExportUrl(solutionId, format), '_blank');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Export failed. Please try again.');
     } finally {
       setDownloading(null);
     }
@@ -142,6 +144,11 @@ export default function ExportModal({
             </div>
             <span className="text-[10px] text-[#4ade80] font-semibold uppercase">CI/CD Included</span>
           </div>
+          {error && (
+            <div className="p-3 rounded-lg bg-[#2a1414] border border-[#3d1f1f] text-xs text-[#f87171]">
+              {error}
+            </div>
+          )}
         </div>
       </div>
     </div>

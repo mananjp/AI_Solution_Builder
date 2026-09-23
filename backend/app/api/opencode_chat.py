@@ -27,11 +27,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from langchain_core.messages import HumanMessage, SystemMessage
-from sqlalchemy import desc, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from app.api.chat import _persist_artifacts
+from app.core.build_locks import allocate_build_number
 from app.core.config import settings
 from app.core.credits import require_and_deduct_credit
 from app.core.database import async_session_factory, get_db
@@ -609,17 +610,6 @@ async def _get_or_create_workspace(db: AsyncSession, user: User) -> Workspace:
     return workspace
 
 
-async def _next_build_number(db: AsyncSession, solution_id: UUID) -> int:
-    result = await db.execute(
-        select(MVPBuild.build_number)
-        .where(MVPBuild.solution_id == solution_id)
-        .order_by(desc(MVPBuild.build_number))
-        .limit(1)
-    )
-    last = result.scalar_one_or_none()
-    return (last or 0) + 1
-
-
 def _extract_text(response: dict[str, Any]) -> str:
     """Concatenate the text parts from an OpenCode message response."""
     parts = response.get("parts") or []
@@ -1020,80 +1010,88 @@ async def chat(
                         ),
                     }
 
-                    build_number = await _next_build_number(stream_db, solution.id)
-                    files = builder.list_build_files(ws_dir)
-                    rel_files = builder.relative_paths(ws_dir)
-
-                    # Package archive to local disk and object storage
-                    local_zip_path = ws_dir.with_suffix(".zip")
-                    zip_data = builder.build_bytes(ws_dir)
-                    local_zip_path.write_bytes(zip_data)
-
-                    storage_key = f"local:{local_zip_path}"
+                    lock, build_number = await allocate_build_number(stream_db, solution.id)
                     try:
-                        storage = get_storage()
-                        uploaded_key = await asyncio.wait_for(
-                            storage.upload_bytes(
-                                zip_data, f"builds/{solution.id}/build_{build_number}.zip"
-                            ),
-                            timeout=15.0,
-                        )
-                        if uploaded_key:
-                            storage_key = uploaded_key
-                    except Exception as store_err:
-                        logger.warning(
-                            "Remote storage upload failed (%s); using local fallback (%s)",
-                            store_err,
-                            local_zip_path,
-                        )
+                        files = builder.list_build_files(ws_dir)
+                        rel_files = builder.relative_paths(ws_dir)
 
-                    mvp_build = MVPBuild(
-                        solution_id=solution.id,
-                        build_number=build_number,
-                        status="complete",
-                        workspace_path=str(ws_dir),
-                        file_count=len(files),
-                        file_list=rel_files,
-                        storage_key=storage_key,
-                        opencode_session_id=session_id,
-                        app_config={
-                            "app_name": solution.title,
-                            "source": "opencode_chat",
-                            "progress": {
-                                "stage": "complete",
-                                "step": 7,
-                                "total_steps": 7,
-                                "percentage": 100,
-                                "message": f"Build complete! {len(files)} files generated.",
+                        # Package archive to local disk and object storage
+                        local_zip_path = ws_dir.with_suffix(".zip")
+                        zip_data = builder.build_bytes(ws_dir)
+                        local_zip_path.write_bytes(zip_data)
+
+                        storage_key = f"local:{local_zip_path}"
+                        try:
+                            storage = get_storage()
+                            uploaded_key = await asyncio.wait_for(
+                                storage.upload_bytes(
+                                    zip_data, f"builds/{solution.id}/build_{build_number}.zip"
+                                ),
+                                timeout=15.0,
+                            )
+                            if uploaded_key:
+                                storage_key = uploaded_key
+                        except Exception as store_err:
+                            logger.warning(
+                                "Remote storage upload failed (%s); using local fallback (%s)",
+                                store_err,
+                                local_zip_path,
+                            )
+
+                        mvp_build = MVPBuild(
+                            solution_id=solution.id,
+                            build_number=build_number,
+                            status="complete",
+                            workspace_path=str(ws_dir),
+                            file_count=len(files),
+                            file_list=rel_files,
+                            storage_key=storage_key,
+                            opencode_session_id=session_id,
+                            app_config={
+                                "app_name": solution.title,
+                                "source": "opencode_chat",
+                                "progress": {
+                                    "stage": "complete",
+                                    "step": 7,
+                                    "total_steps": 7,
+                                    "percentage": 100,
+                                    "message": f"Build complete! {len(files)} files generated.",
+                                },
                             },
-                        },
-                    )
-                    stream_db.add(mvp_build)
-                    solution.status = "complete"
-                    await stream_db.flush()
-                    build_state = {
-                        "build_id": str(mvp_build.id),
-                        "build_number": build_number,
-                        "file_count": len(files),
-                        "files": [{"path": p, "size": 0, "is_dir": False} for p in rel_files],
-                    }
+                        )
+                        stream_db.add(mvp_build)
+                        solution.status = "complete"
+                        await stream_db.flush()
+                        build_state = {
+                            "build_id": str(mvp_build.id),
+                            "build_number": build_number,
+                            "file_count": len(files),
+                            "files": [{"path": p, "size": 0, "is_dir": False} for p in rel_files],
+                        }
 
-                    yield {
-                        "event": "build_progress",
-                        "data": json.dumps(
-                            {
-                                "phase": "completed",
-                                "step": 7,
-                                "total_steps": 7,
-                                "percentage": 100,
-                                "message": f"Build complete! {len(files)} files generated.",
-                                "solution_id": str(solution.id),
-                                "session_id": session_id,
-                                "build_id": str(mvp_build.id),
-                                "file_count": len(files),
-                            }
-                        ),
-                    }
+                        # Commit while still holding the per-solution lock so the
+                        # new build_number is visible before any concurrent build
+                        # computes the next one.
+                        await stream_db.commit()
+
+                        yield {
+                            "event": "build_progress",
+                            "data": json.dumps(
+                                {
+                                    "phase": "completed",
+                                    "step": 7,
+                                    "total_steps": 7,
+                                    "percentage": 100,
+                                    "message": f"Build complete! {len(files)} files generated.",
+                                    "solution_id": str(solution.id),
+                                    "session_id": session_id,
+                                    "build_id": str(mvp_build.id),
+                                    "file_count": len(files),
+                                }
+                            ),
+                        }
+                    finally:
+                        lock.release()
 
                 await stream_db.commit()
 

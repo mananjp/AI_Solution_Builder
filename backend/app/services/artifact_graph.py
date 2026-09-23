@@ -4,10 +4,14 @@ AI Solution Builder — Artifact Dependency Graph Service (P2)
 Maintains the Directed Acyclic Graph (DAG) of artifact dependencies:
   requirements -> hld -> lld -> er_diagram -> database_schema -> api_spec -> code
                      |-> wireframes -----------------------------------|
-                     |-> bpmn
+                     |-> bpmn_flows
 
 When an upstream artifact is regenerated, downstream artifacts can be marked stale
 and cascading regenerations can be calculated.
+
+``bpmn_flows`` is the canonical stored artifact type produced by the Process
+Intelligence agent. ``bpmn`` was used by older UIs and is normalized here so both
+names resolve to the same node.
 """
 
 from uuid import UUID
@@ -18,22 +22,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.artifact import SolutionArtifact
 
 ARTIFACT_DAG: dict[str, list[str]] = {
-    "requirements": ["hld", "wireframe", "bpmn"],
-    "hld": ["lld", "wireframe", "bpmn"],
+    "requirements": ["hld", "wireframe", "bpmn_flows"],
+    "hld": ["lld", "wireframe", "bpmn_flows"],
     "lld": ["er_diagram"],
     "er_diagram": ["database_schema", "api_spec"],
     "database_schema": ["api_spec"],
     "wireframe": ["code"],
     "api_spec": ["code"],
-    "bpmn": [],
+    "bpmn_flows": [],
     "code": [],
 }
+
+_ARTIFACT_ALIASES: dict[str, str] = {
+    "bpmn": "bpmn_flows",
+}
+
+
+def normalize_artifact_type(artifact_type: str) -> str:
+    """Resolve legacy/UI artifact names to the canonical stored type."""
+    return _ARTIFACT_ALIASES.get(artifact_type, artifact_type)
 
 
 def get_downstream(artifact_type: str) -> list[str]:
     """Return all transitive downstream artifact types affected by changes to artifact_type."""
+    root = normalize_artifact_type(artifact_type)
     visited: list[str] = []
-    queue = list(ARTIFACT_DAG.get(artifact_type, []))
+    queue = list(ARTIFACT_DAG.get(root, []))
 
     while queue:
         current = queue.pop(0)
@@ -46,7 +60,7 @@ def get_downstream(artifact_type: str) -> list[str]:
 
 def get_direct_downstream(artifact_type: str) -> list[str]:
     """Return directly dependent artifact types."""
-    return list(ARTIFACT_DAG.get(artifact_type, []))
+    return list(ARTIFACT_DAG.get(normalize_artifact_type(artifact_type), []))
 
 
 async def mark_dependents_stale(

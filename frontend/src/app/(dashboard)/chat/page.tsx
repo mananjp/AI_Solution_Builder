@@ -165,7 +165,7 @@ function ChatContent() {
                   phase: p.phase || 'building',
                   step: p.step || 1,
                   total_steps: p.total_steps || 7,
-                  percentage: p.percentage || 15,
+                  percentage: p.percentage ?? 15,
                   message: p.message || 'Building application...',
                   logs: [...prevLogs, `[${sec}s] ${p.message}`],
                   startedAt,
@@ -446,7 +446,7 @@ function ChatContent() {
                       <span>Building Application</span>
                     </div>
                     <span className="text-[11px] font-mono font-bold text-[var(--sutra-muted-gold)]">
-                      {buildProgress?.percentage || 15}%
+                      {buildProgress?.percentage ?? 15}%
                     </span>
                   </div>
 
@@ -454,7 +454,7 @@ function ChatContent() {
                   <div className="w-full h-1.5 bg-[var(--bg-2)] rounded-full overflow-hidden border border-[var(--border)]">
                     <div
                       className="h-full bg-gradient-to-r from-[var(--sutra-muted-gold)] to-[var(--green)] transition-all duration-500 ease-out"
-                      style={{ width: `${Math.max(5, buildProgress?.percentage || 15)}%` }}
+                      style={{ width: `${Math.max(5, buildProgress?.percentage ?? 15)}%` }}
                     />
                   </div>
 

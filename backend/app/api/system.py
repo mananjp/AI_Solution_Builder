@@ -40,6 +40,9 @@ async def readiness_check() -> dict[str, Any]:
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
+            # Guard against the P0 failure mode where the `plans` table is missing
+            # (e.g. migrations that were never applied): surface it as not-ready.
+            await conn.execute(text("SELECT 1 FROM plans LIMIT 1"))
     except Exception:
         logger.exception("DB readiness check failed")
         db_up = False

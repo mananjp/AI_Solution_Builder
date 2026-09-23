@@ -11,7 +11,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -114,7 +114,33 @@ async def require_and_deduct_credit(
             },
         )
 
-    org.credits_remaining -= cost
+    # Atomic deduction: a single UPDATE re-checks the balance server-side so two
+    # concurrent requests can't both read the balance and overspend. A rowcount of
+    # 0 means the balance was consumed by another request before this one landed.
+    result = await db.execute(
+        update(Organization)
+        .where(Organization.id == org.id, Organization.credits_remaining >= cost)
+        .values(credits_remaining=Organization.credits_remaining - cost)
+    )
+    if result.rowcount == 0:
+        await db.refresh(org)
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "code": "INSUFFICIENT_CREDITS",
+                "message": f"Insufficient credits — this action costs {cost}. Upgrade your plan to continue.",
+                "details": [
+                    {
+                        "cost": cost,
+                        "balance": org.credits_remaining,
+                        "plan": org.plan.name if org.plan else "free",
+                    }
+                ],
+            },
+        )
+
+    await db.refresh(org)
+    remaining = org.credits_remaining
 
     tx = CreditTransaction(
         org_id=org.id,
@@ -129,9 +155,9 @@ async def require_and_deduct_credit(
         org.id,
         action,
         cost,
-        org.credits_remaining,
+        remaining,
     )
-    return {"credits_remaining": org.credits_remaining, "deducted": cost, "cost": cost}
+    return {"credits_remaining": remaining, "deducted": cost, "cost": cost}
 
 
 async def refund_credit(
