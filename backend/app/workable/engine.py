@@ -106,7 +106,7 @@ def _annotation_for(col: Column[Any], required: bool) -> tuple[Any, Any]:
     """Pydantic (annotation, default) pair, honouring optionality."""
     py_type = _python_type_for_column(col)
     annotation: Any = py_type if required else py_type | None
-    return (annotation, ... if required else None)  # type: ignore[misc]
+    return (annotation, ... if required else None)
 
 
 def build_create_model(table: Table) -> type[BaseModel]:

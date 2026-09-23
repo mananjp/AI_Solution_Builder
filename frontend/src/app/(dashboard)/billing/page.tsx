@@ -7,7 +7,61 @@ import {
   Zap
 } from 'lucide-react';
 import { billingApi } from '@/lib/api';
-import { PlanTier, BillingUsage, CreditTransaction } from '@/types';
+import { PlanTier, BillingUsage, CreditTransaction, CheckoutSession } from '@/types';
+
+const DEMO_PLANS: PlanTier[] = [
+  {
+    id: 'free',
+    name: 'Free Tier',
+    price_usd: 0,
+    monthly_credits: 1000,
+    max_workable_systems: 1,
+    features: ['1 Workable System', '1,000 monthly credits', 'Community Support', 'Standard exports (JSON, Markdown)'],
+  },
+  {
+    id: 'pro',
+    name: 'Professional',
+    price_usd: 49,
+    monthly_credits: 10000,
+    max_workable_systems: 5,
+    features: ['5 Workable Systems', '10,000 monthly credits', 'Priority Groq 120B inference', 'Deployable Code ZIP + CI/CD', 'BPMN Process Modeler'],
+  },
+  {
+    id: 'enterprise',
+    name: 'Enterprise Scale',
+    price_usd: 299,
+    monthly_credits: 100000,
+    max_workable_systems: 50,
+    features: ['Unlimited Workable Systems', '100,000 monthly credits', 'Dedicated Schema Isolation', 'One-Click Deployer', 'Audit Logging & SLA'],
+  },
+];
+
+const DEMO_USAGE: BillingUsage = {
+  org_id: 'org-demo',
+  plan_name: 'Professional',
+  monthly_limit: 10000,
+  current_balance: 8500,
+  credits_used: 1500,
+};
+
+const DEMO_TRANSACTIONS: CreditTransaction[] = [
+  { id: 'tx-1', amount: 10000, action: 'plan_renewal', description: 'Monthly Professional Plan Allocation', created_at: '2026-09-01T00:00:00Z' },
+  { id: 'tx-2', amount: -200, action: 'generate_solution', description: 'Full Swarm Solution Synthesis', created_at: '2026-09-10T12:00:00Z' },
+  { id: 'tx-3', amount: -50, action: 'regenerate_artifact', description: 'Regenerated Database Schema (v2)', created_at: '2026-09-10T15:30:00Z' },
+];
+
+async function fetchBillingBundle(): Promise<{ plans: PlanTier[]; usage: BillingUsage | null; transactions: CreditTransaction[] }> {
+  try {
+    const [plans, usg, txs] = await Promise.all([
+      billingApi.getPlans(),
+      billingApi.getUsage(),
+      billingApi.getTransactions(),
+    ]);
+    return { plans, usage: usg, transactions: txs };
+  } catch {
+    return { plans: DEMO_PLANS, usage: DEMO_USAGE, transactions: DEMO_TRANSACTIONS };
+  }
+}
 
 export default function BillingPage() {
   const [plans, setPlans] = useState<PlanTier[]>([]);
@@ -15,61 +69,17 @@ export default function BillingPage() {
   const [transactions, setTransactions] = useState<CreditTransaction[]>([]);
   const [topupLoading, setTopupLoading] = useState(false);
   const [topupSuccess, setTopupSuccess] = useState<string | null>(null);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+
+  const applyBilling = (bundle: { plans: PlanTier[]; usage: BillingUsage | null; transactions: CreditTransaction[] }) => {
+    setPlans(bundle.plans);
+    setUsage(bundle.usage);
+    setTransactions(bundle.transactions);
+  };
 
   useEffect(() => {
-    async function loadBilling() {
-      try {
-        const [pl, usg, txs] = await Promise.all([
-          billingApi.getPlans(),
-          billingApi.getUsage(),
-          billingApi.getTransactions(),
-        ]);
-        setPlans(pl);
-        setUsage(usg);
-        setTransactions(txs);
-      } catch {
-        setPlans([
-          {
-            id: 'free',
-            name: 'Free Tier',
-            price_usd: 0,
-            monthly_credits: 1000,
-            max_workable_systems: 1,
-            features: ['1 Workable System', '1,000 monthly credits', 'Community Support', 'Standard exports (JSON, Markdown)']
-          },
-          {
-            id: 'pro',
-            name: 'Professional',
-            price_usd: 49,
-            monthly_credits: 10000,
-            max_workable_systems: 5,
-            features: ['5 Workable Systems', '10,000 monthly credits', 'Priority Groq 120B inference', 'Deployable Code ZIP + CI/CD', 'BPMN Process Modeler']
-          },
-          {
-            id: 'enterprise',
-            name: 'Enterprise Scale',
-            price_usd: 299,
-            monthly_credits: 100000,
-            max_workable_systems: 50,
-            features: ['Unlimited Workable Systems', '100,000 monthly credits', 'Dedicated Schema Isolation', 'One-Click Deployer', 'Audit Logging & SLA']
-          }
-        ]);
-        setUsage({
-          org_id: 'org-demo',
-          plan_name: 'Professional',
-          monthly_limit: 10000,
-          current_balance: 8500,
-          credits_used: 1500,
-        });
-        setTransactions([
-          { id: 'tx-1', amount: 10000, action: 'plan_renewal', description: 'Monthly Professional Plan Allocation', created_at: '2026-09-01T00:00:00Z' },
-          { id: 'tx-2', amount: -200, action: 'generate_solution', description: 'Full Swarm Solution Synthesis', created_at: '2026-09-10T12:00:00Z' },
-          { id: 'tx-3', amount: -50, action: 'regenerate_artifact', description: 'Regenerated Database Schema (v2)', created_at: '2026-09-10T15:30:00Z' },
-        ]);
-      }
-    }
-
-    loadBilling();
+    fetchBillingBundle().then(applyBilling);
   }, []);
 
   const handleTopup = async (amount: number) => {
@@ -89,6 +99,75 @@ export default function BillingPage() {
     } finally {
       setTopupLoading(false);
       setTimeout(() => setTopupSuccess(null), 4000);
+    }
+  };
+
+  const loadRazorpayScript = (): Promise<boolean> =>
+    new Promise((resolve) => {
+      if (typeof window !== 'undefined' && window.Razorpay) {
+        resolve(true);
+        return;
+      }
+      const existing = document.getElementById('razorpay-checkout-js');
+      if (existing) {
+        existing.addEventListener('load', () => resolve(true), { once: true });
+        existing.addEventListener('error', () => resolve(false), { once: true });
+        return;
+      }
+      const script = document.createElement('script');
+      script.id = 'razorpay-checkout-js';
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.async = true;
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.head.appendChild(script);
+    });
+
+  const openCheckout = async (session: CheckoutSession) => {
+    setCheckoutError(null);
+    if (!session.key_id) {
+      setCheckoutError('Payment gateway is not configured. Please contact support.');
+      return;
+    }
+    const loaded = await loadRazorpayScript();
+    if (!loaded || !window.Razorpay) {
+      setCheckoutError('Unable to load the payment gateway. Please try again.');
+      return;
+    }
+    const rzp = new window.Razorpay({
+      key: session.key_id,
+      amount: session.amount * 100,
+      currency: session.currency,
+      order_id: session.order_id,
+      name: 'AI Solution Builder',
+      description: `${session.credits.toLocaleString()} credits (order ${session.order_id.slice(-8)})`,
+      handler: async () => {
+        setTopupSuccess(`Payment captured for ${session.credits.toLocaleString()} credits.`);
+        fetchBillingBundle().then(applyBilling);
+        setTimeout(() => setTopupSuccess(null), 6000);
+      },
+      modal: {
+        ondismiss: () => {},
+      },
+    });
+    rzp.open();
+  };
+
+  const upgradePlan = async (plan: PlanTier) => {
+    setCheckoutLoading(true);
+    setCheckoutError(null);
+    try {
+      const session = await billingApi.checkout({
+        plan_id: plan.id,
+        pack_credits: plan.monthly_credits,
+        gateway: 'razorpay',
+        currency: 'INR',
+      });
+      await openCheckout(session);
+    } catch (err) {
+      setCheckoutError(err instanceof Error ? err.message : 'Checkout failed. Please try again.');
+    } finally {
+      setCheckoutLoading(false);
     }
   };
 
@@ -156,6 +235,9 @@ export default function BillingPage() {
           {topupSuccess && (
             <p className="text-[11px] uppercase tracking-widest font-bold text-[var(--green)] mt-2">{topupSuccess}</p>
           )}
+          {checkoutError && (
+            <p className="text-[11px] uppercase tracking-widest font-bold text-[var(--red)] mt-2">{checkoutError}</p>
+          )}
         </div>
       </div>
 
@@ -206,6 +288,8 @@ export default function BillingPage() {
 
                 <div className="pt-6 mt-4">
                   <button
+                    onClick={() => upgradePlan(p)}
+                    disabled={checkoutLoading}
                     className={`w-full ${isPro ? 'btn btn-primary' : 'btn btn-secondary'}`}
                   >
                     {isPro ? 'Manage Plan' : 'Upgrade'}

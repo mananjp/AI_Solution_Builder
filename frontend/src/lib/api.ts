@@ -2,6 +2,7 @@ import {
   PlanTier,
   BillingUsage,
   CreditTransaction,
+  CheckoutSession,
   AdminStats,
   AdminUser,
   AuditLogEntry,
@@ -560,6 +561,18 @@ export const billingApi = {
     return request<{ status: string; added: number; message: string }>('/billing/topup', {
       method: 'POST',
       body: JSON.stringify({ amount }),
+    });
+  },
+
+  async checkout(payload: {
+    plan_id?: string;
+    pack_credits?: number;
+    gateway?: string;
+    currency?: string;
+  }): Promise<CheckoutSession> {
+    return request<CheckoutSession>('/billing/checkout', {
+      method: 'POST',
+      body: JSON.stringify(payload),
     });
   },
 };

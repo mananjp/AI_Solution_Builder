@@ -66,7 +66,7 @@ def _fk_reference(col: Column[Any]) -> Column[Any] | None:
     fks = [fk for fk in col.foreign_keys if fk.column is not None]
     if not fks:
         return None
-    return fks[0].column  # type: ignore[return-value]
+    return fks[0].column
 
 
 def _value_for_column(col: Column[Any], rng: random.Random, row_index: int = 0) -> Any:

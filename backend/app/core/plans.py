@@ -43,7 +43,7 @@ async def ensure_default_plans(db: AsyncSession) -> None:
         ).scalar_one_or_none()
         if exists is None:
             db.add(Plan(**spec))
-    await db.flush()  # type: ignore[no-untyped-call]
+    await db.flush()
 
 
 def ensure_default_plans_sync(db: Session) -> None:
@@ -71,7 +71,7 @@ async def get_or_create_free_plan(db: AsyncSession) -> Plan:
 
     db.add(Plan(monthly_credits=200, max_workable_systems=1, price_usd=0, name="free"))
     try:
-        await db.flush()  # type: ignore[no-untyped-call]
+        await db.flush()
     except IntegrityError:
         await db.rollback()
         result = await db.execute(select(Plan).where(Plan.name == "free"))

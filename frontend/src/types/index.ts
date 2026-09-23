@@ -170,6 +170,25 @@ export interface CreditTransaction {
   created_at: string;
 }
 
+export interface CheckoutSession {
+  gateway: string;
+  order_id: string;
+  amount: number;
+  currency: string;
+  key_id: string;
+  org_id: string;
+  credits: number;
+  gateway_status?: string;
+}
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: Record<string, unknown>) => {
+      open: () => void;
+    };
+  }
+}
+
 // ── Admin & Governance Types ─────────────────────
 export interface AdminStats {
   total_users: number;
