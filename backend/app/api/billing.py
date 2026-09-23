@@ -1,18 +1,20 @@
-"""
-AI Solution Builder — Billing & Monetization API
+"""AI Solution Builder — Billing & Monetization API
 (Section 13 of the implementation plan)
 
 Plans, credit metering, and transaction ledgers.
 """
 
+import hashlib
+import hmac
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user, require_admin
 from app.models.credit import CreditTransaction
@@ -271,13 +273,72 @@ class WebhookPayload(BaseModel):
     signature: str | None = None
 
 
+def _verify_webhook_signature(*, raw_body: bytes, signature: str, secret: str) -> bool:
+    """Constant-time HMAC-SHA256 verification of the raw webhook body.
+
+    Supports the two common gateway envelope formats:
+      * Stripe: header ``t=<ts>,v1=<sig>`` → HMAC over ``f"{ts}.{raw_body}"``.
+      * Razorpay / generic: header is the bare hex digest → HMAC over the body.
+    """
+    if not signature:
+        return False
+    stripe_pattern = "v1="
+    if stripe_pattern in signature:
+        ts, sig = _parse_stripe_signature(signature)
+        if not ts:
+            return False
+        expected = hmac.new(secret.encode(), f"{ts}.{raw_body.decode('utf-8', 'replace')}".encode(), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(sig, expected)
+    expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature, expected)
+
+
+def _parse_stripe_signature(header: str) -> tuple[str | None, str]:
+    """Extract the ``v1`` signature and its timestamp from a Stripe header."""
+    ts: str | None = None
+    sig: str = ""
+    for part in header.split(","):
+        part = part.strip()
+        if part.startswith("t="):
+            ts = part[2:]
+        elif part.startswith("v1="):
+            sig = part[3:]
+    return ts, sig
+
+
 @router.post("/webhook")
 async def handle_payment_webhook(
-    payload: WebhookPayload,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Process verified webhook from Razorpay/Stripe and credit organization."""
+    """Process a signature-verified webhook from Razorpay/Stripe and credit the org.
+
+    The payload is HMAC-SHA256 signed with ``PAYMENT_WEBHOOK_SECRET``. The
+    signature is read from ``X-Payment-Signature`` (or ``X-Razorpay-Signature``
+    / ``Stripe-Signature``) and verified against the exact raw request body, so
+    an unauthenticated caller cannot self-credit. Fails closed when the secret
+    is unconfigured.
+    """
     from uuid import UUID
+
+    secret = settings.PAYMENT_WEBHOOK_SECRET
+    if not secret:
+        raise HTTPException(
+            status_code=503,
+            detail="Payment webhook signing secret is not configured (PAYMENT_WEBHOOK_SECRET)",
+        )
+
+    raw_body = await request.body()
+    signature = (
+        request.headers.get("x-payment-signature")
+        or request.headers.get("x-razorpay-signature")
+        or request.headers.get("stripe-signature")
+        or ""
+    )
+    if not _verify_webhook_signature(raw_body=raw_body, signature=signature, secret=secret):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    payload = WebhookPayload.model_validate_json(raw_body)
 
     org_uuid = UUID(payload.org_id)
     org_res = await db.execute(select(Organization).where(Organization.id == org_uuid))

@@ -12,6 +12,20 @@ WORKDIR /opt/opencode
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
+# Preinstall MVP runtime dependencies so pytest and verification succeed inside the sidecar
+RUN pip3 install --no-cache-dir --break-system-packages \
+    fastapi==0.115.6 \
+    "sqlalchemy[asyncio]==2.0.36" \
+    aiosqlite \
+    pydantic==2.10.4 \
+    pydantic-settings==2.7.1 \
+    "python-jose[cryptography]" \
+    "passlib[bcrypt]" \
+    email-validator \
+    httpx \
+    pytest \
+    pytest-asyncio
+
 RUN npm install -g opencode-ai@latest
 
 # Copy OpenCode configuration and custom agents

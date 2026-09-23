@@ -488,6 +488,144 @@ def _mock_ai_developer(messages: list[Any]) -> dict[str, Any]:
     return {"content": content}
 
 
+_MOCK_SPEC_MARKER = "You design SMALL but REAL working apps"  # app_spec.SPEC_SYSTEM
+
+
+def _mock_app_spec(messages: list[Any]) -> dict[str, Any]:
+    """Deterministic valid AppSpec JSON for offline/mock mode (no keyword templates).
+
+    Picks entities from the user text only to give the spec relevance; it never
+    substitutes canned domain templates the way the legacy heuristic did.
+    """
+    user_text = ""
+    for msg in messages:
+        if isinstance(msg, HumanMessage) or getattr(msg, "type", "") == "human":
+            user_text += "\n" + str(getattr(msg, "content", ""))
+
+    lower = user_text.lower()
+    if any(
+        k in lower
+        for k in (
+            "agent",
+            "bot",
+            "assistant",
+            "copilot",
+            "llm",
+            "autonomous",
+            "orchestrator",
+            "rag",
+            "prompt",
+        )
+    ):
+        entities = [("agent", "agents"), ("tool", "tools"), ("conversation", "conversations")]
+    elif any(k in lower for k in ("project", "task", "kanban", "sprint", "todo")):
+        entities = [("project", "projects"), ("task", "tasks")]
+    elif any(k in lower for k in ("retail", "store", "inventory", "product", "stock", "pos")):
+        entities = [("product", "products"), ("order", "orders")]
+    elif any(k in lower for k in ("invoice", "expense", "billing", "payment", "accounting")):
+        entities = [("invoice", "invoices"), ("expense", "expenses")]
+    else:
+        entities = [("item", "items"), ("category", "categories")]
+
+    spec_entities = [
+        {
+            "name": name,
+            "plural": plural,
+            "description": f"{name} managed by the app",
+            "fields": [
+                {"name": "name", "type": "string", "required": True, "description": "Display name"},
+                {"name": "description", "type": "text", "required": False, "description": "Notes"},
+            ],
+        }
+        for name, plural in entities
+    ]
+
+    screens = [
+        {
+            "name": "dashboard",
+            "route": "/",
+            "purpose": "Overview of managed records",
+            "uses_entities": [name for name, _ in entities],
+            "uses_actions": [],
+            "key_interactions": ["view records"],
+        },
+        *[
+            {
+                "name": f"{name}_management",
+                "route": f"/{plural}",
+                "purpose": f"Manage {plural}",
+                "uses_entities": [name],
+                "uses_actions": [],
+                "key_interactions": ["create record", "edit record", "delete record"],
+            }
+            for name, plural in entities
+        ],
+    ]
+
+    first_plural = entities[0][1]
+    acceptance_tests = [
+        {
+            "name": "create_record",
+            "description": "A record can be created",
+            "steps": [
+                {
+                    "method": "POST",
+                    "path": f"/{first_plural}",
+                    "body": {"name": "Sample"},
+                    "expect_status": 201,
+                    "expect": {"name": "Sample"},
+                    "save": {"id": "id"},
+                }
+            ],
+        },
+        {
+            "name": "list_records",
+            "description": "Records are listed",
+            "steps": [
+                {
+                    "method": "GET",
+                    "path": f"/{first_plural}",
+                    "expect_status": 200,
+                    "expect": {},
+                    "save": {},
+                }
+            ],
+        },
+        {
+            "name": "get_record",
+            "description": "A single record can be fetched",
+            "steps": [
+                {
+                    "method": "POST",
+                    "path": f"/{first_plural}",
+                    "body": {"name": "Another"},
+                    "expect_status": 201,
+                    "expect": {},
+                    "save": {"id": "id"},
+                },
+                {
+                    "method": "GET",
+                    "path": f"/{first_plural}/{{id}}",
+                    "expect_status": 200,
+                    "expect": {},
+                    "save": {},
+                },
+            ],
+        },
+    ]
+
+    return {
+        "app_name": "My App",
+        "one_liner": "A small working application",
+        "core_value": "",
+        "assumptions": [],
+        "entities": spec_entities,
+        "actions": [],
+        "screens": screens,
+        "acceptance_tests": acceptance_tests,
+    }
+
+
 def _build_mock_content(messages: list[Any], state: dict[str, Any]) -> str:
     """Return node-appropriate JSON based on the system prompt marker."""
     system_text = ""
@@ -495,6 +633,8 @@ def _build_mock_content(messages: list[Any], state: dict[str, Any]) -> str:
         if isinstance(msg, SystemMessage):
             system_text = str(msg.content)
 
+    if _MOCK_SPEC_MARKER in system_text:
+        return json.dumps(_mock_app_spec(messages), indent=2)
     if (
         "full-stack AI Developer" in system_text
         or "Custom App Builder" in system_text

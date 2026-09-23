@@ -94,12 +94,20 @@ async def test_upgrade_anonymous_account(client: httpx.AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_oauth_authorize_url(client: httpx.AsyncClient, monkeypatch):
+async def test_oauth_authorize_url(monkeypatch):
+    from httpx import ASGITransport
+
+    from main import app
+
     monkeypatch.setattr(settings, "AUTH_GITHUB_CLIENT_ID", "gh-client-xyz")
     monkeypatch.setattr(settings, "AUTH_GITHUB_CLIENT_SECRET", "gh-secret-xyz")
 
-    resp = await client.get("/api/v1/auth/oauth/github/authorize")
-    assert resp.status_code == 200
-    url = resp.json()["authorization_url"]
-    assert "https://github.com/login/oauth/authorize" in url
-    assert "client_id=gh-client-xyz" in url
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver", follow_redirects=True
+    ) as client:
+        resp = await client.get("/api/v1/auth/oauth/github/authorize")
+        assert resp.status_code == 200
+        url = resp.json()["authorization_url"]
+        assert "https://github.com/login/oauth/authorize" in url
+        assert "client_id=gh-client-xyz" in url

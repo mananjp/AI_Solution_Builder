@@ -76,7 +76,9 @@ class Action(BaseModel):
     path: str  # must start with /actions/
     summary: str
     input_fields: list[SpecField] = Field(default_factory=list)
-    rules: list[str] = Field(min_length=1, description="Precise business rules / formulas / validations")
+    rules: list[str] = Field(
+        min_length=1, description="Precise business rules / formulas / validations"
+    )
     output_example: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("path")
@@ -200,7 +202,7 @@ def _extract_json(text: str) -> dict[str, Any]:
     start, end = t.find("{"), t.rfind("}")
     if start < 0 or end < 0:
         raise ValueError("no JSON object in response")
-    return json.loads(t[start : end + 1])
+    return json.loads(t[start : end + 1])  # type: ignore[no-any-return]
 
 
 def _context_from_state(ai_state: dict[str, Any], user_prompt: str) -> str:
@@ -217,7 +219,9 @@ def _context_from_state(ai_state: dict[str, Any], user_prompt: str) -> str:
     for key in ("er_diagram", "api_spec", "lld"):
         c = content(key)
         if c:
-            parts.append(f"{key.upper()} (reference, simplify if too big):\n{json.dumps(c, default=str)[:3000]}")
+            parts.append(
+                f"{key.upper()} (reference, simplify if too big):\n{json.dumps(c, default=str)[:3000]}"
+            )
     return "\n\n".join(parts)
 
 
@@ -250,6 +254,8 @@ async def generate_app_spec(
             logger.warning("AppSpec attempt %d invalid: %s", attempt, last_err[:300])
             messages += [
                 AIMessage(content=raw[:8000]),
-                HumanMessage(content=f"Invalid spec. Fix ALL errors and return full JSON only:\n{last_err}"),
+                HumanMessage(
+                    content=f"Invalid spec. Fix ALL errors and return full JSON only:\n{last_err}"
+                ),
             ]
     raise SpecError(f"Could not produce a valid app spec: {last_err}")

@@ -427,6 +427,27 @@ export function BuildCard({
         </div>
       </div>
 
+      {/* Acceptance Tests Quality Badge */}
+      {build.app_config?.quality && (
+        <div className="flex items-center justify-between p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs">
+          <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-mono">
+            <Check className="w-4 h-4 text-emerald-500" />
+            <span className="font-semibold">
+              {build.app_config.quality.passed} /{' '}
+              {build.app_config.quality.passed + (build.app_config.quality.failed || 0)} Acceptance
+              Tests Passing
+            </span>
+          </div>
+          {build.app_config.quality.repair_turns !== undefined && (
+            <span className="text-[11px] font-mono text-[var(--text-3)]">
+              {build.app_config.quality.repair_turns > 0
+                ? `${build.app_config.quality.repair_turns} repair loop(s)`
+                : 'Zero repair turns'}
+            </span>
+          )}
+        </div>
+      )}
+
       {(build.status === 'building' || build.status === 'queued') && (
 
         <div className="p-3 bg-[var(--bg-2)] border border-[var(--border)] rounded-sm space-y-2">

@@ -31,7 +31,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.credits import require_and_deduct_credit
+from app.core.credits import action_cost, refund_credit, require_and_deduct_credit
 from app.core.database import async_session_factory, get_db
 from app.core.secrets import decrypt_secret
 from app.core.security import get_current_user
@@ -228,7 +228,9 @@ async def execute_build_job(build_id: UUID) -> None:
                     title=title,
                 )
             else:
-                user_msg = (solution.ai_state or {}).get("user_message", "") or solution.description or ""
+                user_msg = (
+                    (solution.ai_state or {}).get("user_message", "") or solution.description or ""
+                )
                 result = await builder.run_build(
                     solution.id,
                     ai_state,
@@ -320,9 +322,31 @@ async def execute_build_job(build_id: UUID) -> None:
         try:
             async with async_session_factory() as db:
                 build = await db.get(MVPBuild, build_id)
+                org_id: str | None = None
                 if build is not None:
+                    solution = await db.get(Solution, build.solution_id)
+                    if solution is not None:
+                        workspace = await db.get(Workspace, solution.workspace_id)
+                        if workspace is not None:
+                            org_id = str(workspace.org_id)
                     build.status = "failed"
                     build.error_message = str(exc)[:1000]
+                    # Refund the mvp_build credit (P0.4): credits were deducted
+                    # at trigger time, so a failed build must reverse the ledger.
+                    if org_id:
+                        try:
+                            await refund_credit(
+                                db,
+                                action_type="mvp_build",
+                                cost=action_cost("mvp_build"),
+                                description=f"Refund for failed MVP build ({build.build_number})",
+                                solution_id=build.solution_id,
+                                org_id=org_id,
+                            )
+                        except Exception as refund_err:  # noqa: BLE001
+                            logger.error(
+                                "Failed to refund MVP build %s credits: %s", build_id, refund_err
+                            )
                 job_res = await db.execute(select(BuildJob).where(BuildJob.build_id == build_id))
                 job = job_res.scalar_one_or_none()
                 if job:
@@ -478,6 +502,83 @@ async def list_builds(
         .order_by(desc(MVPBuild.build_number))
     )
     return [_build_response(b) for b in result.scalars().all()]
+
+
+@router.post("/{solution_id}/spec")
+async def generate_or_get_spec(
+    solution_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Generate or retrieve the AppSpec design contract for this solution."""
+    from app.services.app_spec import SpecError, generate_app_spec
+
+    solution = await _get_solution_for_user(db, solution_id, current_user)
+    ai_state = solution.ai_state or {}
+
+    # If already designed and saved, return cached spec
+    if ai_state.get("app_spec"):
+        return {"app_spec": ai_state["app_spec"], "cached": True}
+
+    prompt = ai_state.get("user_message", "") or solution.description or solution.title
+    try:
+        spec = await generate_app_spec(ai_state, prompt)
+    except SpecError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Couldn't design the app: {exc}. Please add detail.",
+        ) from exc
+    except Exception as exc:
+        logger.warning("Error generating AppSpec for solution %s: %s", solution_id, exc)
+        raise HTTPException(status_code=502, detail=f"Spec generation failed: {exc}") from exc
+
+    await require_and_deduct_credit(
+        db,
+        current_user,
+        "spec_generation",
+        f"AppSpec design: {spec.app_name}",
+        solution_id=solution.id,
+    )
+    solution.ai_state = {**ai_state, "app_spec": spec.model_dump()}
+    await db.commit()
+    return {"app_spec": spec.model_dump(), "cached": False}
+
+
+@router.get("/{solution_id}/spec")
+async def get_spec(
+    solution_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Retrieve the current AppSpec for this solution."""
+    solution = await _get_solution_for_user(db, solution_id, current_user)
+    spec_data = (solution.ai_state or {}).get("app_spec")
+    if not spec_data:
+        raise HTTPException(status_code=404, detail="No AppSpec found for this solution")
+    return {"app_spec": spec_data}
+
+
+@router.put("/{solution_id}/spec")
+async def update_spec(
+    solution_id: UUID,
+    payload: dict[str, Any],
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Validate and update the AppSpec design contract."""
+    from app.services.app_spec import AppSpec
+
+    solution = await _get_solution_for_user(db, solution_id, current_user)
+    raw_spec = payload.get("app_spec", payload)
+    try:
+        validated = AppSpec.model_validate(raw_spec)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid AppSpec: {exc}") from exc
+
+    ai_state = solution.ai_state or {}
+    solution.ai_state = {**ai_state, "app_spec": validated.model_dump()}
+    await db.commit()
+    return {"status": "success", "app_spec": validated.model_dump()}
 
 
 async def _get_build_for_user(db: AsyncSession, build_id: UUID, user: User) -> MVPBuild:
@@ -886,50 +987,3 @@ async def rollback_build(
         "target_commit_sha": payload.target_commit_sha,
         "message": f"Successfully rolled back deployment to commit {payload.target_commit_sha[:7]}",
     }
-
-
-# ── AppSpec Approval Gate ──────────────────────────────────────────────
-
-
-@router.post("/mvp/{solution_id}/spec", response_model=dict[str, Any])
-async def create_app_spec(
-    solution_id: UUID,
-    payload: dict[str, Any] | None = None,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
-    """Generate and return an AppSpec for a solution."""
-    solution = await _get_solution_for_user(db, solution_id, current_user)
-    user_prompt = (payload or {}).get("prompt") or (solution.ai_state or {}).get("user_message", "") or solution.description or solution.title
-    from app.services.app_spec import generate_app_spec, SpecError
-
-    try:
-        spec = await generate_app_spec(solution.ai_state or {}, user_prompt)
-        spec_dict = spec.model_dump()
-        solution.ai_state = {**(solution.ai_state or {}), "app_spec": spec_dict}
-        await db.commit()
-        return spec_dict
-    except SpecError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-@router.put("/mvp/{solution_id}/spec", response_model=dict[str, Any])
-async def update_app_spec(
-    solution_id: UUID,
-    payload: dict[str, Any],
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
-    """Validate and store a user-edited AppSpec for a solution."""
-    solution = await _get_solution_for_user(db, solution_id, current_user)
-    from app.services.app_spec import AppSpec
-    from pydantic import ValidationError
-
-    try:
-        spec = AppSpec.model_validate(payload)
-        spec_dict = spec.model_dump()
-        solution.ai_state = {**(solution.ai_state or {}), "app_spec": spec_dict}
-        await db.commit()
-        return spec_dict
-    except ValidationError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc

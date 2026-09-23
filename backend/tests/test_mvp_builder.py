@@ -463,9 +463,9 @@ async def test_run_build_aborts_on_prompt_failure(monkeypatch, tmp_path):
         builder, "scaffold_build", lambda build_dir, *, app_title, inject_modules, **kwargs: None
     )
 
-    result = await builder.run_build(uuid4(), _sample_ai_state(), 1)
+    with pytest.raises(builder.MVPBuilderError):
+        await builder.run_build(uuid4(), _sample_ai_state(), 1)
     assert calls == ["sess-1"]
-    assert result["session_id"] == "sess-1"
 
 
 # ── Starter templates ──────────────────────────────

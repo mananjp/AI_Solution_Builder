@@ -141,6 +141,9 @@ class SolutionResponse(BaseModel):
     title: str
     description: str | None
     status: str
+    approval_status: str | None = None
+    approved_by: UUID | None = None
+    approved_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

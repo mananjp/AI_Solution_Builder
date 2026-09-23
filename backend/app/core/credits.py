@@ -136,24 +136,33 @@ async def require_and_deduct_credit(
 
 async def refund_credit(
     db: AsyncSession,
-    user: User,
-    action_type: str,
+    user: User | None = None,
+    action_type: str = "",
     cost: int | None = None,
     description: str = "",
     solution_id: UUID | str | None = None,
+    org_id: str | None = None,
 ) -> dict[str, Any]:
     """Refund credits for a failed metered action and log a reversal transaction.
 
-    Orgs with a NULL balance are unlimited and skip refunding.
+    Orgs with a NULL balance are unlimited and skip refunding. Either ``user``
+    or ``org_id`` must be supplied (``org_id`` lets background jobs refund
+    without a live request user).
     """
     from app.models.organization import Organization
+
+    org_identifier = org_id or (user.org_id if user else None)
+    if org_identifier is None:
+        raise ValueError("refund_credit requires either a user or an org_id")
 
     action = "regeneration" if action_type in ("regeneration", "regenerate") else action_type
     refund_amount = cost if cost is not None else action_cost(action)
     if refund_amount <= 0:
         return {"credits_remaining": None, "refunded": 0}
 
-    org_result = await db.execute(select(Organization).where(Organization.id == user.org_id))
+    org_result = await db.execute(
+        select(Organization).where(Organization.id == org_identifier)
+    )
     org = org_result.scalar_one_or_none()
     if org is None:
         raise HTTPException(status_code=404, detail="Organization not found")
@@ -168,6 +177,7 @@ async def refund_credit(
         description=description or f"Refund for failed {action}",
         solution_id=solution_id,
     )
+
     db.add(tx)
     logger.info(
         "Credit refunded org=%s action=%s amount=%s remaining=%s",

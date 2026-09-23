@@ -30,10 +30,23 @@ from main import app  # noqa: E402
 
 @pytest_asyncio.fixture()
 async def db_engine():
-    engine = create_async_engine(normalize_database_url(settings.DATABASE_URL), echo=False)
-    async with engine.begin() as conn:
-        await conn.execute(sa_text("CREATE EXTENSION IF NOT EXISTS vector"))
-        await conn.run_sync(Base.metadata.create_all)
+    import asyncio
+
+    engine = create_async_engine(
+        normalize_database_url(settings.DATABASE_URL),
+        echo=False,
+        pool_pre_ping=True,
+    )
+    for attempt in range(3):
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(sa_text("CREATE EXTENSION IF NOT EXISTS vector"))
+                await conn.run_sync(Base.metadata.create_all)
+            break
+        except Exception:
+            if attempt == 2:
+                raise
+            await asyncio.sleep(0.5)
     yield engine
     await engine.dispose()
     # The engine introspection path uses the app's module-level engine; clear

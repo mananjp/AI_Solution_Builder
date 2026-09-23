@@ -27,7 +27,8 @@ import re
 import shutil
 import zipfile
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
 if TYPE_CHECKING:
     from app.services.app_spec import AppSpec
 from uuid import UUID
@@ -2132,18 +2133,19 @@ def _endpoint_summary(api_spec_content: dict[str, Any]) -> str:
     )
 
 
-def build_mvp_prompt(
-    ai_state_or_spec: Any, target_dir: str, app_title: str | None = None
-) -> str:
+def build_mvp_prompt(ai_state_or_spec: Any, target_dir: str, app_title: str | None = None) -> str:
     from app.services.app_spec import AppSpec
 
     if isinstance(ai_state_or_spec, AppSpec):
         spec = ai_state_or_spec
-        actions = "\n".join(
-            f"- `{a.method} {a.path}` → `{a.name}()`: {a.summary}\n"
-            + "\n".join(f"    - {r}" for r in a.rules)
-            for a in spec.actions
-        ) or "- (none — pure CRUD app; focus on screens)"
+        actions = (
+            "\n".join(
+                f"- `{a.method} {a.path}` → `{a.name}()`: {a.summary}\n"
+                + "\n".join(f"    - {r}" for r in a.rules)
+                for a in spec.actions
+            )
+            or "- (none — pure CRUD app; focus on screens)"
+        )
         screens = "\n".join(
             f"- **{s.name}** `{s.route}` — {s.purpose}. Uses entities {s.uses_entities}, "
             f"actions {s.uses_actions}. Must support: {'; '.join(s.key_interactions)}"
@@ -2322,7 +2324,7 @@ async def run_build(
             "OpenCode sidecar is unreachable. Ensure the opencode service is running."
         )
 
-    from app.services.app_spec import AppSpec, SpecError, generate_app_spec
+    from app.services.app_spec import AppSpec, generate_app_spec
 
     spec_data = ai_state.get("app_spec")
     spec: AppSpec | None = None
@@ -2340,11 +2342,15 @@ async def run_build(
     target_dir = _container_target(solution_id, build_number)
     local_dir = build_workspace_dir(solution_id, build_number)
 
-    app_title = title or (spec.app_name if spec else (
-        ai_state.get("solution_title") or ai_state.get("business_description") or "MVP"
-    ))
-    modules = [e.name for e in spec.entities] if spec else (
-        ai_state.get("confirmed_modules") or ai_state.get("identified_solutions", [])
+    app_title = title or (
+        spec.app_name
+        if spec
+        else (ai_state.get("solution_title") or ai_state.get("business_description") or "MVP")
+    )
+    modules = (
+        [e.name for e in spec.entities]
+        if spec
+        else (ai_state.get("confirmed_modules") or ai_state.get("identified_solutions", []))
     )
     scaffold_build(
         local_dir,
@@ -2358,6 +2364,7 @@ async def run_build(
 
     session_id: str = "auto-synthesized"
     sidecar_ok = await health()
+    quality: dict[str, Any] | None = None
     if sidecar_ok:
         try:
             session_id = await create_session(f"MVP Build - {title or solution_id}")
@@ -2373,13 +2380,21 @@ async def run_build(
             # Verification Checkpoint & Bounded Repair Turn
             from app.services.mvp_verifier import verify_and_repair
 
-            await verify_and_repair(
+            verification = await verify_and_repair(
                 local_dir,
                 session_id=session_id,
                 target_dir=target_dir,
                 send_prompt_fn=send_build_prompt,
                 check_npm=check_npm,
             )
+            if spec:
+                tests = verification.get("tests") or {}
+                quality = {
+                    "tests_passed": int(tests.get("passed", 0)),
+                    "tests_failed": int(tests.get("failed", 0)),
+                    "repair_turns": int(verification.get("repair_turns", 0)),
+                    "actions": [a.name for a in spec.actions],
+                }
         except Exception as exc:
             # Let verification failures propagate so the build is marked failed
             # honestly rather than shipping broken code as "complete".
@@ -2388,14 +2403,34 @@ async def run_build(
             if isinstance(exc, VerificationError):
                 raise MVPBuilderError(f"Build verification failed: {exc}") from exc
 
+            # Any sidecar failure (timeout, session loss, HTTP error) must NOT be
+            # papered over: an app with business actions can never be shipped as
+            # a scaffolded CRUD shell. Fail honestly for action-bearing specs and
+            # strictly verify the fallback for pure-CRUD/legacy specs.
             logger.warning(
-                "OpenCode refinement failed or timed out (%s); relying on auto-synthesized scaffold for solution=%s",
+                "OpenCode refinement failed or timed out (%s); solution=%s",
                 exc,
                 solution_id,
             )
             if session_id and session_id != "auto-synthesized":
                 with contextlib.suppress(Exception):
                     await abort_session(session_id)
+
+            if spec and any(spec.actions):
+                raise MVPBuilderError(
+                    f"OpenCode sidecar failed before the app's business actions could be "
+                    f"implemented: {exc}"
+                ) from exc
+
+            from app.services.mvp_verifier import verify_workspace
+
+            fallback_errors = verify_workspace(local_dir, check_npm=check_npm)
+            if fallback_errors:
+                raise MVPBuilderError(
+                    "Synthesized fallback build failed verification "
+                    f"({len(fallback_errors)} error(s)): "
+                    + "; ".join(fallback_errors[:5])
+                ) from exc
     else:
         logger.info(
             "OpenCode sidecar offline; build synthesized instantly from blueprint for solution=%s",
@@ -2421,7 +2456,7 @@ async def run_build(
     }
     if spec:
         res["app_spec"] = spec.model_dump()
-        res["quality"] = {
+        res["quality"] = quality or {
             "tests_passed": 0,
             "tests_failed": 0,
             "repair_turns": 0,

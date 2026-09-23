@@ -99,6 +99,9 @@ class Settings(BaseSettings):
     RAZORPAY_KEY_SECRET: str = ""
     STRIPE_API_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
+    # Generic HMAC-SHA256 secret used to authenticate /billing/webhook payloads.
+    # Fails closed (503) when not configured so unauthenticated callers can't self-credit.
+    PAYMENT_WEBHOOK_SECRET: str = ""
 
     # ── Row-Level Security ────────────────────────
     RLS_ENABLED: bool = False
@@ -117,7 +120,6 @@ class Settings(BaseSettings):
     MVP_VERIFY_BUILD_TIMEOUT: int = 120  # seconds for npm run build in checkpoint
     MVP_MAX_REPAIR_TURNS: int = 4
     MVP_TEST_TIMEOUT_S: int = 180
-
 
     # ── Worker Process / Queue ────────────────────
     WORKER_MODE: str = "inline"  # "worker" (separate process) | "inline" (in-process fallback)

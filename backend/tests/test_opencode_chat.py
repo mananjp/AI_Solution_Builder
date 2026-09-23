@@ -322,31 +322,6 @@ async def test_chat_cannot_access_other_users_solution(workspace_solution, monke
     assert resp.status_code == 404
 
 
-def test_synthesize_domain_artifacts_ai_agents():
-    from app.api.opencode_chat import _synthesize_domain_artifacts
-
-    artifacts = _synthesize_domain_artifacts(
-        "AI Agent App", "Build an autonomous AI agent with tool calling and memory"
-    )
-    assert artifacts["industry"] == "ai_agents"
-    assert "agent_orchestration" in artifacts["confirmed_modules"]
-    assert "tool_registry" in artifacts["confirmed_modules"]
-
-    entities = artifacts["er_diagram"]["content"]["entities"]
-    entity_names = [e["name"] for e in entities]
-    assert "agents" in entity_names
-    assert "tools" in entity_names
-    assert "conversations" in entity_names
-    assert "messages" in entity_names
-    assert "executions" in entity_names
-
-    agent_entity = next(e for e in entities if e["name"] == "agents")
-    agent_field_names = [f["name"] for f in agent_entity["fields"]]
-    assert "system_prompt" in agent_field_names
-    assert "temperature" in agent_field_names
-    assert "model" in agent_field_names
-
-
 async def test_chat_ai_agent_request_builds_agent_architecture(workspace_solution, monkeypatch):
     client = workspace_solution["client"]
     headers = workspace_solution["headers"]
@@ -371,8 +346,13 @@ async def test_chat_ai_agent_request_builds_agent_architecture(workspace_solutio
     assert sol_resp.status_code == 200
     sol_data = sol_resp.json()
     assert sol_data["status"] == "complete"
-    assert sol_data["ai_state"]["industry"] == "ai_agents"
-    assert "agent_orchestration" in sol_data["ai_state"]["confirmed_modules"]
+    spec = sol_data["ai_state"].get("app_spec")
+    assert spec is not None, "spec-first build must persist an app_spec"
+    entity_names = [e["plural"] for e in spec["entities"]]
+    assert "agents" in entity_names
+    assert "tools" in entity_names
+    modules = sol_data["ai_state"]["confirmed_modules"]
+    assert "agents_mgmt" in modules
 
 
 async def test_chat_build_requested_emits_granular_progress_events(workspace_solution, monkeypatch):
@@ -400,21 +380,6 @@ async def test_chat_build_requested_emits_granular_progress_events(workspace_sol
     assert "event: complete" in resp.text
 
 
-def test_synthesize_domain_artifacts_no_false_positive_ai_matches():
-    """Words containing 'ai' (retail, trainer, email, repair) must NOT trigger ai_agents."""
-    from app.api.opencode_chat import _synthesize_domain_artifacts
-
-    prompts = [
-        "Build a retail clothing store management app",
-        "Personal trainer and fitness workout tracker",
-        "Email marketing campaign manager",
-        "Auto repair and maintenance shop booking",
-    ]
-    for p in prompts:
-        artifacts = _synthesize_domain_artifacts("Test App", p)
-        assert artifacts["industry"] != "ai_agents", f"Prompt '{p}' incorrectly matched ai_agents!"
-
-
 def test_extract_app_title():
     """Verify clean title extraction from user prompts."""
     from app.api.opencode_chat import _extract_app_title
@@ -427,38 +392,6 @@ def test_extract_app_title():
         == "Restaurant Food Ordering System"
     )
     assert _extract_app_title("hello") == "Custom App"
-
-
-def test_synthesize_domain_artifacts_gym_fitness():
-    """Verify gym/fitness domain produces fitness-specific entities."""
-    from app.api.opencode_chat import _synthesize_domain_artifacts
-
-    artifacts = _synthesize_domain_artifacts(
-        "FitPulse Gym",
-        "Build a gym and fitness club management app with members, trainers, and classes",
-    )
-    assert artifacts["industry"] in ("fitness", "gym_management")
-    entities = artifacts["er_diagram"]["content"]["entities"]
-    entity_names = [e["name"] for e in entities]
-    assert "members" in entity_names
-    assert "trainers" in entity_names
-    assert (
-        "workouts" in entity_names or "classes" in entity_names or "subscriptions" in entity_names
-    )
-
-
-def test_synthesize_domain_artifacts_restaurant():
-    """Verify restaurant domain produces food & beverage entities."""
-    from app.api.opencode_chat import _synthesize_domain_artifacts
-
-    artifacts = _synthesize_domain_artifacts(
-        "Bistro Cafe", "Create a restaurant food ordering and table reservation platform"
-    )
-    assert artifacts["industry"] == "food_and_beverage"
-    entities = artifacts["er_diagram"]["content"]["entities"]
-    entity_names = [e["name"] for e in entities]
-    assert "menus" in entity_names or "menu_items" in entity_names
-    assert "dishes" in entity_names or "orders" in entity_names
 
 
 async def test_synthesize_domain_artifacts_dynamic_preserves_state():

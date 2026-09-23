@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 MAX_REPAIR_TURNS = int(getattr(settings, "MVP_MAX_REPAIR_TURNS", 4))
 TEST_TIMEOUT_S = int(getattr(settings, "MVP_TEST_TIMEOUT_S", 180))
 _SAFE_ENV_KEYS = (
-
     "PATH",
     "HOME",
     "LANG",
@@ -166,7 +165,6 @@ def verify_frontend_integrity(frontend_dir: Path, run_build: bool = False) -> li
     return errors
 
 
-
 # ── Locked-file protection ──────────────────────────────────────────────
 
 
@@ -202,16 +200,38 @@ def run_acceptance_tests(backend_dir: Path) -> dict[str, Any]:
     """Run generated acceptance tests in a subprocess with a scrubbed env (no platform secrets)."""
     tests_dir = backend_dir / "tests"
     if not tests_dir.exists():
-        return {"ran": False, "passed": 0, "failed": 0, "errors": ["No acceptance tests found (tests/)."]}
+        return {
+            "ran": False,
+            "passed": 0,
+            "failed": 0,
+            "errors": ["No acceptance tests found (tests/)."],
+        }
 
     env = {k: os.environ[k] for k in _SAFE_ENV_KEYS if k in os.environ}
     env.update({"APP_ENV": "test", "DEBUG": "false", "PYTHONDONTWRITEBYTECODE": "1"})
     (backend_dir / "test.db").unlink(missing_ok=True)
     try:
         proc = subprocess.run(
-            [sys.executable, "-m", "pytest", "-q", "-x", "--no-header", "-p", "no:cacheprovider",
-             "-p", "no:warnings", "--tb=short", "--show-capture=no", "-rf"],
-            cwd=backend_dir, env=env, capture_output=True, text=True, timeout=TEST_TIMEOUT_S,
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "-x",
+                "--no-header",
+                "-p",
+                "no:cacheprovider",
+                "-p",
+                "no:warnings",
+                "--tb=short",
+                "--show-capture=no",
+                "-rf",
+            ],
+            cwd=backend_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=TEST_TIMEOUT_S,
         )
     except subprocess.TimeoutExpired:
         return {"ran": True, "passed": 0, "failed": 1, "errors": ["Acceptance tests timed out."]}
@@ -220,7 +240,11 @@ def run_acceptance_tests(backend_dir: Path) -> dict[str, Any]:
 
     out = (proc.stdout or "") + (proc.stderr or "")
     passed = sum(int(m.group(1)) for m in _SUMMARY_RE.finditer(out) if m.group(1))
-    failed = sum(int(m.group(2) or m.group(3) or 0) for m in _SUMMARY_RE.finditer(out) if m.group(2) or m.group(3))
+    failed = sum(
+        int(m.group(2) or m.group(3) or 0)
+        for m in _SUMMARY_RE.finditer(out)
+        if m.group(2) or m.group(3)
+    )
     errors: list[str] = []
     if proc.returncode != 0:
         # Keep the most useful tail: assertion lines + short traceback, capped for the prompt.
@@ -230,7 +254,7 @@ def run_acceptance_tests(backend_dir: Path) -> dict[str, Any]:
 
 def verify_workspace(workspace_dir: Path, check_npm: bool = False) -> list[str]:
     """Static + behavioural verification. Returns a list of human-readable errors."""
-    return verify_workspace_report(workspace_dir, check_npm=check_npm)["errors"]
+    return verify_workspace_report(workspace_dir, check_npm=check_npm)["errors"]  # type: ignore[no-any-return]
 
 
 def verify_workspace_report(workspace_dir: Path, check_npm: bool = False) -> dict[str, Any]:
@@ -260,18 +284,25 @@ def verify_screens(workspace_dir: Path) -> list[str]:
         route = str(screen.get("route", "/")).strip("/")
         page = app_dir / route / "page.tsx" if route else app_dir / "page.tsx"
         if not page.exists():
-            errors.append(f"Screen '{screen.get('name')}' missing: expected {page.relative_to(workspace_dir)}")
+            errors.append(
+                f"Screen '{screen.get('name')}' missing: expected {page.relative_to(workspace_dir)}"
+            )
             continue
         src = page.read_text(encoding="utf-8")
         if "__MODULE_LINKS__" in src or "__APP_TITLE__" in src:
             errors.append(f"{page.relative_to(workspace_dir)} still has template placeholders.")
-        if screen.get("uses_entities") or screen.get("uses_actions"):
-            if "api." not in src and "fetch(" not in src:
-                errors.append(f"{page.relative_to(workspace_dir)} never calls the API (static mock UI).")
+        if (screen.get("uses_entities") or screen.get("uses_actions")) and (
+            "api." not in src and "fetch(" not in src
+        ):
+            errors.append(
+                f"{page.relative_to(workspace_dir)} never calls the API (static mock UI)."
+            )
     return errors
 
 
-def _repair_prompt(target_dir: str, turn: int, max_turns: int, errors: list[str], restored: list[str]) -> str:
+def _repair_prompt(
+    target_dir: str, turn: int, max_turns: int, errors: list[str], restored: list[str]
+) -> str:
     joined = "\n\n".join(errors)[:6000]
     tamper = (
         f"\nNOTE: you modified locked files {restored}; they were restored. Do NOT edit them — "
@@ -308,13 +339,18 @@ async def verify_and_repair(
         return {"verified": True, "repair_turns": 0, "errors": [], "tests": report["tests"]}
 
     if not session_id or not send_prompt_fn or max_repair_turns <= 0:
-        raise VerificationError("Build verification failed: " + "; ".join(e[:300] for e in errors[:3]),
-                                errors=errors, report=report)
+        raise VerificationError(
+            "Build verification failed: " + "; ".join(e[:300] for e in errors[:3]),
+            errors=errors,
+            report=report,
+        )
 
     for turn in range(1, max_repair_turns + 1):
         logger.info("Repair turn %d/%d (session=%s)", turn, max_repair_turns, session_id)
         try:
-            await send_prompt_fn(session_id, _repair_prompt(target_dir, turn, max_repair_turns, errors, restored))
+            await send_prompt_fn(
+                session_id, _repair_prompt(target_dir, turn, max_repair_turns, errors, restored)
+            )
         except Exception as exc:
             logger.error("Repair prompt failed for session %s: %s", session_id, exc)
             break

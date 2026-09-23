@@ -20,6 +20,7 @@ import { mvpApi, solutionApi, sendOpenCodeChatStream } from '@/lib/api';
 import { MVPBuild, MVPTemplate, Solution } from '@/types';
 import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
 import ChatMessage from '@/components/ChatMessage';
+import { VoiceInputButton } from '@/components/VoiceInputButton';
 
 interface ChatMsg {
   id: string;
@@ -483,6 +484,10 @@ export default function MvpPage() {
                   placeholder="Ask the AI Architect anything about models, APIs, frontend UI, or build technicalities..."
                   disabled={isChatStreaming}
                   className="flex-1 bg-[#0a0a0a] border border-[#252525] focus:border-[#6366f1] rounded-lg px-3.5 py-2 text-xs text-white placeholder-[#555] focus:outline-none transition-all"
+                />
+                <VoiceInputButton
+                  onTranscribed={(text) => setChatInput((prev) => `${prev} ${text}`.trim())}
+                  disabled={isChatStreaming}
                 />
                 <button
                   type="submit"

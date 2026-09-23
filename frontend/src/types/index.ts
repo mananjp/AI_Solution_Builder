@@ -46,7 +46,25 @@ export interface Solution {
   workspace_id: string;
   title: string;
   description?: string;
-  status: 'discovery' | 'analyzing' | 'recommending' | 'generating' | 'complete' | 'failed';
+  status:
+    | 'draft'
+    | 'clarifying'
+    | 'blueprint_ready'
+    | 'approved'
+    | 'changes_requested'
+    | 'building'
+    | 'built'
+    | 'deployed'
+    | 'live'
+    | 'discovery'
+    | 'analyzing'
+    | 'recommending'
+    | 'generating'
+    | 'complete'
+    | 'failed';
+  approval_status?: 'pending' | 'approved' | 'changes_requested' | null;
+  approved_by?: string | null;
+  approved_at?: string | null;
   ai_state?: Record<string, unknown>;
   conversation_history?: Array<{
     role: 'user' | 'assistant' | 'system';
@@ -241,6 +259,15 @@ export interface MVPBuild {
     message?: string;
   } | null;
   files?: MVPFileEntry[];
+  app_config?: {
+    quality?: {
+      passed: number;
+      failed: number;
+      repair_turns: number;
+      errors?: string[];
+    };
+    [key: string]: unknown;
+  };
 }
 
 

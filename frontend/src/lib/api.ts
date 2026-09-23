@@ -266,6 +266,72 @@ export const solutionApi = {
     return request<Solution>(`/solutions/${id}`);
   },
 
+  async getDecisions(id: string) {
+    return request<{
+      solution_id: string;
+      title: string;
+      total_decisions: number;
+      decisions: any[];
+      assumptions_log: any[];
+      requirements: any[];
+    }>(`/solutions/${id}/decisions`);
+  },
+
+  async approve(id: string) {
+    return request<{
+      status: string;
+      approval_status: string;
+      solution_id: string;
+      approved_by: string;
+      approved_at: string;
+      artifacts_snapshotted: number;
+    }>(`/solutions/${id}/approve`, {
+      method: 'POST',
+    });
+  },
+
+  async requestChanges(id: string, comments: string) {
+    return request<{
+      status: string;
+      approval_status: string;
+      solution_id: string;
+      comments: string;
+    }>(`/solutions/${id}/request-changes`, {
+      method: 'POST',
+      body: JSON.stringify({ comments }),
+    });
+  },
+
+  async regenerateCascade(
+    id: string,
+    targets: string[],
+    feedback: string = '',
+    cascade: boolean = true
+  ) {
+    return request<{
+      status: string;
+      solution_id: string;
+      primary_targets: string[];
+      affected_artifacts: string[];
+      estimated_credits: number;
+      cascade: boolean;
+    }>(`/solutions/${id}/regenerate`, {
+      method: 'POST',
+      body: JSON.stringify({ targets, feedback, cascade }),
+    });
+  },
+
+  async updateTheme(id: string, theme: Record<string, unknown>) {
+    return request<{
+      status: string;
+      solution_id: string;
+      ui_theme: Record<string, unknown>;
+    }>(`/solutions/${id}/theme`, {
+      method: 'PATCH',
+      body: JSON.stringify(theme),
+    });
+  },
+
   async delete(id: string) {
     return request<void>(`/solutions/${id}`, {
       method: 'DELETE',
@@ -435,6 +501,30 @@ export const mvpApi = {
       }
     );
   },
+
+  async getSpec(solutionId: string): Promise<{ app_spec: any; cached?: boolean }> {
+    return request<{ app_spec: any; cached?: boolean }>(`/mvp/${solutionId}/spec`);
+  },
+
+  async generateSpec(
+    solutionId: string,
+    prompt?: string
+  ): Promise<{ app_spec: any; cached?: boolean }> {
+    return request<{ app_spec: any; cached?: boolean }>(`/mvp/${solutionId}/spec`, {
+      method: 'POST',
+      body: JSON.stringify({ prompt }),
+    });
+  },
+
+  async updateSpec(
+    solutionId: string,
+    spec: Record<string, unknown>
+  ): Promise<{ status: string; app_spec: any }> {
+    return request<{ status: string; app_spec: any }>(`/mvp/${solutionId}/spec`, {
+      method: 'PUT',
+      body: JSON.stringify({ app_spec: spec }),
+    });
+  },
 };
 
 // ── Billing & Credits ────────────────────────────
@@ -527,6 +617,36 @@ export const uploadApi = {
       extractedText: data.extracted_text,
       characterCount: data.character_count,
     };
+  },
+
+  async uploadAudio(
+    audioBlob: Blob,
+    filename: string = 'voice_recording.webm'
+  ): Promise<{
+    filename: string;
+    transcription: string;
+    detected_language: string;
+    character_count: number;
+  }> {
+    const token = getAuthToken();
+    const formData = new FormData();
+    formData.append('file', audioBlob, filename);
+
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const response = await fetch(`${API_BASE_URL}/upload/audio`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ detail: 'Audio upload failed' }));
+      throw new Error(err.detail || 'Audio upload failed');
+    }
+
+    return response.json();
   },
 };
 

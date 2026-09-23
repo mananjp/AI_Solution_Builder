@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "groq/openai/gpt-oss-120b",
+  "model": "{env:OPENCODE_MODEL:-groq/openai/gpt-oss-120b}",
   "provider": {
     "groq": {
       "apiKey": "{env:GROQ_API_KEY}"
@@ -10,7 +10,7 @@
     "mvp-builder": {
       "description": "Builds full-stack functional MVP prototypes (Next.js + FastAPI) from AI Solution Builder artifacts",
       "mode": "primary",
-      "model": "groq/openai/gpt-oss-120b"
+      "model": "{env:OPENCODE_MODEL:-groq/openai/gpt-oss-120b}"
     }
   }
 }
