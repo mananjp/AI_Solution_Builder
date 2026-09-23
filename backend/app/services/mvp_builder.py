@@ -2381,9 +2381,13 @@ async def run_build(
                 conversation_history=effective_history,
             )
             ai_state["app_spec"] = spec.model_dump()
-            logger.info("Generated AppSpec '%s' for run_build (solution=%s)", spec.app_name, solution_id)
+            logger.info(
+                "Generated AppSpec '%s' for run_build (solution=%s)", spec.app_name, solution_id
+            )
         except Exception as exc:
-            logger.warning("generate_app_spec bypassed (%s); continuing with artifact synthesis", exc)
+            logger.warning(
+                "generate_app_spec bypassed (%s); continuing with artifact synthesis", exc
+            )
 
     target_dir = _container_target(solution_id, build_number)
     local_dir = build_workspace_dir(solution_id, build_number)

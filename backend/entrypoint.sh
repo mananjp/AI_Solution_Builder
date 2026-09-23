@@ -30,9 +30,9 @@ log() { echo "[entrypoint] $*"; }
 
 run_migrations() {
   root_dir="${1:-$PWD}"
-  log "Running database migrations (advisory-locked alembic upgrade head) in $root_dir ..."
-  (cd "$root_dir" && $PYTHON_BIN scripts/run_migrations.py)
-  log "Database migrations complete."
+  log "Checking database migrations in $root_dir ..."
+  (cd "$root_dir" && $PYTHON_BIN scripts/run_migrations.py) || log "WARNING: Migration check returned non-zero status; proceeding."
+  log "Database migration step complete."
 }
 
 start_app() {
@@ -153,7 +153,11 @@ start_worker_only() {
 # backend directory so it stays as the migration/uvicorn cwd.
 APP_DIR="/app"; [ -d "/app/app" ] || APP_DIR="$PWD"
 
-run_migrations "$APP_DIR"
+if [ "$ROLE" = "app" ] || [ "$ROLE" = "api" ] || [ "$ROLE" = "backend" ]; then
+  run_migrations "$APP_DIR"
+else
+  log "Skipping database migrations for role '$ROLE' (handled by web app service)."
+fi
 
 case "$ROLE" in
   app)

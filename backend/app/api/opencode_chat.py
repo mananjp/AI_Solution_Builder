@@ -924,7 +924,7 @@ async def chat(
                         ),
                     }
                     # Pre-populate code slots from ai_state (spec-first when available)
-                    from app.services.app_spec import AppSpec, generate_app_spec, SpecError
+                    from app.services.app_spec import AppSpec, SpecError, generate_app_spec
 
                     spec_obj = None
                     spec_data = solution.ai_state.get("app_spec")
@@ -960,7 +960,11 @@ async def chat(
                                 for m in history_msgs
                                 if m.get("role") == "user" and m.get("content")
                             ]
-                            combined_prompt = "\n\n".join(user_messages[-5:]) if user_messages else payload.message
+                            combined_prompt = (
+                                "\n\n".join(user_messages[-5:])
+                                if user_messages
+                                else payload.message
+                            )
 
                             spec_obj = await generate_app_spec(
                                 solution.ai_state or {},

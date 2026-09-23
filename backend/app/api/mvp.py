@@ -235,8 +235,13 @@ async def execute_build_job(build_id: UUID) -> None:
                     allow_offline=True,
                 )
                 # Persist any generated spec back to the solution
-                if ai_state.get("app_spec") and (solution.ai_state or {}).get("app_spec") != ai_state.get("app_spec"):
-                    solution.ai_state = {**(solution.ai_state or {}), "app_spec": ai_state["app_spec"]}
+                if ai_state.get("app_spec") and (solution.ai_state or {}).get(
+                    "app_spec"
+                ) != ai_state.get("app_spec"):
+                    solution.ai_state = {
+                        **(solution.ai_state or {}),
+                        "app_spec": ai_state["app_spec"],
+                    }
                     await db.commit()
 
             # Re-fetch under row lock to guard against concurrent cancellation

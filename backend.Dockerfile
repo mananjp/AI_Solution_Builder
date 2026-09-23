@@ -25,7 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         nodejs \
         npm \
     && rm -rf /var/lib/apt/lists/* \
-    && NODE_OPTIONS="" npm install -g opencode-ai@1.18.31 \
+    && NODE_OPTIONS="" npm install -g @opencode/cli@latest \
     && groupadd --system app && useradd --system --gid app --create-home --home-dir /home/app app
 
 # OpenCode configuration + custom agents
