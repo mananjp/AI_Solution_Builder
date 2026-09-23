@@ -169,7 +169,10 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "solution:comment",
     },
     "guest": {
+        "solution:approve",
         "solution:generate",
+        "solution:regenerate",
+        "solution:deploy",
         "solution:view",
         "solution:comment",
     },

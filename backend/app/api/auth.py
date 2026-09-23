@@ -27,6 +27,7 @@ from app.core.security import (
 from app.models.credit import Plan
 from app.models.organization import Organization
 from app.models.user import User
+from app.models.workspace import Workspace
 from app.schemas import (
     AnonymousAuthResponse,
     SocialProvidersResponse,
@@ -85,6 +86,13 @@ async def create_anonymous_user(db: AsyncSession = Depends(get_db)) -> Anonymous
     )
     db.add(org)
     await db.flush()
+
+    workspace = Workspace(
+        name="Primary Workspace",
+        description="Demo sandbox architecture zone",
+        org_id=org.id,
+    )
+    db.add(workspace)
 
     guest_email = f"guest_{guest_id}@guest.local"
     user = User(

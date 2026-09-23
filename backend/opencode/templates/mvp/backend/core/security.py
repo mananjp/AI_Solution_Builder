@@ -3,7 +3,17 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from jose import JWTError, jwt
+try:
+    import jwt
+    from jwt.exceptions import PyJWTError as JWTError
+except (ImportError, ModuleNotFoundError):
+    try:
+        from jose import JWTError, jwt  # type: ignore[no-redef]
+    except (ImportError, ModuleNotFoundError):
+        import jwt  # type: ignore[no-redef]
+
+        JWTError = Exception  # type: ignore[assignment,misc]
+
 from passlib.context import CryptContext
 
 from .config import settings
@@ -32,5 +42,5 @@ def decode_token(token: str) -> str | None:
     try:
         payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[ALGORITHM])
         return payload.get("sub")
-    except JWTError:
+    except (JWTError, Exception):
         return None
