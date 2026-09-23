@@ -16,6 +16,7 @@ import {
   Clock,
   Terminal,
   Activity,
+  AlertTriangle,
 } from 'lucide-react';
 import ChatMessage from '@/components/ChatMessage';
 import FileUploader from '@/components/FileUploader';
@@ -35,14 +36,22 @@ interface BuildProgressState {
   startedAt: number;
 }
 
+interface BuildCapability {
+  sidecar_online: boolean;
+  llm_provider: string;
+  llm_authenticated: boolean;
+  simulation: boolean;
+  mode: string;
+}
+
 const BUILD_MILESTONES = [
   { step: 1, label: 'Domain Architecture & Specs', phase: 'analyzing' },
   { step: 2, label: 'Database & API Schema Registry', phase: 'persisting' },
   { step: 3, label: 'Full-Stack Codebase Scaffold', phase: 'scaffolding' },
   { step: 4, label: 'Domain Models & REST Routers', phase: 'coding' },
-  { step: 5, label: 'Interactive UI Studios & Playground', phase: 'frontend' },
-  { step: 6, label: 'Codebase Integrity Verification', phase: 'verifying' },
-  { step: 7, label: 'Production Package Archive (.zip)', phase: 'packaging' },
+  { step: 5, label: 'Codebase Integrity Verification', phase: 'verifying' },
+  { step: 6, label: 'Production Package Archive (.zip)', phase: 'packaging' },
+  { step: 7, label: 'Build Finalization & Handoff', phase: 'completed' },
 ];
 
 function ChatContent() {
@@ -68,6 +77,7 @@ function ChatContent() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [finalizedBuild, setFinalizedBuild] = useState<MVPBuild | null>(null);
   const [engineOnline, setEngineOnline] = useState<boolean | null>(null);
+  const [capability, setCapability] = useState<BuildCapability | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deployTarget, setDeployTarget] = useState<MVPBuild | null>(null);
   const [configureTarget, setConfigureTarget] = useState<MVPBuild | null>(null);
@@ -152,11 +162,14 @@ function ChatContent() {
               if (typeof data.session_id === 'string') setSessionId(data.session_id);
               if (typeof data.solution_id === 'string') setSolutionId(data.solution_id);
               push((data.message as string) || 'Initializing intelligence sequence…', (data.agent as string) || 'SUTRA Intelligence');
+            } else if (event === 'capability') {
+              setCapability(data as unknown as BuildCapability);
             } else if (event === 'build_progress') {
               const p = data as unknown as OpenCodeBuildProgress;
               if (p.solution_id) setSolutionId(p.solution_id);
 
               if (p.session_id) setSessionId(p.session_id);
+              const inferred = p.percentage ?? Math.round(((p.step || 1) / Math.max(p.total_steps || 7, 1)) * 100);
               setBuildProgress((prev) => {
                 const startedAt = prev?.startedAt || Date.now();
                 const sec = Math.round((Date.now() - startedAt) / 1000);
@@ -165,7 +178,7 @@ function ChatContent() {
                   phase: p.phase || 'building',
                   step: p.step || 1,
                   total_steps: p.total_steps || 7,
-                  percentage: p.percentage ?? 15,
+                  percentage: inferred,
                   message: p.message || 'Building application...',
                   logs: [...prevLogs, `[${sec}s] ${p.message}`],
                   startedAt,
@@ -265,6 +278,23 @@ function ChatContent() {
           </div>
         </div>
       </div>
+
+      {capability?.simulation && (
+        <div className="mx-2 mb-4 flex items-start gap-2.5 rounded-sm border border-[var(--sutra-gold)] bg-[var(--bg)] px-4 py-3 shadow-sm">
+          <AlertTriangle className="w-4 h-4 text-[var(--sutra-gold)] shrink-0 mt-0.5" />
+          <div className="text-[11px] leading-relaxed">
+            <p className="font-bold uppercase tracking-widest text-[var(--sutra-charcoal)] text-[10px]">
+              Simulation Mode — No Live AI Engine Connected
+            </p>
+            <p className="text-[var(--text-2)] mt-1">
+              No LLM API key configured (<code className="font-mono bg-[var(--bg-2)] px-1">LLM_PROVIDER={capability.llm_provider}</code>) and the OpenCode
+              code engine sidecar is offline. Builds are orchestrating a deterministic template scaffold from your request — this is <strong className="text-[var(--sutra-charcoal)]">not</strong> bespoke AI-generated code.
+              To get real AI generation, set <code className="font-mono bg-[var(--bg-2)] px-1">GROQ_API_KEY</code> or <code className="font-mono bg-[var(--bg-2)] px-1">OPENAI_API_KEY</code> plus <code className="font-mono bg-[var(--bg-2)] px-1">LLM_PROVIDER</code>, and start the OpenCode sidecar
+              (<code className="font-mono bg-[var(--bg-2)] px-1">docker compose up opencode</code> or <code className="font-mono bg-[var(--bg-2)] px-1">opencode serve --port 4096</code>). The generated scaffold is still fully working FastAPI + Next.js code, verified and packaged for download.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* 3-Zone Workspace */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0">

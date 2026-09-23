@@ -36,7 +36,7 @@ from app.core.build_locks import allocate_build_number
 from app.core.config import settings
 from app.core.credits import require_and_deduct_credit
 from app.core.database import async_session_factory, get_db
-from app.core.llm import get_llm
+from app.core.llm import get_llm, has_llm_credentials
 from app.core.security import get_current_user
 from app.models.mvp_build import MVPBuild
 from app.models.solution import Solution
@@ -699,6 +699,24 @@ async def chat(
                     ),
                 }
 
+                # Report runtime capability so the UI can be honest about
+                # whether this build is simulation-only or model-powered.
+                llm_provider = settings.LLM_PROVIDER.lower()
+                llm_creds = has_llm_credentials()
+                simulation = (not sidecar_ok) and (llm_provider == "mock" or not llm_creds)
+                yield {
+                    "event": "capability",
+                    "data": json.dumps(
+                        {
+                            "sidecar_online": sidecar_ok,
+                            "llm_provider": settings.LLM_PROVIDER,
+                            "llm_authenticated": llm_creds,
+                            "simulation": simulation,
+                            "mode": "opencode-sidecar" if sidecar_ok else "integrated-synthesizer",
+                        }
+                    ),
+                }
+
                 # Ensure the chat workspace is scaffolded once per solution.
                 ws_dir = builder.chat_workspace_dir(solution.id)
                 if not any(ws_dir.iterdir()):
@@ -996,6 +1014,19 @@ async def chat(
                             )
 
                     yield {
+                        "event": "build_progress",
+                        "data": json.dumps(
+                            {
+                                "phase": "verifying",
+                                "step": 5,
+                                "total_steps": 7,
+                                "percentage": 85,
+                                "message": "Running codebase integrity verification (imports, routes, acceptance coverage)...",
+                                "solution_id": str(solution.id),
+                                "session_id": session_id,
+                            }
+                        ),
+                    }
                         "event": "build_progress",
                         "data": json.dumps(
                             {
