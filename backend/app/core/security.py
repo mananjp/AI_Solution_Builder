@@ -114,11 +114,7 @@ async def get_current_user(
     # Wire the tenant context into the DB session so workable tables protected by
     # RLS policies are filtered per org. Only applies on Postgres (set_config is
     # PG-only) and only when RLS is enabled.
-    if (
-        settings.RLS_ENABLED
-        and user.org_id
-        and db.get_bind().dialect.name == "postgresql"
-    ):
+    if settings.RLS_ENABLED and user.org_id and db.get_bind().dialect.name == "postgresql":
         from app.services.rls import set_request_org
 
         try:

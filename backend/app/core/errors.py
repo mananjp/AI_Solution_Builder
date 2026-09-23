@@ -52,12 +52,14 @@ def error_response(
 
 
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    details: list[Any]
     if isinstance(exc.detail, dict):
         # Dict details carry a structured envelope — surface their fields instead
         # of mangling the dict via str().
         message = exc.detail.get("message") or str(exc.detail)
         code = exc.detail.get("code", _status_code_name(exc.status_code))
-        details = exc.detail.get("details", [])
+        raw_details = exc.detail.get("details", [])
+        details = list(raw_details) if isinstance(raw_details, list) else [raw_details]
     else:
         message = exc.detail
         code = _status_code_name(exc.status_code)
@@ -66,7 +68,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
     return error_response(
         code=str(code),
         message=str(message),
-        details=list(details) if isinstance(details, list) else [details],
+        details=details,
         http_code=exc.status_code,
         headers=getattr(exc, "headers", None),
     )

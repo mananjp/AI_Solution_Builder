@@ -6,8 +6,11 @@ implementation plan). Used by the app lifespan, Alembic migrations, and the lazy
 get-or-create paths in auth so the ``plans`` table is never missing at runtime.
 """
 
-from sqlalchemy import select
+from typing import Any, cast
+
+from sqlalchemy import Result, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.models.credit import Plan
@@ -20,7 +23,7 @@ DEFAULT_PLANS: tuple[tuple[str, int, int, float], ...] = (
 )
 
 
-def _plan_rows() -> list[dict]:
+def _plan_rows() -> list[dict[str, int | str | float]]:
     return [
         {
             "name": name,
@@ -32,7 +35,7 @@ def _plan_rows() -> list[dict]:
     ]
 
 
-async def ensure_default_plans(db) -> None:
+async def ensure_default_plans(db: AsyncSession) -> None:
     """Async-session variant: create the default plans if missing (idempotent)."""
     for spec in _plan_rows():
         exists = (
@@ -40,21 +43,19 @@ async def ensure_default_plans(db) -> None:
         ).scalar_one_or_none()
         if exists is None:
             db.add(Plan(**spec))
-    await db.flush()
+    await db.flush()  # type: ignore[no-untyped-call]
 
 
 def ensure_default_plans_sync(db: Session) -> None:
     """Sync-session variant for use inside ``conn.run_sync`` in the lifespan."""
     for spec in _plan_rows():
-        exists = db.execute(
-            select(Plan.id).where(Plan.name == spec["name"])
-        ).scalar_one_or_none()
+        exists = db.execute(select(Plan.id).where(Plan.name == spec["name"])).scalar_one_or_none()
         if exists is None:
             db.add(Plan(**spec))
     db.flush()
 
 
-async def get_or_create_free_plan(db) -> Plan:
+async def get_or_create_free_plan(db: AsyncSession) -> Plan:
     """Return the ``free`` plan, creating it if absent (safe under concurrency).
 
     The SELECT-then-INSERT sequence can race with a concurrent request that creates
@@ -63,18 +64,19 @@ async def get_or_create_free_plan(db) -> Plan:
     ever called before other rows are written in the surrounding transaction, so the
     rollback never discards user/org data.
     """
-    result = await db.execute(select(Plan).where(Plan.name == "free"))
-    plan = result.scalar_one_or_none()
+    result: Result[Any] = await db.execute(select(Plan).where(Plan.name == "free"))
+    plan = cast("Plan | None", result.scalar_one_or_none())
     if plan is not None:
         return plan
 
     db.add(Plan(monthly_credits=200, max_workable_systems=1, price_usd=0, name="free"))
     try:
-        await db.flush()
+        await db.flush()  # type: ignore[no-untyped-call]
     except IntegrityError:
         await db.rollback()
         result = await db.execute(select(Plan).where(Plan.name == "free"))
-        plan = result.scalar_one_or_none()
+        plan = cast("Plan | None", result.scalar_one_or_none())
         if plan is None:
             raise
+    assert plan is not None
     return plan

@@ -37,9 +37,7 @@ router = APIRouter(prefix="/artifacts", tags=["Artifacts & Regeneration"])
 
 class RegenerateRequest(BaseModel):
     solution_id: UUID
-    artifact_type: (
-        str  # 'hld', 'lld', 'wireframe', 'database_schema', 'api_spec', 'roadmap', 'bpmn_flows' (legacy 'bpmn' accepted)
-    )
+    artifact_type: str  # 'hld', 'lld', 'wireframe', 'database_schema', 'api_spec', 'roadmap', 'bpmn_flows' (legacy 'bpmn' accepted)
     user_feedback: str
 
 

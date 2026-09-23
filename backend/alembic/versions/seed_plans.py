@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 
 import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -43,7 +44,9 @@ def upgrade() -> None:
     )
     for name, monthly_credits, max_workable_systems, price_usd in plans:
         bind.execute(
-            plans_table.insert().on_conflict_do_nothing(index_elements=["name"]).values(
+            plans_table.insert()
+            .on_conflict_do_nothing(index_elements=["name"])
+            .values(
                 id=uuid.uuid4(),
                 name=name,
                 monthly_credits=monthly_credits,

@@ -38,16 +38,22 @@ def upgrade() -> None:
         sa.Column("id", uuid_t, primary_key=True),
         sa.Column("gateway", sa.String(20), nullable=False, server_default="razorpay"),
         sa.Column("gateway_order_id", sa.String(64), nullable=False),
-        sa.Column("org_id", uuid_t, sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "org_id", uuid_t, sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        ),
         sa.Column("amount", sa.Integer(), nullable=False),
         sa.Column("currency", sa.String(3), nullable=False, server_default="INR"),
         sa.Column("credits", sa.Integer(), nullable=False),
         sa.Column("status", sa.String(20), nullable=False, server_default="pending"),
         sa.Column("payment_id", sa.String(64), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.Column("captured_at", sa.DateTime(timezone=True), nullable=True),
     )
-    op.create_index("ix_payment_orders_gateway_order_id", "payment_orders", ["gateway_order_id"], unique=True)
+    op.create_index(
+        "ix_payment_orders_gateway_order_id", "payment_orders", ["gateway_order_id"], unique=True
+    )
 
 
 def downgrade() -> None:

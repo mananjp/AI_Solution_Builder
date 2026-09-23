@@ -412,7 +412,11 @@ async def quick_build(
             build_number=build_number,
             status="queued",
             workspace_path=str(workspace_dir),
-            app_config={**payload.config, "app_name": payload.app_name, "template": payload.template},
+            app_config={
+                **payload.config,
+                "app_name": payload.app_name,
+                "template": payload.template,
+            },
         )
         db.add(build)
         await db.flush()
@@ -427,7 +431,7 @@ async def quick_build(
     if settings.WORKER_MODE == "inline":
         _spawn_build_job(build.id)
 
-    return _build_response(build)
+    return await _build_response(build)
 
 
 @router.post("/{solution_id}/build", response_model=MVPBuildResponse)
@@ -466,7 +470,11 @@ async def trigger_build(
             build_number=build_number,
             status="queued",
             workspace_path=str(workspace),
-            app_config={**payload.config, "app_name": payload.app_name, "template": payload.template},
+            app_config={
+                **payload.config,
+                "app_name": payload.app_name,
+                "template": payload.template,
+            },
         )
         db.add(build)
         await db.flush()
@@ -481,7 +489,7 @@ async def trigger_build(
     if settings.WORKER_MODE == "inline":
         _spawn_build_job(build.id)
 
-    return _build_response(build)
+    return await _build_response(build)
 
 
 @router.get("/{solution_id}/builds", response_model=list[MVPBuildResponse])
@@ -497,7 +505,7 @@ async def list_builds(
         .where(MVPBuild.solution_id == solution_id)
         .order_by(desc(MVPBuild.build_number))
     )
-    return [_build_response(b) for b in result.scalars().all()]
+    return [await _build_response(b) for b in result.scalars().all()]
 
 
 @router.post("/{solution_id}/spec")
@@ -622,7 +630,7 @@ async def build_status(
             await db.commit()
             await db.refresh(build)
 
-    return _build_response(build, include_files=(build.status in _STATUS_END_STATES))
+    return await _build_response(build, include_files=(build.status in _STATUS_END_STATES))
 
 
 @router.get("/builds/{build_id}/download")

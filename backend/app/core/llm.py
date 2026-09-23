@@ -669,14 +669,22 @@ def _mock_requirement_gap() -> dict[str, Any]:
                 "question": "Which customer data privacy and regulatory standards (e.g. DPDP, GDPR, HIPAA) apply to your users?",
                 "category": "compliance",
                 "why_it_matters": "Determines encryption-at-rest, consent capture flows, and data residency architecture.",
-                "suggested_answers": ["DPDP Act (India)", "GDPR (Europe)", "Standard commercial privacy"],
+                "suggested_answers": [
+                    "DPDP Act (India)",
+                    "GDPR (Europe)",
+                    "Standard commercial privacy",
+                ],
             },
             {
                 "id": "q-scale-1",
                 "question": "What is the expected concurrent user load and availability SLA?",
                 "category": "scale",
                 "why_it_matters": "Drives auto-scaling, caching, and backup/recovery design decisions.",
-                "suggested_answers": ["Internal team (<50 users)", "100-1,000 users", "10,000+ users"],
+                "suggested_answers": [
+                    "Internal team (<50 users)",
+                    "100-1,000 users",
+                    "10,000+ users",
+                ],
             },
         ],
         "assumptions_log": [

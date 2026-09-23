@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import base64
 import json
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -61,11 +61,10 @@ async def create_order(
         )
     if resp.status_code not in (200, 201):
         raise RazorpayError(
-            f"Razorpay order creation failed: HTTP {resp.status_code} "
-            f"{resp.text[:500]}"
+            f"Razorpay order creation failed: HTTP {resp.status_code} {resp.text[:500]}"
         )
     data = resp.json()
     order_id = data.get("id")
     if not order_id:
         raise RazorpayError(f"Razorpay returned no order id: {json.dumps(data)[:500]}")
-    return data
+    return cast(dict[str, Any], data)

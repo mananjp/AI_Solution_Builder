@@ -69,9 +69,7 @@ def _fk_reference(col: Column[Any]) -> Column[Any] | None:
     return fks[0].column  # type: ignore[return-value]
 
 
-def _value_for_column(
-    col: Column[Any], rng: random.Random, row_index: int = 0
-) -> Any:
+def _value_for_column(col: Column[Any], rng: random.Random, row_index: int = 0) -> Any:
     """Generate a plausible value for a column based on its name/type.
 
     ``row_index`` (and UUID-based salts for email/url) make values unique per
@@ -240,9 +238,7 @@ async def seed_synthetic_rows(
             except Exception as exc:  # noqa: BLE001
                 # One malformed row (e.g. NOT NULL FK to an unseeded parent) must not
                 # abort the entire run — log and continue with the next row.
-                logger.warning(
-                    "Skipping synthetic row for %s.%s: %s", schema_name, entity, exc
-                )
+                logger.warning("Skipping synthetic row for %s.%s: %s", schema_name, entity, exc)
                 continue
             created += 1
 

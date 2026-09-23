@@ -74,7 +74,8 @@ async def upload_document(
     # Reject oversized uploads without buffering the whole body (DoS guard):
     # check the declared size first, then read at most limit+1 bytes.
     max_bytes = 10 * 1024 * 1024
-    if getattr(file, "size", None) is not None and file.size > max_bytes:
+    declared_size = getattr(file, "size", None)
+    if declared_size is not None and declared_size > max_bytes:
         raise HTTPException(status_code=413, detail="File too large (max 10MB)")
     contents = await file.read(max_bytes + 1)
     if len(contents) > max_bytes:
@@ -102,7 +103,8 @@ async def upload_audio(
     Hindi, Tamil, Marathi, etc.), and major global languages.
     """
     max_bytes = 25 * 1024 * 1024
-    if getattr(file, "size", None) is not None and file.size > max_bytes:
+    declared_size = getattr(file, "size", None)
+    if declared_size is not None and declared_size > max_bytes:
         raise HTTPException(status_code=413, detail="Audio file too large (max 25MB)")
     contents = await file.read(max_bytes + 1)
     if len(contents) > max_bytes:
@@ -157,7 +159,8 @@ async def upload_image(
 ) -> dict[str, Any]:
     """Upload and extract architectural context from UI screenshots, wireframes, or whiteboard photos."""
     max_bytes = 10 * 1024 * 1024
-    if getattr(file, "size", None) is not None and file.size > max_bytes:
+    declared_size = getattr(file, "size", None)
+    if declared_size is not None and declared_size > max_bytes:
         raise HTTPException(status_code=413, detail="Image file too large (max 10MB)")
     contents = await file.read(max_bytes + 1)
     if len(contents) > max_bytes:
