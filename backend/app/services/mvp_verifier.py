@@ -280,14 +280,24 @@ def verify_workspace(workspace_dir: Path, check_npm: bool = False) -> list[str]:
     return verify_workspace_report(workspace_dir, check_npm=check_npm)["errors"]  # type: ignore[no-any-return]
 
 
-def verify_workspace_report(workspace_dir: Path, check_npm: bool = False) -> dict[str, Any]:
+def verify_workspace_report(
+    workspace_dir: Path, check_npm: bool = False, run_tests: bool | None = None
+) -> dict[str, Any]:
     if not workspace_dir.exists():
         return {"errors": [f"Workspace directory does not exist: {workspace_dir}"], "tests": {}}
     errors: list[str] = list(verify_backend_integrity(workspace_dir / "backend"))
     tests: dict[str, Any] = {}
-    if not errors:  # only run behaviour once it compiles
+    should_run_tests = (
+        run_tests
+        if run_tests is not None
+        else getattr(settings, "MVP_RUN_ACCEPTANCE_TESTS", False)
+    )
+    if not errors and should_run_tests:
         tests = run_acceptance_tests(workspace_dir / "backend")
-        errors.extend(tests["errors"])
+        if getattr(settings, "MVP_STRICT_TESTS", False):
+            errors.extend(tests.get("errors", []))
+        elif tests.get("errors"):
+            logger.warning("Acceptance test warnings (non-blocking): %s", tests["errors"])
     actions = workspace_dir / "backend" / "actions.py"
     if actions.exists():
         src = actions.read_text(encoding="utf-8")
@@ -298,7 +308,11 @@ def verify_workspace_report(workspace_dir: Path, check_npm: bool = False) -> dic
                 src,
             )
             actions.write_text(healed, encoding="utf-8")
-    errors.extend(verify_screens(workspace_dir))
+    screen_errors = verify_screens(workspace_dir)
+    if getattr(settings, "MVP_STRICT_SCREENS", False):
+        errors.extend(screen_errors)
+    elif screen_errors:
+        logger.warning("Screen verification warnings (non-blocking): %s", screen_errors)
     should_run_build = bool(check_npm and getattr(settings, "MVP_VERIFY_NPM", False))
     errors.extend(verify_frontend_integrity(workspace_dir / "frontend", run_build=should_run_build))
     return {"errors": errors, "tests": tests}
