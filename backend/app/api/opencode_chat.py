@@ -656,7 +656,10 @@ async def chat(
                         solution = await _verify_solution_access(
                             stream_db, payload.solution_id, current_user
                         )
-                        if payload.app_name and solution.title in ("Custom App Build", "Custom App"):
+                        if payload.app_name and solution.title in (
+                            "Custom App Build",
+                            "Custom App",
+                        ):
                             solution.title = payload.app_name
                     except Exception as exc:
                         logger.warning(
@@ -856,7 +859,9 @@ async def chat(
                             except (json.JSONDecodeError, TypeError):
                                 assistant_text = str(resp.content)
                     except Exception as llm_err:
-                        logger.warning("LLM chat invoke failed (%s); using contextual synthesis", llm_err)
+                        logger.warning(
+                            "LLM chat invoke failed (%s); using contextual synthesis", llm_err
+                        )
                         assistant_text = ""
                     if not assistant_text or assistant_text == "Mock response":
                         assistant_text = (

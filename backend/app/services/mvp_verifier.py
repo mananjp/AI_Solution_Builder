@@ -214,11 +214,11 @@ def _ensure_baseline_tests(backend_dir: Path) -> None:
     test_api = tests_dir / "test_api_health.py"
     if not any(tests_dir.glob("test_*.py")):
         test_api.write_text(
-            'import pytest\n\n'
-            'pytestmark = pytest.mark.asyncio\n\n'
-            'async def test_health_check(client):\n'
+            "import pytest\n\n"
+            "pytestmark = pytest.mark.asyncio\n\n"
+            "async def test_health_check(client):\n"
             '    r = await client.get("/api/v1/health")\n'
-            '    assert r.status_code in (200, 404)\n',
+            "    assert r.status_code in (200, 404)\n",
             encoding="utf-8",
         )
 
@@ -288,9 +288,7 @@ def verify_workspace_report(
     errors: list[str] = list(verify_backend_integrity(workspace_dir / "backend"))
     tests: dict[str, Any] = {}
     should_run_tests = (
-        run_tests
-        if run_tests is not None
-        else getattr(settings, "MVP_RUN_ACCEPTANCE_TESTS", False)
+        run_tests if run_tests is not None else getattr(settings, "MVP_RUN_ACCEPTANCE_TESTS", False)
     )
     if not errors and should_run_tests:
         tests = run_acceptance_tests(workspace_dir / "backend")

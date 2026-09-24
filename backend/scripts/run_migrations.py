@@ -7,6 +7,7 @@ with bounded retries and timeouts to prevent startup hangs.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
@@ -27,6 +28,7 @@ except ImportError:
     try:
         from app.core.database import normalize_database_url  # type: ignore[no-redef]
     except ImportError:
+
         def normalize_database_url(url: str) -> str:
             return url
 
@@ -59,7 +61,9 @@ def main() -> int:
             pass
 
     if not raw_url or "sqlite" in raw_url:
-        print("[run_migrations] Running alembic upgrade head directly (non-PostgreSQL)...", flush=True)
+        print(
+            "[run_migrations] Running alembic upgrade head directly (non-PostgreSQL)...", flush=True
+        )
         try:
             res = subprocess.run(
                 [sys.executable, "-m", "alembic", "upgrade", "head"],
@@ -89,7 +93,10 @@ def main() -> int:
                 if row and row[0]:
                     acquired = True
                     break
-            print(f"[run_migrations] Migration lock held by another process; waiting (attempt {attempt})...", flush=True)
+            print(
+                f"[run_migrations] Migration lock held by another process; waiting (attempt {attempt})...",
+                flush=True,
+            )
             time.sleep(2)
             attempt += 1
 
@@ -101,7 +108,9 @@ def main() -> int:
             )
             return 0
 
-        print("[run_migrations] Migration lock acquired. Running alembic upgrade head...", flush=True)
+        print(
+            "[run_migrations] Migration lock acquired. Running alembic upgrade head...", flush=True
+        )
         result = subprocess.run(
             [sys.executable, "-m", "alembic", "upgrade", "head"],
             cwd=os.getcwd(),
@@ -111,10 +120,16 @@ def main() -> int:
         return result.returncode
 
     except subprocess.TimeoutExpired:
-        print(f"[run_migrations] Alembic timed out after {ALEMBIC_TIMEOUT_SECONDS}s; proceeding to start server.", flush=True)
+        print(
+            f"[run_migrations] Alembic timed out after {ALEMBIC_TIMEOUT_SECONDS}s; proceeding to start server.",
+            flush=True,
+        )
         return 0
     except Exception as exc:
-        print(f"[run_migrations] Warning: migration check failed ({exc}); proceeding to start server.", flush=True)
+        print(
+            f"[run_migrations] Warning: migration check failed ({exc}); proceeding to start server.",
+            flush=True,
+        )
         return 0
     finally:
         if conn:
@@ -125,10 +140,8 @@ def main() -> int:
                     print("[run_migrations] Released advisory lock.", flush=True)
                 except Exception as exc:
                     print(f"[run_migrations] Warning releasing advisory lock: {exc}", flush=True)
-            try:
+            with contextlib.suppress(Exception):
                 conn.close()
-            except Exception:
-                pass
 
 
 if __name__ == "__main__":

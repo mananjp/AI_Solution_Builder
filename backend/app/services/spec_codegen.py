@@ -356,7 +356,7 @@ def gen_actions_stub(spec: AppSpec) -> str:
             rules,
             f"    Example output: {example_repr[:400]}",
             '    """',
-            f"    # Default synthesized action implementation",
+            "    # Default synthesized action implementation",
             f"    return {example_repr}",
         ]
     return "\n".join(out) + "\n"

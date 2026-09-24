@@ -2401,9 +2401,7 @@ async def run_build(
                 "Generated AppSpec '%s' for run_build (solution=%s)", spec.app_name, solution_id
             )
         except Exception as exc:
-            logger.warning(
-                "generate_app_spec bypassed (%s); generating fallback AppSpec", exc
-            )
+            logger.warning("generate_app_spec bypassed (%s); generating fallback AppSpec", exc)
             from app.services.app_spec import fallback_app_spec
 
             spec = fallback_app_spec(

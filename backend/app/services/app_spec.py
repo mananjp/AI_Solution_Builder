@@ -193,17 +193,19 @@ class AppSpec(BaseModel):
         missing = action_paths - exercised_actions
         if missing:
             # Auto-supplement missing action acceptance tests so validation never fails
-            for a in self.actions:
-                if a.path in missing:
+            for act in self.actions:
+                if act.path in missing:
                     self.acceptance_tests.append(
                         AcceptanceTest(
-                            name=f"test_{a.name}",
-                            description=f"Exercises action {a.name}",
+                            name=f"test_{act.name}",
+                            description=f"Exercises action {act.name}",
                             steps=[
                                 TestStep(
-                                    method=a.method,
-                                    path=a.path,
-                                    body={f.name: "test" for f in a.input_fields} if a.method == "POST" else None,
+                                    method=act.method,
+                                    path=act.path,
+                                    body={f.name: "test" for f in act.input_fields}
+                                    if act.method == "POST"
+                                    else None,
                                     expect_status=200,
                                 )
                             ],
@@ -350,49 +352,108 @@ def fallback_app_spec(
                 ename = re.sub(r"[^a-zA-Z0-9_]+", "_", str(m).lower()).strip("_")
                 eplural = ename + "s" if not ename.endswith("s") else ename + "es"
                 entities.append(
-                    (ename, eplural, [{"name": "title", "type": "string"}, {"name": "status", "type": "string"}])
+                    (
+                        ename,
+                        eplural,
+                        [{"name": "title", "type": "string"}, {"name": "status", "type": "string"}],
+                    )
                 )
 
     if not entities:
-        combined_text = f"{user_prompt} {uploaded_context} {ai_state.get('business_description', '')}".lower()
-        if any(k in combined_text for k in ("landing", "portfolio", "showcase", "website", "agency", "service")):
+        combined_text = (
+            f"{user_prompt} {uploaded_context} {ai_state.get('business_description', '')}".lower()
+        )
+        if any(
+            k in combined_text
+            for k in ("landing", "portfolio", "showcase", "website", "agency", "service")
+        ):
             entities = [
-                ("inquiry", "inquiries", [{"name": "name", "type": "string"}, {"name": "email", "type": "string"}]),
+                (
+                    "inquiry",
+                    "inquiries",
+                    [{"name": "name", "type": "string"}, {"name": "email", "type": "string"}],
+                ),
                 ("lead", "leads", [{"name": "company", "type": "string"}]),
             ]
-        elif any(k in combined_text for k in ("store", "shop", "ecommerce", "cart", "product", "retail")):
+        elif any(
+            k in combined_text for k in ("store", "shop", "ecommerce", "cart", "product", "retail")
+        ):
             entities = [
-                ("product", "products", [{"name": "title", "type": "string"}, {"name": "price", "type": "float"}]),
-                ("order", "orders", [{"name": "customer_name", "type": "string"}, {"name": "status", "type": "string"}]),
+                (
+                    "product",
+                    "products",
+                    [{"name": "title", "type": "string"}, {"name": "price", "type": "float"}],
+                ),
+                (
+                    "order",
+                    "orders",
+                    [
+                        {"name": "customer_name", "type": "string"},
+                        {"name": "status", "type": "string"},
+                    ],
+                ),
             ]
         elif any(k in combined_text for k in ("task", "project", "todo", "kanban", "sprint")):
             entities = [
                 ("project", "projects", [{"name": "title", "type": "string"}]),
-                ("task", "tasks", [{"name": "title", "type": "string"}, {"name": "status", "type": "string"}]),
+                (
+                    "task",
+                    "tasks",
+                    [{"name": "title", "type": "string"}, {"name": "status", "type": "string"}],
+                ),
             ]
-        elif any(k in combined_text for k in ("invoice", "billing", "expense", "finance", "payment")):
+        elif any(
+            k in combined_text for k in ("invoice", "billing", "expense", "finance", "payment")
+        ):
             entities = [
-                ("invoice", "invoices", [{"name": "client_name", "type": "string"}, {"name": "amount", "type": "float"}]),
-                ("expense", "expenses", [{"name": "description", "type": "string"}, {"name": "amount", "type": "float"}]),
+                (
+                    "invoice",
+                    "invoices",
+                    [
+                        {"name": "client_name", "type": "string"},
+                        {"name": "amount", "type": "float"},
+                    ],
+                ),
+                (
+                    "expense",
+                    "expenses",
+                    [
+                        {"name": "description", "type": "string"},
+                        {"name": "amount", "type": "float"},
+                    ],
+                ),
             ]
         elif any(k in combined_text for k in ("restaurant", "food", "menu", "cafe", "dine")):
             entities = [
-                ("menu_item", "menu_items", [{"name": "name", "type": "string"}, {"name": "price", "type": "float"}]),
-                ("table_order", "table_orders", [{"name": "table_number", "type": "int"}, {"name": "status", "type": "string"}]),
+                (
+                    "menu_item",
+                    "menu_items",
+                    [{"name": "name", "type": "string"}, {"name": "price", "type": "float"}],
+                ),
+                (
+                    "table_order",
+                    "table_orders",
+                    [{"name": "table_number", "type": "int"}, {"name": "status", "type": "string"}],
+                ),
             ]
         else:
             entities = [
-                ("item", "items", [{"name": "name", "type": "string"}, {"name": "description", "type": "text"}]),
+                (
+                    "item",
+                    "items",
+                    [{"name": "name", "type": "string"}, {"name": "description", "type": "text"}],
+                ),
                 ("category", "categories", [{"name": "name", "type": "string"}]),
             ]
 
     spec_entities: list[Entity] = []
     for ename, eplural, f_list in entities:
         spec_fields = [
-            SpecField(name=f["name"], type=f.get("type", "string"), required=True)
-            for f in f_list
+            SpecField(name=f["name"], type=f.get("type", "string"), required=True) for f in f_list
         ]
-        spec_entities.append(Entity(name=ename, plural=eplural, description=f"{ename} entity", fields=spec_fields))
+        spec_entities.append(
+            Entity(name=ename, plural=eplural, description=f"{ename} entity", fields=spec_fields)
+        )
 
     screens = [
         Screen(
@@ -415,7 +476,10 @@ def fallback_app_spec(
     ]
 
     first_e = spec_entities[0]
-    sample_body = {f.name: (10.0 if f.type == "float" else 1 if f.type == "int" else "Sample Value") for f in first_e.fields}
+    sample_body = {
+        f.name: (10.0 if f.type == "float" else 1 if f.type == "int" else "Sample Value")
+        for f in first_e.fields
+    }
 
     tests = [
         AcceptanceTest(
@@ -539,7 +603,9 @@ async def generate_app_spec(
                 ),
             ]
 
-    logger.warning("AppSpec validation exhausted %d attempts; using smart fallback AppSpec", max_attempts)
+    logger.warning(
+        "AppSpec validation exhausted %d attempts; using smart fallback AppSpec", max_attempts
+    )
     return fallback_app_spec(
         ai_state,
         user_prompt,
