@@ -25,7 +25,9 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     # Dialect-portable upsert: generate PKs and timestamps in Python so the same
-    # migration runs on Postgres and SQLite (gen_random_uuid()/NOW() are PG-only).
+    # migration runs on Postgres and SQLite (gen_random_uuid()/NOW() are PG-only),
+    # and only insert rows that are not already present (on_conflict is
+    # dialect-specific and unavailable on a generic sa.table().insert()).
     plans: tuple[tuple[str, int, int, float], ...] = (
         ("free", 200, 1, 0.0),
         ("pro", 2000, 5, 49.0),
@@ -42,11 +44,12 @@ def upgrade() -> None:
         sa.column("price_usd", sa.Numeric(10, 2)),
         sa.column("created_at", sa.DateTime(timezone=True)),
     )
+    existing = {row[0] for row in bind.execute(sa.text("SELECT name FROM plans")).fetchall()}
     for name, monthly_credits, max_workable_systems, price_usd in plans:
+        if name in existing:
+            continue
         bind.execute(
-            plans_table.insert()
-            .on_conflict_do_nothing(index_elements=["name"])
-            .values(
+            plans_table.insert().values(
                 id=uuid.uuid4(),
                 name=name,
                 monthly_credits=monthly_credits,
