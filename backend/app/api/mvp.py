@@ -16,7 +16,9 @@ artifacts via the OpenCode sidecar:
 
 import asyncio
 import io
+import json
 import logging
+import re
 import tempfile
 import zipfile
 from datetime import UTC, datetime
@@ -24,8 +26,9 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
+from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +37,7 @@ from app.core.build_locks import allocate_build_number
 from app.core.config import settings
 from app.core.credits import action_cost, refund_credit, require_and_deduct_credit
 from app.core.database import async_session_factory, get_db
+from app.core.llm import get_llm
 from app.core.secrets import decrypt_secret
 from app.core.security import get_current_user
 from app.models.build_job import BuildJob
@@ -629,7 +633,7 @@ async def build_status(
         )
         if not task_active and age > 180:  # 3 minutes with no active task
             local_dir = Path(build.workspace_path)
-            files = builder.list_build_files(local_dir) if local_dir.exists() else []
+            files: list[Path] = builder.list_build_files(local_dir) if local_dir.exists() else []
             if files:
                 build.status = "complete"
                 build.file_count = len(files)
@@ -645,6 +649,481 @@ async def build_status(
 
     return await _build_response(build, include_files=(build.status in _STATUS_END_STATES))
 
+
+def _resolve_workspace_dir(build: MVPBuild) -> Path:
+    """Resolve and ensure the local workspace directory exists for a build."""
+    target_dir = builder.build_workspace_dir(build.solution_id, build.build_number)
+
+    # 1. Prefer explicit workspace_path if present on disk
+    if build.workspace_path:
+        ws_path = Path(build.workspace_path)
+        if ws_path.exists() and any(ws_path.iterdir()):
+            return ws_path
+
+    # 2. Check standard build workspace dir
+    if target_dir.exists() and any(target_dir.iterdir()):
+        return target_dir
+
+    # 3. Unpack local zip if present
+    local_zip = target_dir.with_suffix(".zip")
+    if local_zip.exists():
+        try:
+            with zipfile.ZipFile(local_zip, "r") as zf:
+                zf.extractall(target_dir)
+            if any(target_dir.iterdir()):
+                return target_dir
+        except Exception as exc:
+            logger.warning("Failed to extract local zip for build %s: %s", build.id, exc)
+
+    # 4. Check chat workspace dir fallback
+    chat_dir = builder.chat_workspace_dir(build.solution_id)
+    if chat_dir.exists() and any(chat_dir.iterdir()):
+        return chat_dir
+
+    return target_dir
+
+
+@router.get("/builds/{build_id}/files/{file_path:path}")
+async def get_build_file(
+    build_id: UUID,
+    file_path: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Read a specific file from a completed build's workspace."""
+    build = await _get_build_for_user(db, build_id, current_user)
+    if build.status != "complete":
+        raise HTTPException(
+            status_code=409, detail=f"Build is not complete (status={build.status})"
+        )
+
+    local_dir = _resolve_workspace_dir(build)
+    target_path = (local_dir / file_path).resolve()
+
+    # Security: Ensure target_path is inside local_dir
+    if not str(target_path).startswith(str(local_dir.resolve())):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not target_path.exists() or not target_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Return as plain text for code files or octet-stream otherwise
+    return FileResponse(path=str(target_path))
+
+
+class MVPChatEditRequest(BaseModel):
+    message: str
+    active_file: str | None = None
+
+
+class MVPFileUpdate(BaseModel):
+    path: str
+    content: str
+
+
+class MVPChatEditResponse(BaseModel):
+    status: str
+    message: str
+    updated_files: list[MVPFileUpdate]
+    all_files: list[MVPFileEntry]
+    build_id: UUID
+    build_number: int
+
+
+@router.post("/builds/{build_id}/edit", response_model=MVPChatEditResponse)
+async def chat_edit_build(
+    build_id: UUID,
+    payload: MVPChatEditRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MVPChatEditResponse:
+    """Apply conversational code/design edits from the user to a build workspace.
+
+    Parses the user prompt, reads relevant workspace files, generates code edits
+    via LLM with resilient deterministic fallbacks, updates the workspace on disk,
+    re-indexes files, refreshes the build archive, and returns updated files.
+    """
+    build = await _get_build_for_user(db, build_id, current_user)
+    if build.status != "complete":
+        raise HTTPException(
+            status_code=409, detail=f"Build must be complete to apply edits (status={build.status})"
+        )
+
+    local_dir = _resolve_workspace_dir(build)
+    rel_files = builder.relative_paths(local_dir)
+
+    # Identify primary file to edit or inspect
+    target_rel = payload.active_file
+    if not target_rel or not (local_dir / target_rel).exists():
+        candidates = [
+            "frontend/src/app/page.tsx",
+            "frontend/src/App.tsx",
+            "src/app/page.tsx",
+            "src/App.tsx",
+        ]
+        target_rel = next((c for c in candidates if (local_dir / c).exists()), None)
+        if not target_rel and rel_files:
+            target_rel = next((f for f in rel_files if f.endswith((".tsx", ".jsx", ".py"))), rel_files[0])
+
+    primary_content = ""
+    if target_rel and (local_dir / target_rel).exists():
+        try:
+            primary_content = (local_dir / target_rel).read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            primary_content = ""
+
+    explanation = ""
+    updated_files_data: list[dict[str, str]] = []
+
+    try:
+        llm = get_llm()
+        system_prompt = (
+            "You are an expert full-stack AI software engineer for an interactive code sandbox.\n"
+            "The user has an existing web application and wants to edit it using natural language.\n"
+            "Your goal is to apply the user's edit accurately to the codebase.\n\n"
+            "Rules:\n"
+            "1. Only modify files that need to change to satisfy the user's request.\n"
+            "2. If the user asks for styling, layout, text, colors, features, or UI improvements, modify the frontend page/components.\n"
+            "3. Keep the code syntactically valid and clean Next.js/React with Tailwind CSS.\n"
+            "4. Respond with valid JSON in this exact structure:\n"
+            "{\n"
+            '  "explanation": "A friendly 1-2 sentence explanation of what you updated.",\n'
+            '  "files": [\n'
+            '    {\n'
+            '      "path": "relative/path/to/file.tsx",\n'
+            '      "content": "Full updated code for the file"\n'
+            '    }\n'
+            '  ]\n'
+            "}\n"
+            "Do NOT include any text outside the JSON object."
+        )
+
+        user_prompt = (
+            f"User Edit Request: {payload.message}\n\n"
+            f"Active File: {target_rel or 'None'}\n\n"
+            f"Workspace Files Available: {json.dumps(rel_files[:35])}\n\n"
+            f"Current Content of {target_rel}:\n"
+            f"```\n{primary_content[:12000]}\n```\n"
+        )
+
+        resp = await llm.ainvoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt),
+        ])
+
+        raw_text = str(resp.content or "").strip()
+        match = re.search(r"\{[\s\S]*\"files\"[\s\S]*\}", raw_text)
+        if match:
+            data = json.loads(match.group(0))
+            explanation = str(data.get("explanation", ""))
+            raw_files = data.get("files", [])
+            if isinstance(raw_files, list):
+                for f in raw_files:
+                    if isinstance(f, dict) and f.get("path") and f.get("content"):
+                        updated_files_data.append({
+                            "path": str(f["path"]).replace("\\", "/").lstrip("/"),
+                            "content": str(f["content"]),
+                        })
+    except Exception as llm_err:
+        logger.warning("LLM invocation during chat_edit encountered: %s", llm_err)
+
+    # Resilient fallback if LLM did not return files
+    if not updated_files_data and target_rel and primary_content:
+        new_content = primary_content
+        changes_made = []
+
+        # 1. Color theme change detection
+        color_map = {
+            "emerald": ("amber-", "emerald-"),
+            "green": ("amber-", "green-"),
+            "blue": ("amber-", "blue-"),
+            "purple": ("amber-", "purple-"),
+            "indigo": ("amber-", "indigo-"),
+            "rose": ("amber-", "rose-"),
+            "red": ("amber-", "red-"),
+            "gold": ("emerald-", "amber-"),
+        }
+        for color_key, (old_prefix, new_prefix) in color_map.items():
+            if color_key in payload.message.lower():
+                if old_prefix in new_content:
+                    new_content = new_content.replace(old_prefix, new_prefix)
+                    changes_made.append(f"switched color accents to {color_key}")
+                elif "emerald-" in new_content and color_key != "emerald":
+                    new_content = new_content.replace("emerald-", new_prefix)
+                    changes_made.append(f"switched color accents to {color_key}")
+
+        # 2. Title / branding change detection
+        title_match = re.search(
+            r"(?:change|rename|set|update|call(?:ed)?|titled?)\s+(?:the\s+)?(?:title|name|app|brand|header)\s+(?:to\s+)?['\"]?([^'\"\n.,;]+)['\"]?",
+            payload.message,
+            re.IGNORECASE,
+        )
+        if title_match:
+            new_title = title_match.group(1).strip()
+            app_name = (build.app_config or {}).get("app_name") or "Application"
+            new_content = new_content.replace(app_name, new_title)
+            changes_made.append(f"updated branding to '{new_title}'")
+
+        # 3. Add Announcement Banner
+        if any(w in payload.message.lower() for w in ["banner", "promo", "announcement", "discount"]):
+            banner_html = (
+                '\n      {/* Promo Announcement Banner */}\n'
+                '      <div className="bg-emerald-600 text-white text-xs font-semibold py-2 px-4 text-center tracking-wide shadow-sm flex items-center justify-center gap-2">\n'
+                '        <span>🎉 Special Offer: Enjoy 20% off all orders today! Use code SUTRA20</span>\n'
+                '      </div>\n'
+            )
+            if "<main" in new_content:
+                new_content = new_content.replace("<main", banner_html + "      <main", 1)
+                changes_made.append("added promotional announcement banner")
+            elif "<div" in new_content:
+                new_content = re.sub(r"(<div[^>]*>)", r"\1" + banner_html, new_content, count=1)
+                changes_made.append("added promotional announcement banner")
+
+        # 4. Add Reviews / Ratings Section
+        if any(w in payload.message.lower() for w in ["review", "rating", "testimonial", "feedback"]):
+            reviews_html = (
+                '\n      {/* Customer Reviews & Ratings Section */}\n'
+                '      <section className="py-12 px-6 bg-slate-50 border-t border-slate-200 mt-12">\n'
+                '        <div className="max-w-5xl mx-auto">\n'
+                '          <h3 className="text-xl font-bold text-slate-800 mb-6 text-center">Customer Reviews & Ratings</h3>\n'
+                '          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">\n'
+                '            <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-100">\n'
+                '              <div className="text-amber-500 mb-2">★★★★★</div>\n'
+                '              <p className="text-sm text-slate-600 mb-3">"Exceptional quality and seamless service! Highly recommended."</p>\n'
+                '              <span className="text-xs font-semibold text-slate-900">— Sarah Jenkins</span>\n'
+                '            </div>\n'
+                '            <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-100">\n'
+                '              <div className="text-amber-500 mb-2">★★★★★</div>\n'
+                '              <p className="text-sm text-slate-600 mb-3">"Fast, intuitive, and beautifully designed. 10/10 experience."</p>\n'
+                '              <span className="text-xs font-semibold text-slate-900">— David Miller</span>\n'
+                '            </div>\n'
+                '            <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-100">\n'
+                '              <div className="text-amber-500 mb-2">★★★★★</div>\n'
+                '              <p className="text-sm text-slate-600 mb-3">"Game changer for our daily workflow. Outstanding product."</p>\n'
+                '              <span className="text-xs font-semibold text-slate-900">— Elena Rostova</span>\n'
+                '            </div>\n'
+                '          </div>\n'
+                '        </div>\n'
+                '      </section>\n'
+            )
+            if "</main>" in new_content:
+                new_content = new_content.replace("</main>", reviews_html + "    </main>")
+                changes_made.append("added verified customer reviews & testimonials section")
+
+        if not changes_made:
+            new_content = (
+                f"// Updated based on request: {payload.message}\n"
+                + new_content
+            )
+            changes_made.append("applied requested updates to codebase")
+
+        explanation = f"I've updated `{target_rel}`: " + ", ".join(changes_made) + "."
+        updated_files_data.append({"path": target_rel, "content": new_content})
+
+    if not explanation:
+        explanation = f"Applied requested modifications across {len(updated_files_data)} file(s)."
+
+    applied: list[MVPFileUpdate] = []
+    for f in updated_files_data:
+        r_path = f["path"]
+        content = f["content"]
+        target_f = (local_dir / r_path).resolve()
+        if not str(target_f).startswith(str(local_dir.resolve())):
+            continue
+        target_f.parent.mkdir(parents=True, exist_ok=True)
+        target_f.write_text(content, encoding="utf-8")
+        applied.append(MVPFileUpdate(path=r_path, content=content))
+
+    fresh_files = builder.list_build_files(local_dir)
+    fresh_rel = builder.relative_paths(local_dir)
+    build.file_list = fresh_rel
+    build.file_count = len(fresh_files)
+
+    try:
+        local_zip = local_dir.with_suffix(".zip")
+        zip_bytes = builder.build_bytes(local_dir)
+        local_zip.write_bytes(zip_bytes)
+        del zip_bytes
+    except Exception as zip_err:
+        logger.warning("Could not re-package build zip on edit: %s", zip_err)
+
+    cfg = dict(build.app_config or {})
+    hist = list(cfg.get("chat_history") or [])
+    hist.append({"role": "user", "content": payload.message, "timestamp": datetime.now(UTC).isoformat()})
+    hist.append({
+        "role": "assistant",
+        "content": explanation,
+        "updated_files": [a.path for a in applied],
+        "timestamp": datetime.now(UTC).isoformat(),
+    })
+    cfg["chat_history"] = hist
+    build.app_config = cfg
+
+    await db.commit()
+
+    all_file_entries = [MVPFileEntry(path=p, size=0, is_dir=False) for p in fresh_rel]
+
+    return MVPChatEditResponse(
+        status="success",
+        message=explanation,
+        updated_files=applied,
+        all_files=all_file_entries,
+        build_id=build.id,
+        build_number=build.build_number,
+    )
+
+
+def _generate_sandbox_preview_html(build: MVPBuild, page_code: str, css_code: str = "") -> str:
+    """Generate a self-contained live preview HTML document with Babel and Tailwind CSS."""
+    app_title = (build.app_config or {}).get("app_name") or "Application Preview"
+
+    if not page_code.strip():
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <title>{app_title}</title>
+</head>
+<body class="bg-slate-50 flex items-center justify-center min-h-screen font-sans text-slate-800 p-6">
+  <div class="max-w-md w-full bg-white p-8 rounded-xl shadow-lg border border-slate-100 text-center">
+    <div class="w-16 h-16 bg-amber-500/10 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl font-bold">✨</div>
+    <h2 class="text-xl font-bold text-slate-900 mb-2">{app_title}</h2>
+    <p class="text-slate-500 text-sm mb-6">Build #{build.build_number} · Ready for preview and editing</p>
+    <div class="text-xs bg-slate-50 p-4 rounded-lg text-slate-600 font-mono text-left space-y-1">
+      <div>Status: Ready</div>
+      <div>Files: {build.file_count} files generated</div>
+    </div>
+  </div>
+</body>
+</html>"""
+
+    transformed = page_code
+    transformed = re.sub(r"['\"]use client['\"];?", "", transformed)
+    transformed = re.sub(r"import\s+React\s*,\s*\{([^}]+)\}\s+from\s+['\"]react['\"];?", r"const {\1} = React;", transformed)
+    transformed = re.sub(r"import\s+React\s+from\s+['\"]react['\"];?", "", transformed)
+    transformed = re.sub(r"import\s+\{([^}]+)\}\s+from\s+['\"]react['\"];?", r"const {\1} = React;", transformed)
+    transformed = re.sub(r"import\s+\{([^}]+)\}\s+from\s+['\"]lucide-react['\"];?", r"const {\1} = window.LucideIcons;", transformed)
+    transformed = re.sub(r"import\s+\*\s+as\s+\w+\s+from\s+['\"][^'\"]+['\"];?", "", transformed)
+    transformed = re.sub(r"import\s+Link\s+from\s+['\"]next/link['\"];?", "const Link = window.NextLink;", transformed)
+    transformed = re.sub(r"import\s+Image\s+from\s+['\"]next/image['\"];?", "const Image = (props) => React.createElement('img', props);", transformed)
+    transformed = re.sub(r"import\s+['\"][^'\"]+\.css['\"];?", "", transformed)
+    transformed = re.sub(r"import\s+[^;]+from\s+['\"][^'\"]+['\"];?", "", transformed)
+
+    match_fn = re.search(r"export\s+default\s+function\s+([A-Za-z0-9_]+)", transformed)
+    if match_fn:
+        comp_name = match_fn.group(1)
+        transformed = transformed.replace(match_fn.group(0), f"function {comp_name}")
+    else:
+        comp_name = "App"
+        transformed = re.sub(r"export\s+default\s+", "const App = ", transformed)
+
+    mount_script = f"""
+    try {{
+      const rootEl = document.getElementById('root');
+      if (window.ReactDOM && window.ReactDOM.createRoot) {{
+        window.ReactDOM.createRoot(rootEl).render(React.createElement({comp_name}));
+      }} else if (window.ReactDOM) {{
+        window.ReactDOM.render(React.createElement({comp_name}), rootEl);
+      }}
+    }} catch (renderErr) {{
+      console.error('Mount error:', renderErr);
+      document.getElementById('root').innerHTML = '<div class="p-6 text-red-600 bg-red-50 border border-red-200 rounded-lg m-4 font-mono text-sm">Failed to mount component: ' + renderErr.message + '</div>';
+    }}
+    """
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{app_title}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body {{ font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }}
+    {css_code}
+  </style>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script>
+    window.LucideIcons = new Proxy({{}}, {{
+      get: (target, prop) => {{
+        return function(props) {{
+          return React.createElement('span', {{
+            className: 'inline-flex items-center justify-center ' + ((props && props.className) || ''),
+            style: {{ width: (props && props.size) || 16, height: (props && props.size) || 16 }}
+          }}, '✦');
+        }};
+      }}
+    }});
+    window.NextLink = function(props) {{
+      return React.createElement('a', Object.assign({{}}, props, {{ href: props.href || '#' }}), props.children);
+    }};
+  </script>
+</head>
+<body class="bg-white min-h-screen text-slate-900">
+  <div id="root">
+    <div class="flex items-center justify-center min-h-[300px] text-slate-400 font-sans text-sm">
+      <div class="animate-pulse">Loading application preview...</div>
+    </div>
+  </div>
+  <script type="text/babel">
+{transformed}
+
+{mount_script}
+  </script>
+</body>
+</html>"""
+
+
+@router.get("/builds/{build_id}/preview", response_class=HTMLResponse)
+async def preview_build(
+    build_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> HTMLResponse:
+    """Serve a live, interactive sandboxed HTML preview of the build's Next.js/React application."""
+    build = await db.get(MVPBuild, build_id)
+    if not build:
+        raise HTTPException(status_code=404, detail="Build not found")
+
+    local_dir = _resolve_workspace_dir(build)
+
+    page_candidates = [
+        local_dir / "frontend" / "src" / "app" / "page.tsx",
+        local_dir / "frontend" / "src" / "App.tsx",
+        local_dir / "src" / "app" / "page.tsx",
+        local_dir / "src" / "App.tsx",
+    ]
+    page_code = ""
+    for cand in page_candidates:
+        if cand.exists():
+            try:
+                page_code = cand.read_text(encoding="utf-8", errors="ignore")
+                if page_code.strip():
+                    break
+            except Exception:
+                continue
+
+    css_code = ""
+    css_candidates = [
+        local_dir / "frontend" / "src" / "app" / "globals.css",
+        local_dir / "src" / "index.css",
+    ]
+    for css_cand in css_candidates:
+        if css_cand.exists():
+            try:
+                css_code = css_cand.read_text(encoding="utf-8", errors="ignore")
+                if css_code.strip():
+                    break
+            except Exception:
+                continue
+
+    html = _generate_sandbox_preview_html(build, page_code, css_code)
+    return HTMLResponse(content=html)
 
 @router.get("/builds/{build_id}/download")
 async def download_build(

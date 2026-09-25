@@ -23,6 +23,7 @@ import {
   SocialProvidersResponse,
   AnonymousAuthResponse,
   UpgradeAnonymousPayload,
+  MVPChatEditResponse,
 } from '@/types';
 import { getActiveLanguageCode } from '@/lib/i18n/client';
 
@@ -470,6 +471,18 @@ export const mvpApi = {
     return request<MVPBuild>(`/mvp/builds/${buildId}/status`);
   },
 
+  async getFileContent(buildId: string, filePath: string): Promise<string> {
+    const token = getAuthToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    
+    // Ensure the path does not start with a leading slash to construct the URL correctly
+    const cleanPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
+    const res = await fetch(`${API_BASE_URL}/mvp/builds/${buildId}/files/${cleanPath}`, { headers });
+    if (!res.ok) throw new Error(`Failed to get file with status ${res.status}`);
+    return res.text();
+  },
+
   async downloadBuild(buildId: string, filename?: string) {
     const token = getAuthToken();
     const headers: Record<string, string> = {};
@@ -512,6 +525,17 @@ export const mvpApi = {
     return request<void>(`/mvp/builds/${buildId}`, {
       method: 'DELETE',
     });
+  },
+
+  async chatEdit(buildId: string, message: string, activeFile?: string): Promise<MVPChatEditResponse> {
+    return request<MVPChatEditResponse>(`/mvp/builds/${buildId}/edit`, {
+      method: 'POST',
+      body: JSON.stringify({ message, active_file: activeFile }),
+    });
+  },
+
+  getPreviewUrl(buildId: string): string {
+    return `${API_BASE_URL}/mvp/builds/${buildId}/preview`;
   },
 
   async destroyPreview(buildId: string): Promise<{ destroyed: boolean; build_id: string }> {

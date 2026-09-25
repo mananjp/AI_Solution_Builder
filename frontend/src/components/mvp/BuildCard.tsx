@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import {
   Box,
   Check,
+  Code2,
   Download,
   ExternalLink,
   FolderTree,
@@ -488,6 +490,14 @@ export function BuildCard({
       <div className="flex items-center gap-3 flex-wrap pt-2">
         {build.status === 'complete' && (
           <>
+            <Link
+              href={`/sandbox?buildId=${build.build_id}`}
+              className="btn btn-primary px-4 py-2 flex items-center gap-1.5 shadow-sm"
+            >
+              <Code2 className="w-3.5 h-3.5 text-white" />
+              <span>Live Sandbox</span>
+            </Link>
+
             {(build.frontend_url || build.render_service_url) && (
               <a
                 href={(build.frontend_url || build.render_service_url)!}
