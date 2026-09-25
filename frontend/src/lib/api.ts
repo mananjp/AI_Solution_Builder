@@ -967,3 +967,175 @@ export const systemApi = {
     return request<SystemResources>('/system/resources');
   },
 };
+
+// ── Legacy Repository Modernization API ───────────────────────────
+export interface LegacyRepoAnalysis {
+  root_path: string;
+  project_name: string;
+  structure: {
+    total_files: number;
+    total_directories: number;
+    manifests: string[];
+    configs: string[];
+    docs: string[];
+    tests: string[];
+    sample_files: string[];
+  };
+  technology_stack: {
+    languages: string[];
+    frontend_framework: string | null;
+    backend_framework: string | null;
+    database: string | null;
+    orm: string | null;
+    auth: string | null;
+    api_style: string;
+    styling: string | null;
+    state_management: string | null;
+    build_tools: string[];
+    package_manager: string | null;
+    manifest_dependencies: Record<string, Record<string, string>>;
+  };
+  entry_points: {
+    frontend_entry: string | null;
+    backend_entry: string | null;
+    routing_files: string[];
+    database_schemas: string[];
+    env_files: string[];
+  };
+  architecture: {
+    topology: string;
+    data_flow: string;
+    frontend_present: boolean;
+    backend_present: boolean;
+    database_present: boolean;
+    auth_present: boolean;
+  };
+  assets_inventory: {
+    total_assets: number;
+    logos: string[];
+    icons: string[];
+    images: string[];
+    fonts: string[];
+    media: string[];
+    reusable_message: string;
+  };
+  technical_debt: {
+    outdated_dependencies: Array<{ package: string; current_version: string; reason: string }>;
+    legacy_patterns: Array<{ file: string; type: string; recommendation: string }>;
+    security_findings: Array<{ file: string; type: string; recommendation: string }>;
+    missing_infrastructure: string[];
+  };
+  reusable_elements: {
+    reusable_assets_count: number;
+    reusable_branding: string[];
+    reusable_configs: string[];
+    existing_tests: string[];
+    reusable_models: string[];
+    preservation_policy: string;
+  };
+  modernization_plan: Array<{
+    phase: number;
+    title: string;
+    goal: string;
+    actions: string[];
+    safety_level: string;
+  }>;
+}
+
+export interface CredentialValidationResult {
+  key_name: string;
+  format_valid: boolean;
+  connection_tested: boolean;
+  connection_success: boolean;
+  message: string;
+  masked_key: string;
+}
+
+export interface ModernizeReport {
+  status: string;
+  build_id: string;
+  target_repository: string;
+  detected_stack: {
+    languages: string[];
+    frontend: string;
+    backend: string;
+    database: string;
+    styling: string;
+  };
+  credentials_configured: Record<string, string>;
+  modified_files: string[];
+  modernized: string[];
+  added_features: string[];
+  preserved_features: string[];
+  validation: {
+    all_passed: boolean;
+    existing_features_intact: boolean;
+    new_features_verified: boolean;
+    security_hygiene_passed: boolean;
+    checks: Array<{ name: string; passed: boolean; details: string }>;
+    repairs_executed: Array<{ turn: number; fix: string }>;
+  };
+  schedule_summary: {
+    total_tasks: number;
+    completed: number;
+    failed: number;
+    timeline_events: number;
+  };
+  sutra_os: string;
+  git: {
+    status: string;
+    commit: string;
+    push: string;
+    deployment: string;
+  };
+  zip_size_bytes: number;
+}
+
+export const legacyRepoApi = {
+  async analyze(payload: { local_path?: string; github_repo_url?: string }): Promise<LegacyRepoAnalysis> {
+    return request<LegacyRepoAnalysis>('/legacy-repo/analyze', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async analyzeUpload(file: File): Promise<LegacyRepoAnalysis> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const res = await fetch(`${API_BASE_URL}/legacy-repo/analyze-upload`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Upload analysis failed' }));
+      throw new Error(err.error?.message || err.detail || 'Upload analysis failed');
+    }
+    return res.json();
+  },
+
+  async validateCredential(key_name: string, key_value: string): Promise<CredentialValidationResult> {
+    return request<CredentialValidationResult>('/legacy-repo/validate-credentials', {
+      method: 'POST',
+      body: JSON.stringify({ key_name, key_value }),
+    });
+  },
+
+  async modernize(payload: {
+    local_path?: string;
+    github_repo_url?: string;
+    requested_features?: string[];
+    credentials?: Record<string, string>;
+  }): Promise<ModernizeReport> {
+    return request<ModernizeReport>('/legacy-repo/modernize', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  getDownloadUrl(buildId: string): string {
+    return `${API_BASE_URL}/legacy-repo/download/${buildId}`;
+  },
+};
+

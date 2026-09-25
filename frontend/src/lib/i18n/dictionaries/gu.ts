@@ -19,6 +19,7 @@ export const gu: Dictionary = {
   side: {
     dashboard: 'ડેશબોર્ડ',
     customBuilder: 'કસ્ટમ બિલ્ડર',
+    legacyModernizer: 'લેગસી મોડર્નાઇઝર',
     solutions: 'સોલ્યુશન્સ',
     billing: 'બિલિંગ',
     deployKeys: 'ડિપ્લોય કીઝ',

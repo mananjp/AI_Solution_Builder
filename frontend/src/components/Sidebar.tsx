@@ -11,6 +11,7 @@ import {
   LogOut,
   Rocket,
   Wrench,
+  GitFork,
 } from 'lucide-react';
 import { authApi } from '@/lib/api';
 import { User } from '@/types';
@@ -18,7 +19,7 @@ import { useI18n } from '@/components/I18nProvider';
 
 type NavItem = {
   name: string;
-  key: 'dashboard' | 'customBuilder' | 'solutions' | 'billing' | 'deployKeys' | 'admin';
+  key: 'dashboard' | 'customBuilder' | 'legacyModernizer' | 'solutions' | 'billing' | 'deployKeys' | 'admin';
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   badge?: string;
@@ -27,6 +28,7 @@ type NavItem = {
 const navItems: NavItem[] = [
   { name: 'Dashboard', key: 'dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Custom Builder', key: 'customBuilder', href: '/chat', icon: Wrench, badge: 'AI' },
+  { name: 'Legacy Modernizer', key: 'legacyModernizer', href: '/legacy-modernizer', icon: GitFork, badge: 'NEW' },
   { name: 'Solutions', key: 'solutions', href: '/dashboard#blueprints', icon: Layers },
   { name: 'Billing', key: 'billing', href: '/billing', icon: CreditCard },
   { name: 'Deploy Keys', key: 'deployKeys', href: '/settings', icon: Rocket },
