@@ -8,10 +8,10 @@ get-or-create paths in auth so the ``plans`` table is never missing at runtime.
 
 from typing import Any, cast
 
-from sqlalchemy import Result, select
+from sqlalchemy import Result, insert, select
+from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session
 
 from app.models.credit import Plan
 
@@ -46,13 +46,19 @@ async def ensure_default_plans(db: AsyncSession) -> None:
     await db.flush()
 
 
-def ensure_default_plans_sync(db: Session) -> None:
-    """Sync-session variant for use inside ``conn.run_sync`` in the lifespan."""
+def ensure_default_plans_sync(conn: Connection) -> None:
+    """Sync variant for use inside ``conn.run_sync`` in the lifespan.
+
+    ``Connection`` has no ORM session methods (``add``/``flush``), so seeding
+    uses Core ``insert`` statements guarded by a per-row existence check. The
+    surrounding ``engine.begin()`` transaction flushes the writes on commit.
+    """
     for spec in _plan_rows():
-        exists = db.execute(select(Plan.id).where(Plan.name == spec["name"])).scalar_one_or_none()
+        exists = conn.execute(
+            select(Plan.id).where(Plan.name == spec["name"])
+        ).scalar_one_or_none()
         if exists is None:
-            db.add(Plan(**spec))
-    db.flush()
+            conn.execute(insert(Plan).values(**spec))
 
 
 async def get_or_create_free_plan(db: AsyncSession) -> Plan:

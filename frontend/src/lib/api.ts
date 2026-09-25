@@ -25,6 +25,7 @@ import {
   UpgradeAnonymousPayload,
   MVPChatEditResponse,
 } from '@/types';
+import { getActiveLanguageCode } from '@/lib/i18n/client';
 
 function normalizeApiUrl(url?: string | null): string {
   if (!url) return '';
@@ -108,11 +109,12 @@ export function isDemoSession(): boolean {
 
 export function getCurrentLanguage(): string {
   if (typeof window === 'undefined') return 'en';
-  return localStorage.getItem('sutra_lang') || 'en';
+  return localStorage.getItem('sutra.lang') || localStorage.getItem('sutra_lang') || getActiveLanguageCode() || 'en';
 }
 
 export function setCurrentLanguage(lang: string) {
   if (typeof window !== 'undefined') {
+    localStorage.setItem('sutra.lang', lang);
     localStorage.setItem('sutra_lang', lang);
     try {
       document.documentElement.lang = lang;
@@ -124,10 +126,11 @@ export function setCurrentLanguage(lang: string) {
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = getAuthToken();
-  const currentLang = getCurrentLanguage();
+  const currentLang = getCurrentLanguage() || getActiveLanguageCode();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(currentLang ? { 'X-Content-Language': currentLang, 'Accept-Language': currentLang } : {}),
+    'X-Content-Language': currentLang,
+    'Accept-Language': currentLang,
     ...(options.headers as Record<string, string>),
   };
 
@@ -444,6 +447,7 @@ export const exportApi = {
     const token = getAuthToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    headers['X-Content-Language'] = getActiveLanguageCode();
 
     const res = await fetch(`${API_BASE_URL}/export/${solutionId}/${format}`, { headers });
     if (!res.ok) throw new Error(`Export failed with status ${res.status}`);
@@ -502,6 +506,7 @@ export const mvpApi = {
     const token = getAuthToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    headers['X-Content-Language'] = getActiveLanguageCode();
 
     const res = await fetch(`${API_BASE_URL}/mvp/builds/${buildId}/download`, { headers });
     if (!res.ok) throw new Error(`Download failed with status ${res.status}`);
@@ -654,6 +659,7 @@ export const uploadApi = {
 
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    headers['X-Content-Language'] = getActiveLanguageCode();
 
     const response = await fetch(`${API_BASE_URL}/upload/document`, {
       method: 'POST',
@@ -678,6 +684,7 @@ export const uploadApi = {
     const token = getAuthToken();
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    headers['X-Content-Language'] = getActiveLanguageCode();
 
     const response = await fetch(`${API_BASE_URL}/upload/url`, {
       method: 'POST',
@@ -720,7 +727,10 @@ export const uploadApi = {
 
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    if (currentLang) headers['X-Content-Language'] = currentLang;
+    if (currentLang) {
+      headers['X-Content-Language'] = currentLang;
+      headers['Accept-Language'] = currentLang;
+    }
 
     const response = await fetch(`${API_BASE_URL}/upload/audio`, {
       method: 'POST',
@@ -761,11 +771,12 @@ async function streamSSE(
   handlers: StreamHandlers
 ) {
   const token = getAuthToken();
-  const currentLang = getCurrentLanguage();
+  const currentLang = getCurrentLanguage() || getActiveLanguageCode();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'X-Content-Language': currentLang,
+    'Accept-Language': currentLang,
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(currentLang ? { 'X-Content-Language': currentLang, 'Accept-Language': currentLang } : {}),
   };
 
   const primaryUrl = `${API_BASE_URL}${endpoint}`;
@@ -885,9 +896,35 @@ export async function confirmRecommendationsStream(
 }
 
 // ── OpenCode API (Custom App Builder path) ───────
+export interface EngineHealth {
+  healthy: boolean;
+  sidecar_healthy: boolean;
+  mode: 'opencode-sidecar' | 'integrated-synthesizer';
+  version?: string;
+  model?: string;
+  latency_ms?: number;
+}
+
+export interface DiagnoseCheck {
+  status: 'ok' | 'warn' | 'fail';
+  label: string;
+  detail: string;
+  fix: string | null;
+}
+
+export interface OpenCodeDiagnosis {
+  ok: boolean;
+  model?: string;
+  version?: string;
+  checks: DiagnoseCheck[];
+}
+
 export const opencodeApi = {
-  async health(): Promise<{ healthy: boolean }> {
-    return request<{ healthy: boolean }>('/opencode/health');
+  async health(): Promise<EngineHealth> {
+    return request<EngineHealth>('/opencode/health');
+  },
+  async diagnose(): Promise<OpenCodeDiagnosis> {
+    return request<OpenCodeDiagnosis>('/opencode/diagnose');
   },
 };
 

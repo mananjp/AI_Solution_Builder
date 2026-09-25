@@ -5,9 +5,12 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Sparkles, Lock, Mail, Building, User, AlertCircle, Loader2 } from 'lucide-react';
 import { authApi, setDemoSession } from '@/lib/api';
+import { useI18n } from '@/components/I18nProvider';
+import { LanguageSelector } from '@/components/LanguageSelector';
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const [orgName, setOrgName] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -92,8 +95,11 @@ export default function RegisterPage() {
               <span className="text-[var(--sutra-muted-gold)] font-sanskrit font-bold text-5xl leading-none drop-shadow-sm">सूत्र</span>
             </div>
           </Link>
-          <h2 className="text-2xl font-serif text-[var(--sutra-charcoal)]">Create your workspace</h2>
-          <p className="text-[13px] text-[var(--text-2)] mt-2 font-light">Get 200 credits to generate and build MVPs</p>
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <LanguageSelector compact />
+          </div>
+          <h2 className="text-2xl font-serif text-[var(--sutra-charcoal)]">{t('auth.createWorkspace')}</h2>
+          <p className="text-[13px] text-[var(--text-2)] mt-2 font-light">{t('auth.createSub')}</p>
         </div>
 
         <div className="sutra-card p-8 space-y-6 bg-[var(--bg-2)]">
@@ -121,7 +127,7 @@ export default function RegisterPage() {
                       <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
                     </svg>
                   )}
-                  <span>Sign up with GitHub</span>
+                  <span>{t('auth.signUpWithGithub')}</span>
                 </button>
               )}
 
@@ -154,13 +160,13 @@ export default function RegisterPage() {
                       />
                     </svg>
                   )}
-                  <span>Sign up with Google</span>
+                  <span>{t('auth.signUpWithGoogle')}</span>
                 </button>
               )}
 
               <div className="flex items-center gap-4 pt-2 pb-2">
                 <div className="flex-1 border-t border-[var(--border)]" />
-                <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)]">or email</span>
+                <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)]">{t('auth.orEmail')}</span>
                 <div className="flex-1 border-t border-[var(--border)]" />
               </div>
             </div>
@@ -168,7 +174,7 @@ export default function RegisterPage() {
 
           <form onSubmit={handleRegister} className="space-y-4">
             <div>
-              <label className="block text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] mb-2">Organization / Company</label>
+              <label className="block text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] mb-2">{t('auth.orgCompany')}</label>
               <div className="relative">
                 <Building className="w-4 h-4 text-[var(--text-3)] absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
@@ -183,7 +189,7 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="block text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] mb-2">Your Full Name</label>
+              <label className="block text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] mb-2">{t('auth.yourFullName')}</label>
               <div className="relative">
                 <User className="w-4 h-4 text-[var(--text-3)] absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
@@ -198,7 +204,7 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="block text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] mb-2">Work Email</label>
+              <label className="block text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] mb-2">{t('auth.workEmail')}</label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-[var(--text-3)] absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
@@ -213,7 +219,7 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="block text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] mb-2">Password</label>
+              <label className="block text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] mb-2">{t('auth.password')}</label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-[var(--text-3)] absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
@@ -221,7 +227,7 @@ export default function RegisterPage() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Minimum 8 characters"
+                  placeholder={t('auth.minPassword')}
                   className="w-full pl-10 pr-4 py-3 bg-[var(--bg)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[13px] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm"
                 />
               </div>
@@ -232,7 +238,7 @@ export default function RegisterPage() {
               disabled={loading || oauthLoading !== null}
               className="btn btn-primary w-full justify-center py-3 mt-2"
             >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Create Account</span>}
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>{t('auth.createAccount')}</span>}
             </button>
           </form>
 
@@ -240,7 +246,7 @@ export default function RegisterPage() {
             <div className="pt-2 border-t border-[var(--border)] mt-4">
               <div className="flex items-center gap-4 pb-4">
                 <div className="flex-1 border-t border-[var(--border)]" />
-                <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)]">No Registration Needed</span>
+                <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)]">{t('auth.noRegistrationNeeded')}</span>
                 <div className="flex-1 border-t border-[var(--border)]" />
               </div>
 
@@ -251,16 +257,16 @@ export default function RegisterPage() {
                 className="btn btn-secondary w-full justify-center py-3"
               >
                 <Sparkles className="w-4 h-4" />
-                <span>Try Demo As Guest (Unlimited Credits)</span>
+                <span>{t('auth.tryDemoAsGuest')}</span>
               </button>
             </div>
           )}
         </div>
 
         <div className="mt-6 text-center text-[12px] text-[var(--text-2)]">
-          Already have an account?{' '}
+          {t('auth.alreadyHaveAccount')}{' '}
           <Link href="/login" className="text-[var(--sutra-charcoal)] hover:text-[var(--sutra-muted-gold)] transition-colors font-semibold border-b border-[var(--sutra-charcoal)] hover:border-[var(--sutra-muted-gold)] pb-0.5">
-            Sign In
+            {t('auth.signInLink')}
           </Link>
         </div>
       </div>

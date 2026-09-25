@@ -252,3 +252,13 @@
 .badge-red    { background: #C53B3B1A; color: #C53B3B; border: 1px solid #C53B3B33; }
 .badge-blue   { background: var(--accent-dim); color: var(--sutra-deep-gold); border: 1px solid var(--sutra-muted-gold); }
 .badge-gray   { background: var(--bg-2); color: var(--text-2); border: 1px solid var(--border); }
+
+/* ── RTL (Arabic / Urdu / Persian / Hebrew) ─────── */
+[dir="rtl"] .sutra-label,
+[dir="rtl"] .mono,
+[dir="rtl"] input,
+[dir="rtl"] textarea { text-align: right; }
+[dir="rtl"] .ml-auto { margin-left: 0; margin-right: auto; }
+.sutra-surface,
+.sutra-card,
+.bg-sutra-grid { background-position: right top; }

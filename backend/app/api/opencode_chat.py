@@ -41,7 +41,7 @@ from app.core.i18n import (
     pick_best_language,
     translate_text,
 )
-from app.core.llm import get_llm
+from app.core.llm import get_llm, has_llm_credentials
 from app.core.security import get_current_user
 from app.models.mvp_build import MVPBuild
 from app.models.solution import Solution
@@ -580,14 +580,33 @@ async def health() -> dict[str, Any]:
 
     ``healthy`` is ``True`` whenever the service can handle a request —
     either via the live sidecar *or* via the integrated synthesizer
-    fallback.  ``sidecar_healthy`` reports the sidecar process itself.
+    fallback.  ``sidecar_healthy`` reports the sidecar process itself, along
+    with a best-effort version/model/latency snapshot for the dashboard.
     """
-    sidecar_ok = await builder.health()
-    return {
+    info = await builder.health_info()
+    sidecar_ok = bool(info["sidecar_healthy"])
+    payload: dict[str, Any] = {
         "healthy": True,
         "sidecar_healthy": sidecar_ok,
         "mode": "opencode-sidecar" if sidecar_ok else "integrated-synthesizer",
     }
+    if info.get("version"):
+        payload["version"] = info["version"]
+    if info.get("model"):
+        payload["model"] = info["model"]
+    if info.get("latency_ms") is not None:
+        payload["latency_ms"] = info["latency_ms"]
+    return payload
+
+
+@router.get("/diagnose")
+async def diagnose(user: User = Depends(get_current_user)) -> dict[str, Any]:
+    """Run a lightweight sidecar self-check with actionable fixes.
+
+    Performs a live round-trip (create session -> prompt -> echo) so it proves
+    the sidecar can actually generate, not just that the port is open.
+    """
+    return await builder.diagnose()
 
 
 async def _verify_solution_access(db: AsyncSession, solution_id: UUID, user: User) -> Solution:
@@ -646,6 +665,7 @@ async def chat(
 ) -> EventSourceResponse:
     """Chat directly with OpenCode; streaming SSE response."""
     # Eager ownership check; gracefully fall back to fresh session if solution was purged or uncommitted
+    content_language: str = getattr(request.state, "language", "en")
     if payload.solution_id:
         try:
             await _verify_solution_access(db, payload.solution_id, current_user)
@@ -731,6 +751,24 @@ async def chat(
                             "session_id": session_id,
                             "solution_id": str(solution.id),
                             "message": agent_msg,
+                        }
+                    ),
+                }
+
+                # Report runtime capability so the UI can be honest about
+                # whether this build is simulation-only or model-powered.
+                llm_provider = settings.LLM_PROVIDER.lower()
+                llm_creds = has_llm_credentials()
+                simulation = (not sidecar_ok) and (llm_provider == "mock" or not llm_creds)
+                yield {
+                    "event": "capability",
+                    "data": json.dumps(
+                        {
+                            "sidecar_online": sidecar_ok,
+                            "llm_provider": settings.LLM_PROVIDER,
+                            "llm_authenticated": llm_creds,
+                            "simulation": simulation,
+                            "mode": "opencode-sidecar" if sidecar_ok else "integrated-synthesizer",
                         }
                     ),
                 }
@@ -1153,6 +1191,21 @@ async def chat(
                         "event": "build_progress",
                         "data": json.dumps(
                             {
+                                "phase": "verifying",
+                                "step": 5,
+                                "total_steps": 7,
+                                "percentage": 85,
+                                "message": "Running codebase integrity verification (imports, routes, acceptance coverage)...",
+                                "solution_id": str(solution.id),
+                                "session_id": session_id,
+                            }
+                        ),
+                    }
+
+                    yield {
+                        "event": "build_progress",
+                        "data": json.dumps(
+                            {
                                 "phase": "packaging",
                                 "step": 6,
                                 "total_steps": 7,
@@ -1248,6 +1301,11 @@ async def chat(
                         lock.release()
 
                 await stream_db.commit()
+
+            # Multilingual pipeline: translate the conversational reply into the
+            # caller's language (best-effort, fail-open — see app/core/i18n.py).
+            if content_language not in ("", settings.DEFAULT_LANGUAGE):
+                assistant_text = await translate_text(assistant_text, content_language)
 
             yield {
                 "event": "message",

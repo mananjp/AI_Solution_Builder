@@ -16,6 +16,7 @@ import {
   Clock,
   Terminal,
   Activity,
+  AlertTriangle,
 } from 'lucide-react';
 import ChatMessage from '@/components/ChatMessage';
 import FileUploader from '@/components/FileUploader';
@@ -24,6 +25,8 @@ import { useLanguage } from '@/context/LanguageContext';
 import { opencodeApi, sendOpenCodeChatStream, mvpApi } from '@/lib/api';
 import { MVPBuild, MVPDeployResult, OpenCodeChatComplete, OpenCodeBuildProgress } from '@/types';
 import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
+import { useI18n } from '@/components/I18nProvider';
+import type { TranslationKey } from '@/lib/i18n/dictionaries';
 
 type Msg = { role: 'user' | 'assistant' | 'system'; content: string; agent?: string };
 
@@ -37,19 +40,28 @@ interface BuildProgressState {
   startedAt: number;
 }
 
-const BUILD_MILESTONES = [
-  { step: 1, label: 'Domain Architecture & Specs', phase: 'analyzing' },
-  { step: 2, label: 'Database & API Schema Registry', phase: 'persisting' },
-  { step: 3, label: 'Full-Stack Codebase Scaffold', phase: 'scaffolding' },
-  { step: 4, label: 'Domain Models & REST Routers', phase: 'coding' },
-  { step: 5, label: 'Interactive UI Studios & Playground', phase: 'frontend' },
-  { step: 6, label: 'Codebase Integrity Verification', phase: 'verifying' },
-  { step: 7, label: 'Production Package Archive (.zip)', phase: 'packaging' },
+interface BuildCapability {
+  sidecar_online: boolean;
+  llm_provider: string;
+  llm_authenticated: boolean;
+  simulation: boolean;
+  mode: string;
+}
+
+const BUILD_MILESTONES: { step: number; key: TranslationKey; phase: string }[] = [
+  { step: 1, key: 'buildMilestones.domainArchitecture', phase: 'analyzing' },
+  { step: 2, key: 'buildMilestones.databaseSchema', phase: 'persisting' },
+  { step: 3, key: 'buildMilestones.fullStackScaffold', phase: 'scaffolding' },
+  { step: 4, key: 'buildMilestones.domainModels', phase: 'coding' },
+  { step: 5, key: 'buildMilestones.interactiveUi', phase: 'frontend' },
+  { step: 6, key: 'buildMilestones.codebaseVerification', phase: 'verifying' },
+  { step: 7, key: 'buildMilestones.productionPackage', phase: 'packaging' },
 ];
 
 function ChatContent() {
   const { t } = useLanguage();
   const searchParams = useSearchParams();
+  const { t } = useI18n();
   const initialPrompt = searchParams.get('prompt') || '';
   const initialSolutionId = searchParams.get('solution_id') || null;
 
@@ -57,8 +69,8 @@ function ChatContent() {
   const [appName, setAppName] = useState(searchParams.get('app_name') || '');
   const [messages, setMessages] = useState<Msg[]>([{
     role: 'assistant',
-    agent: 'SUTRA Orchestrator',
-    content: "I am SUTRA, your intelligence architect. Describe your application requirements, and I will synthesize a complete FastAPI + Next.js solution. Provide a PRD or spec for enhanced context, and select **Build** to finalize the architecture.",
+    agent: t('common.sutraOrchestrator'),
+    content: t('chat.welcomeMessage'),
   }]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [solutionId, setSolutionId] = useState<string | null>(initialSolutionId);
@@ -69,8 +81,9 @@ function ChatContent() {
   const [buildRequested, setBuildRequested] = useState(false);
   const [buildProgress, setBuildProgress] = useState<BuildProgressState | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [finalizedBuild, setFinalizedBuild] = useState<MVPBuild | null>(null);
+  const [builds, setBuilds] = useState<MVPBuild[]>([]);
   const [engineOnline, setEngineOnline] = useState<boolean | null>(null);
+  const [capability, setCapability] = useState<BuildCapability | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deployTarget, setDeployTarget] = useState<MVPBuild | null>(null);
   const [configureTarget, setConfigureTarget] = useState<MVPBuild | null>(null);
@@ -93,17 +106,23 @@ function ChatContent() {
     return () => clearInterval(timer);
   }, [isStreaming, buildProgress]);
 
-  // Load any existing build for this solution on mount
+  // Load any existing builds for this solution on mount
   useEffect(() => {
     if (!solutionId) return;
     mvpApi.listBuilds(solutionId)
-      .then((builds) => {
-        if (builds && builds.length > 0) {
-          setFinalizedBuild(builds[0]);
+      .then((list) => {
+        if (list && list.length > 0) {
+          setBuilds([...list].sort((a, b) => (b.build_number || 0) - (a.build_number || 0)));
         }
       })
       .catch(() => undefined);
   }, [solutionId]);
+
+  const upsertBuild = (b: MVPBuild) =>
+    setBuilds((prev) => [b, ...prev.filter((x) => x.build_id !== b.build_id)]);
+
+  const removeBuild = (buildId: string) =>
+    setBuilds((prev) => prev.filter((x) => x.build_id !== buildId));
 
   useEffect(() => {
     let mounted = true;
@@ -154,12 +173,15 @@ function ChatContent() {
             if (event === 'agent_start') {
               if (typeof data.session_id === 'string') setSessionId(data.session_id);
               if (typeof data.solution_id === 'string') setSolutionId(data.solution_id);
-              push((data.message as string) || 'Initializing intelligence sequence…', (data.agent as string) || 'SUTRA Intelligence');
+              push((data.message as string) || t('chat.initializingIntelligence'), (data.agent as string) || 'SUTRA Intelligence');
+            } else if (event === 'capability') {
+              setCapability(data as unknown as BuildCapability);
             } else if (event === 'build_progress') {
               const p = data as unknown as OpenCodeBuildProgress;
               if (p.solution_id) setSolutionId(p.solution_id);
 
               if (p.session_id) setSessionId(p.session_id);
+              const inferred = p.percentage ?? Math.round(((p.step || 1) / Math.max(p.total_steps || 7, 1)) * 100);
               setBuildProgress((prev) => {
                 const startedAt = prev?.startedAt || Date.now();
                 const sec = Math.round((Date.now() - startedAt) / 1000);
@@ -168,7 +190,7 @@ function ChatContent() {
                   phase: p.phase || 'building',
                   step: p.step || 1,
                   total_steps: p.total_steps || 7,
-                  percentage: p.percentage ?? 15,
+                  percentage: inferred,
                   message: p.message || 'Building application...',
                   logs: [...prevLogs, `[${sec}s] ${p.message}`],
                   startedAt,
@@ -182,13 +204,13 @@ function ChatContent() {
             const c = data as OpenCodeChatComplete;
             if (c.session_id) setSessionId(c.session_id);
             if (c.solution_id) setSolutionId(c.solution_id);
-            push(c.message || 'Synthesis complete.', 'SUTRA Orchestrator');
+            push(c.message || t('chat.synthesisComplete'), t('common.sutraOrchestrator'));
             if (c.build_id) {
               try {
                 const fresh = await mvpApi.getStatus(c.build_id);
-                setFinalizedBuild(fresh);
+                upsertBuild(fresh);
               } catch {
-                setFinalizedBuild({
+                upsertBuild({
                   build_id: c.build_id,
                   solution_id: c.solution_id || solutionId || '',
                   build_number: c.build_number || 1,
@@ -206,7 +228,7 @@ function ChatContent() {
           onError: (err) => {
             const msg = typeof err === 'object' && err && 'message' in err ? String((err as { message: string }).message) : 'Sequence interrupted.';
             setError(msg);
-            push(msg, 'SUTRA Orchestrator');
+            push(msg, t('common.sutraOrchestrator'));
             setBuildProgress(null);
             setIsStreaming(false);
           },
@@ -230,14 +252,17 @@ function ChatContent() {
 
   const handleDestroy = async (build: MVPBuild) => {
     if (!window.confirm(`Destroy build #${build.build_number}?`)) return;
-    try { await mvpApi.destroy(build.build_id); setFinalizedBuild(null); }
+    try { await mvpApi.destroy(build.build_id); removeBuild(build.build_id); }
     catch (e) { setError(e instanceof Error ? e.message : 'Purge failed.'); }
   };
 
   const handleDeployed = (result: MVPDeployResult | string) => {
     const repoUrl = typeof result === 'string' ? result : result.repo_url;
     const renderUrl = typeof result === 'string' ? null : (result.frontend_url || result.render_service_url);
-    setFinalizedBuild((p) => p ? { ...p, repo_url: repoUrl, render_service_url: renderUrl, frontend_url: renderUrl } : p);
+    const targetId = deployTarget?.build_id;
+    setBuilds((prev) => prev.map((b) =>
+      b.build_id === targetId ? { ...b, repo_url: repoUrl, render_service_url: renderUrl, frontend_url: renderUrl } : b
+    ));
   };
 
   return (
@@ -250,13 +275,13 @@ function ChatContent() {
             <Layout className="w-4 h-4" />
           </div>
           <div>
-            <h1 className="text-xl font-serif text-[var(--sutra-charcoal)]">AI Architect Workspace</h1>
-            <p className="text-[11px] uppercase tracking-widest font-semibold text-[var(--text-2)] mt-0.5">Synthesis Engine</p>
+            <h1 className="text-xl font-serif text-[var(--sutra-charcoal)]">{t('chat.aiArchitectWorkspace')}</h1>
+            <p className="text-[11px] uppercase tracking-widest font-semibold text-[var(--text-2)] mt-0.5">{t('chat.synthesisEngine')}</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold">
-          <span className="text-[var(--text-3)]">Intelligence Layer</span>
+          <span className="text-[var(--text-3)]">{t('chat.intelligenceLayer')}</span>
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-sm border shadow-sm ${
               engineOnline === null ? 'bg-[var(--bg-2)] border-[var(--border)] text-[var(--text-2)]'
               : engineOnline ? 'bg-[var(--bg-2)] border-[var(--border)] text-[var(--green)]'
@@ -268,19 +293,36 @@ function ChatContent() {
                 ? <CheckCircle2 className="w-3 h-3" />
                 : <Circle className="w-3 h-3 animate-pulse-dot" />
             }
-            {engineOnline === null ? 'Connecting...' : engineOnline ? 'Active' : 'Offline'}
+            {engineOnline === null ? t('common.connecting') : engineOnline ? t('common.active') : t('common.offline')}
           </div>
         </div>
       </div>
 
+      {capability?.simulation && (
+        <div className="mx-2 mb-4 flex items-start gap-2.5 rounded-sm border border-[var(--sutra-gold)] bg-[var(--bg)] px-4 py-3 shadow-sm">
+          <AlertTriangle className="w-4 h-4 text-[var(--sutra-gold)] shrink-0 mt-0.5" />
+          <div className="text-[11px] leading-relaxed">
+            <p className="font-bold uppercase tracking-widest text-[var(--sutra-charcoal)] text-[10px]">
+              Simulation Mode — No Live AI Engine Connected
+            </p>
+            <p className="text-[var(--text-2)] mt-1">
+              No LLM API key configured (<code className="font-mono bg-[var(--bg-2)] px-1">LLM_PROVIDER={capability.llm_provider}</code>) and the OpenCode
+              code engine sidecar is offline. Builds are orchestrating a deterministic template scaffold from your request — this is <strong className="text-[var(--sutra-charcoal)]">not</strong> bespoke AI-generated code.
+              To get real AI generation, set <code className="font-mono bg-[var(--bg-2)] px-1">GROQ_API_KEY</code> or <code className="font-mono bg-[var(--bg-2)] px-1">OPENAI_API_KEY</code> plus <code className="font-mono bg-[var(--bg-2)] px-1">LLM_PROVIDER</code>, and start the OpenCode sidecar
+              (<code className="font-mono bg-[var(--bg-2)] px-1">docker compose up opencode</code> or <code className="font-mono bg-[var(--bg-2)] px-1">opencode serve --port 4096</code>). The generated scaffold is still fully working FastAPI + Next.js code, verified and packaged for download.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* 3-Zone Workspace */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 min-h-0">
         
         {/* ZONE 1: CONTEXT (3 cols) */}
         <div className="hidden lg:flex flex-col lg:col-span-3 h-full sutra-card bg-[var(--bg-2)] border-[var(--border)] min-w-0">
           <div className="p-4 border-b border-[var(--border)] flex items-center gap-2 bg-[var(--bg)]">
             <FileText className="w-4 h-4 text-[var(--text-3)]" />
-            <h2 className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">Contextual Data</h2>
+            <h2 className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">{t('chat.contextualData')}</h2>
           </div>
           <div className="flex-1 p-4 overflow-y-auto overflow-x-hidden">
             {uploadedContext ? (
@@ -293,7 +335,7 @@ function ChatContent() {
                   onClick={() => { setUploadedContext(''); setUploadedFilename(''); }}
                   className="btn btn-ghost w-full text-[10px] uppercase tracking-widest font-semibold"
                 >
-                  Clear Context
+                  {t('chat.clearContext')}
                 </button>
               </div>
             ) : (
@@ -307,7 +349,7 @@ function ChatContent() {
                   onClear={() => { setUploadedContext(''); setUploadedFilename(''); }}
                 />
                 <p className="text-[11px] text-[var(--text-2)] font-light max-w-[200px] break-words">
-                  Provide a PRD, specs, or schema. SUTRA will incorporate this into the architecture.
+                  {t('chat.providePrd')}
                 </p>
               </div>
             )}
@@ -315,7 +357,7 @@ function ChatContent() {
         </div>
 
         {/* ZONE 2: WORKSPACE / CHAT (6 cols) */}
-        <div className="flex flex-col lg:col-span-6 h-full sutra-card border-[var(--sutra-muted-gold)] shadow-md overflow-hidden bg-[var(--bg)] relative min-w-0">
+        <div className="flex flex-col lg:col-span-6 h-[52vh] lg:h-full sutra-card border-[var(--sutra-muted-gold)] shadow-md overflow-hidden bg-[var(--bg)] relative min-w-0">
           {/* Thread */}
           <div className="flex-1 overflow-y-auto p-6 pb-4">
             {messages.map((m, i) => <ChatMessage key={i} role={m.role} content={m.content} agent={m.agent} />)}
@@ -325,10 +367,10 @@ function ChatContent() {
                 <Loader2 className="w-4 h-4 animate-spin text-[var(--sutra-muted-gold)]" />
                 {buildProgress ? (
                   <span>
-                    Building application: <strong className="text-[var(--sutra-charcoal)]">{buildProgress.percentage}%</strong> — Step {buildProgress.step}/{buildProgress.total_steps}: {buildProgress.message}
+                    {t('chat.buildingAppStatus')} <strong className="text-[var(--sutra-charcoal)]">{buildProgress.percentage}%</strong> — {t('chat.stepLabel')} {buildProgress.step}/{buildProgress.total_steps}: {buildProgress.message}
                   </span>
                 ) : (
-                  'Synthesizing architecture...'
+                  t('chat.synthesizingArchitecture')
                 )}
               </div>
             )}
@@ -343,12 +385,12 @@ function ChatContent() {
 
             {buildRequested && (
               <div className="mb-2.5 flex items-center gap-2 animate-fade-in">
-                <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)] shrink-0">App Name (optional):</span>
+                <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)] shrink-0">{t('chat.appNameOptional')}</span>
                 <input
                   type="text"
                   value={appName}
                   onChange={(e) => setAppName(e.target.value)}
-                  placeholder="e.g. FitPulse Gym, Gourmet Bistro, PetHaven..."
+                  placeholder={t('chat.appNamePlaceholder')}
                   disabled={isStreaming}
                   className="flex-1 py-1.5 px-3 bg-[var(--bg)] border border-[var(--border)] text-[12px] text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm"
                 />
@@ -367,7 +409,7 @@ function ChatContent() {
                     ? 'bg-[var(--bg)] border-[var(--sutra-muted-gold)] text-[var(--sutra-muted-gold)] shadow-sm'
                     : 'bg-[var(--bg)] border-[var(--border)] text-[var(--text-3)]'
                   }`}
-                title="Attach context"
+                title={t('chat.attachContext')}
               >
                 <Paperclip className="w-4 h-4" />
               </button>
@@ -387,8 +429,8 @@ function ChatContent() {
                   onChange={(e) => setInput(e.target.value)}
                   placeholder={
                     uploadedFilename
-                      ? `Instruct SUTRA (Context: ${uploadedFilename})...`
-                      : t('describeApp', 'Describe your application...')
+                      ? t('chat.instructSutra', { filename: uploadedFilename })
+                      : t('chat.describeApp')
                   }
                   disabled={isStreaming}
                   className="w-full py-3.5 pl-4 pr-24 bg-[var(--bg)] border border-[var(--border)] text-[13px] text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm min-w-0"
@@ -398,7 +440,7 @@ function ChatContent() {
                 <label className={`absolute right-2 flex items-center gap-2 px-3 py-1.5 rounded-sm text-[10px] uppercase tracking-widest font-bold cursor-pointer select-none transition-colors ${buildRequested ? 'bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)]' : 'bg-[var(--bg-2)] border border-[var(--border)] text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] hover:border-[var(--text-3)]'
                   }`}>
                   <input type="checkbox" checked={buildRequested} onChange={(e) => setBuildRequested(e.target.checked)} className="sr-only" />
-                  <Settings2 className="w-3 h-3" /> {t('build', 'Build')}
+                  <Settings2 className="w-3 h-3" /> {t('chat.buildTab')}
                 </label>
               </div>
 
@@ -413,12 +455,12 @@ function ChatContent() {
           </div>
         </div>
 
-        {/* ZONE 3: ARTIFACT (3 cols) */}
-        <div className="hidden lg:flex flex-col lg:col-span-3 h-full sutra-card bg-[var(--bg-2)] border-[var(--border)] min-w-0">
+        {/* ZONE 3: ARTIFACT (3 cols, stacked below chat on mobile) */}
+        <div className="flex flex-col lg:col-span-3 h-[46vh] lg:h-full sutra-card bg-[var(--bg-2)] border-[var(--border)] min-w-0 overflow-hidden">
           <div className="p-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--bg)]">
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-[var(--text-3)]" />
-              <h2 className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">Build Artifacts</h2>
+              <h2 className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">{t('chat.buildArtifacts')}</h2>
             </div>
             {isStreaming && buildProgress && (
               <div className="flex items-center gap-1.5 text-[10px] font-mono text-[var(--sutra-muted-gold)] font-bold">
@@ -428,41 +470,47 @@ function ChatContent() {
             )}
           </div>
           
-          <div className="flex-1 p-4 overflow-y-auto">
-            {finalizedBuild ? (
-              <div className="space-y-4 animate-fade-in">
-                <div className="flex items-center justify-between">
+          <div className="flex-1 p-4 overflow-y-auto overflow-x-hidden">
+            {builds.length > 0 && (
+              <div className="space-y-3 mb-4 animate-fade-in min-w-0">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold text-[var(--green)] bg-[var(--bg)] border border-[var(--border)] p-2">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Build Orchestrated</span>
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                    <span>{builds.length} {t('chat.buildOrchestrated')}</span>
                   </div>
-                  {finalizedBuild.solution_id && (
+                  {solutionId && (
                     <a
-                      href={`/solution/${finalizedBuild.solution_id}`}
+                      href={`/solution/${solutionId}`}
                       className="text-[11px] font-medium text-[var(--sutra-muted-gold)] hover:underline"
                     >
-                      View Artifacts →
+                      {t('chat.viewArtifacts')} →
                     </a>
                   )}
                 </div>
-                <BuildCard
-                  build={finalizedBuild}
-                  isDeployed={Boolean(finalizedBuild.repo_url)}
-                  onDeploy={() => setDeployTarget(finalizedBuild)}
-                  onConfigure={() => setConfigureTarget(finalizedBuild)}
-                  onDownload={() => handleDownload(finalizedBuild)}
-                  onDestroy={() => handleDestroy(finalizedBuild)}
-                />
+                {builds.map((b) => (
+                  <div key={b.build_id} className="min-w-0">
+                    <BuildCard
+                      build={b}
+                      isDeployed={Boolean(b.repo_url)}
+                      onDeploy={() => setDeployTarget(b)}
+                      onConfigure={() => setConfigureTarget(b)}
+                      onDownload={() => handleDownload(b)}
+                      onDestroy={() => handleDestroy(b)}
+                    />
+                  </div>
+                ))}
               </div>
-            ) : isStreaming && (buildRequested || buildProgress) ? (
+            )}
+
+            {isStreaming && (buildRequested || buildProgress) && (
               /* LIVE BUILD PROGRESS DASHBOARD */
-              <div className="space-y-4 animate-fade-in">
+              <div className={`space-y-4 animate-fade-in ${builds.length > 0 ? 'mt-4 border-t border-[var(--border)] pt-4' : ''}`}>
                 {/* Active Status Badge */}
                 <div className="p-3 bg-[var(--bg)] border border-[var(--sutra-muted-gold)] shadow-sm">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">
                       <Activity className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)] animate-pulse" />
-                      <span>Building Application</span>
+                      <span>{t('chat.buildingApplication')}</span>
                     </div>
                     <span className="text-[11px] font-mono font-bold text-[var(--sutra-muted-gold)]">
                       {buildProgress?.percentage ?? 15}%
@@ -478,14 +526,14 @@ function ChatContent() {
                   </div>
 
                   <p className="text-[11px] text-[var(--text-2)] font-light mt-2 break-words">
-                    {buildProgress?.message || 'Synthesizing application structure...'}
+                    {buildProgress?.message || t('chat.synthesizingStructure')}
                   </p>
                 </div>
 
                 {/* Milestone Checklist */}
                 <div className="bg-[var(--bg)] border border-[var(--border)] p-3 space-y-2">
                   <h3 className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)] mb-2">
-                    Execution Milestones
+                    {t('chat.executionMilestones')}
                   </h3>
                   <div className="space-y-2">
                     {BUILD_MILESTONES.map((m) => {
@@ -510,7 +558,7 @@ function ChatContent() {
                                 : 'text-[var(--text-3)] font-light'
                             }
                           >
-                            {m.label}
+                            {t(m.key)}
                           </span>
                         </div>
                       );
@@ -523,7 +571,7 @@ function ChatContent() {
                   <div className="bg-[var(--bg)] border border-[var(--border)] p-3">
                     <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)] mb-2">
                       <Terminal className="w-3 h-3" />
-                      <span>Live Build Log</span>
+                      <span>{t('chat.liveBuildLog')}</span>
                     </div>
                     <div className="max-h-36 overflow-y-auto space-y-1 font-mono text-[10px] text-[var(--text-2)] bg-[var(--bg-2)] p-2 rounded-sm border border-[var(--border)]">
                       {buildProgress.logs.map((log, idx) => (
@@ -536,15 +584,17 @@ function ChatContent() {
                   </div>
                 )}
               </div>
-            ) : (
+            )}
+
+            {builds.length === 0 && !(isStreaming && (buildRequested || buildProgress)) && (
               <div className="h-full flex flex-col items-center justify-center text-center space-y-4 opacity-60">
                 <div className="w-12 h-12 flex items-center justify-center border border-[var(--border)] border-dashed">
                   <Play className="w-5 h-5 text-[var(--text-3)]" />
                 </div>
                 <div>
-                  <p className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">Awaiting Synthesis</p>
+                  <p className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">{t('chat.awaitingSynthesis')}</p>
                   <p className="text-[11px] text-[var(--text-2)] font-light max-w-[180px] mx-auto mt-2">
-                    Toggle <span className="font-semibold">BUILD</span> before sending to generate a deployable MVP architecture.
+                    {t('chat.buildToggleHint')}
                   </p>
                 </div>
               </div>
@@ -561,8 +611,9 @@ function ChatContent() {
 }
 
 export default function ChatPage() {
+  const { t } = useI18n();
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-full text-[var(--text-2)] font-serif italic">Initializing Workspace...</div>}>
+    <Suspense fallback={<div className="flex items-center justify-center h-full text-[var(--text-2)] font-serif italic">{t('chat.initializingIntelligence')}</div>}>
       <ChatContent />
     </Suspense>
   );

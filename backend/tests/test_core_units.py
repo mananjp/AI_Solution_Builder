@@ -561,3 +561,36 @@ def test_normalize_database_url_neon():
 
     # Empty
     assert normalize_database_url("") == ""
+
+
+@pytest.mark.asyncio
+async def test_ensure_default_plans_sync_runs_under_connection(db_engine) -> None:
+    """Ensure plans seeding works via conn.run_sync, where run_sync hands the
+    wrapper a Connection (no ORM add/flush). Regression for the AttributeError
+    that broke the app lifespan on every startup."""
+    from sqlalchemy import func, select
+
+    from app.core.plans import DEFAULT_PLANS, ensure_default_plans_sync
+    from app.models.credit import Plan
+
+    async with db_engine.begin() as conn:
+        await conn.run_sync(ensure_default_plans_sync)
+
+    async with db_engine.begin() as conn:
+        count = (
+            await conn.execute(
+                select(func.count()).select_from(Plan).where(Plan.name.in_([p[0] for p in DEFAULT_PLANS]))  # type: ignore[type-var]
+            )
+        ).scalar_one()
+    assert count == len(DEFAULT_PLANS)
+
+    # Idempotent on a second run (rows already exist → no extra inserts).
+    async with db_engine.begin() as conn:
+        await conn.run_sync(ensure_default_plans_sync)
+    async with db_engine.begin() as conn:
+        count = (
+            await conn.execute(
+                select(func.count()).select_from(Plan).where(Plan.name.in_([p[0] for p in DEFAULT_PLANS]))  # type: ignore[type-var]
+            )
+        ).scalar_one()
+    assert count == len(DEFAULT_PLANS)

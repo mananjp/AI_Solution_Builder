@@ -50,7 +50,6 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-groq}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-to-a-long-random-string-in-production}
       OPENCODE_SERVER_URL: http://opencode:4096
-      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
       MVP_BUILD_DIR: .data/mvp_builds
     ports:
       - "8000:8000"
@@ -86,7 +85,6 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-groq}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-to-a-long-random-string-in-production}
       OPENCODE_SERVER_URL: http://opencode:4096
-      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
       MVP_BUILD_DIR: .data/mvp_builds
       WORKER_MODE: worker
     volumes:
@@ -110,15 +108,17 @@ services:
     container_name: ai_solution_builder_opencode
     restart: unless-stopped
     environment:
-      GROQ_API_KEY: ${GROQ_API_KEY}
+      OPENCODE_ZEN_API_KEY: ${OPENCODE_ZEN_API_KEY:-}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-opencode/big-pickle}
+      OPENCODE_AGENT: ${OPENCODE_AGENT:-mvp-builder}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_MODEL_NAME: ${GROQ_MODEL_NAME:-openai/gpt-oss-120b}
-      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
     ports:
       - "4096:4096"
     volumes:
       - mvp_workspace:/workspace
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:4096/global/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:4096/api/info').then(r=>{if(r.ok)process.exit(0);return fetch('http://localhost:4096/global/health')}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 12

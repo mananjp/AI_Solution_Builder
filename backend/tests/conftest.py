@@ -6,8 +6,6 @@ import uuid
 os.environ.setdefault("LLM_PROVIDER", "mock")
 # Force local disk storage for tests so builds never upload to real Cloudinary.
 os.environ["STORAGE_BACKEND"] = "local"
-# Isolate sidecar auth header tests from any developer .env OPENCODE_SERVER_PASSWORD.
-os.environ["OPENCODE_SERVER_PASSWORD"] = ""
 # Isolate deployment tests from developer credentials in .env.
 os.environ["GITHUB_TOKEN"] = ""
 os.environ["RENDER_API_KEY"] = ""

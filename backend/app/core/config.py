@@ -108,7 +108,7 @@ class Settings(BaseSettings):
 
     # ── OpenCode MVP Builder (sidecar) ────────────
     OPENCODE_SERVER_URL: str = "http://127.0.0.1:4096"
-    OPENCODE_SERVER_PASSWORD: str = ""
+    OPENCODE_ZEN_API_KEY: str = ""  # Optional — only needed for opencode/* Zen models
     OPENCODE_MODEL: str = "opencode/big-pickle"
     OPENCODE_AGENT: str = "mvp-builder"
     MVP_BUILD_TIMEOUT: int = 600  # seconds
