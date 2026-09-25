@@ -112,14 +112,28 @@ export default function MvpPage() {
       .then((s) => {
         setSolution(s);
         setAppName(s.title || '');
-        setChatMessages([
-          {
-            id: 'welcome-1',
-            role: 'assistant',
-            agent: 'AI Solution Architect',
-            content: `Hello! I have loaded the architecture blueprints for **${s.title}**.\n\nYou can chat with me about the **technicalities** of your project—including database schemas, API routes, customer menu ordering flows, and admin kitchen boards—or ask questions before initiating your custom build.`,
-          },
-        ]);
+        if (s.conversation_history && s.conversation_history.length > 0) {
+          setChatMessages(
+            s.conversation_history.map((m, idx) => ({
+              id: `hist-${idx}-${m.role}`,
+              role: (m.role as 'user' | 'assistant' | 'system') || 'assistant',
+              agent: m.role === 'assistant' ? 'AI Solution Architect' : undefined,
+              content: m.content || '',
+            }))
+          );
+        } else {
+          setChatMessages([
+            {
+              id: 'welcome-1',
+              role: 'assistant',
+              agent: 'AI Solution Architect',
+              content: `Hello! I have loaded the architecture blueprints for **${s.title}**.\n\nYou can chat with me about the **technicalities** of your project—including database schemas, API routes, customer menu ordering flows, and admin kitchen boards—or ask questions before initiating your custom build.`,
+            },
+          ]);
+        }
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('sutra_active_solution_id', s.id);
+        }
       })
       .catch(() => {
         const fallbackTitle = 'Omnichannel Retail POS & Inventory Platform';

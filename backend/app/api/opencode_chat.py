@@ -29,6 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from langchain_core.messages import HumanMessage, SystemMessage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 from sse_starlette.sse import EventSourceResponse
 
 from app.api.chat import _persist_artifacts
@@ -950,10 +951,11 @@ async def chat(
                         )
                         assistant_text = await translate_text(raw_fallback, content_language)
 
-                history = solution.conversation_history or []
+                history = list(solution.conversation_history or [])
                 history.append({"role": "user", "content": payload.message})
                 history.append({"role": "assistant", "content": assistant_text})
                 solution.conversation_history = history
+                flag_modified(solution, "conversation_history")
 
                 synthesized = await _synthesize_domain_artifacts_dynamic(
                     solution.title,
@@ -974,6 +976,10 @@ async def chat(
                     "solution_title": solution.title,
                     "business_description": ai_state.get("business_description") or payload.message,
                 }
+                flag_modified(solution, "ai_state")
+
+                # Persist conversational turn immediately so history is saved even if build pipeline disconnects
+                await stream_db.commit()
 
                 build_state: dict[str, Any] = {}
                 if payload.build_requested:

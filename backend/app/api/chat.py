@@ -16,6 +16,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents.graph import discovery_graph, generation_graph
@@ -145,8 +146,10 @@ async def _generation_response(
     ai_response: str,
     conversation_history: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    conversation_history.append({"role": "assistant", "content": ai_response})
-    solution.conversation_history = conversation_history
+    history = list(conversation_history)
+    history.append({"role": "assistant", "content": ai_response})
+    solution.conversation_history = history
+    flag_modified(solution, "conversation_history")
     return final_state
 
 
