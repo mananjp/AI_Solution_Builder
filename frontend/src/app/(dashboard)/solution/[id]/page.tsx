@@ -237,7 +237,7 @@ export default function SolutionViewerPage() {
           </Link>
 
           <Link
-            href={`/solution/${solutionId}/mvp`}
+            href={`/chat?solution_id=${solutionId}&app_name=${encodeURIComponent(solution?.title || 'Solution')}`}
             className="btn btn-ghost border border-[var(--border)] bg-[var(--bg)]"
           >
             <MessageSquare className="w-3.5 h-3.5" />

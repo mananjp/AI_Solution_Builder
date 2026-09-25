@@ -71,7 +71,7 @@ export default function Navbar() {
         </button>
 
         <Link
-          href="/chat"
+          href="/chat?new=true"
           className="btn btn-primary rounded-sm text-[11px] uppercase tracking-widest px-4 py-1.5 hidden sm:flex"
         >
           <Plus className="w-3.5 h-3.5" />

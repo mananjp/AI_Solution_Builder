@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   Plus, Layers, FolderKanban, Clock, ArrowUpRight, Trash2,
-  Compass, Rocket, Zap, Loader2, RefreshCw, Circle,
+  Compass, Rocket, Zap, Loader2, RefreshCw, Circle, MessageSquare,
 } from 'lucide-react';
 import { workspaceApi, solutionApi, mvpApi, opencodeApi } from '@/lib/api';
 import type { OpenCodeDiagnosis } from '@/lib/api';
@@ -324,7 +324,7 @@ export default function DashboardPage() {
             </ul>
           </div>
           <Link
-            href="/chat"
+            href="/chat?new=true"
             className="btn btn-primary flex justify-center w-full shadow-md hover:shadow-lg"
           >
             {t('dash.startNewBuild')}
@@ -411,7 +411,7 @@ export default function DashboardPage() {
             <p className="text-[12px] text-[var(--text-2)] mt-1">Orchestrated architecture specs, database schemas, and roadmaps</p>
           </div>
           <Link
-            href="/chat"
+            href="/chat?new=true"
             className="btn btn-secondary bg-[var(--bg)] border border-[var(--border)]"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -442,12 +442,22 @@ export default function DashboardPage() {
                     <Clock className="w-3 h-3" />
                     {new Date(sol.created_at).toLocaleDateString()}
                   </div>
-                  <Link
-                    href={`/solution/${sol.id}`}
-                    className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-[var(--sutra-muted-gold)] hover:text-[var(--sutra-deep-gold)] transition-colors"
-                  >
-                    View Specs <ArrowUpRight className="w-3.5 h-3.5" />
-                  </Link>
+                  <div className="flex items-center gap-3">
+                    <Link
+                      href={`/chat?solution_id=${sol.id}&app_name=${encodeURIComponent(sol.title)}`}
+                      className="flex items-center gap-1 text-[11px] font-medium text-[var(--text-2)] hover:text-[var(--sutra-muted-gold)] transition-colors"
+                      title="Open chat in AI Architect"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      Chat
+                    </Link>
+                    <Link
+                      href={`/solution/${sol.id}`}
+                      className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-[var(--sutra-muted-gold)] hover:text-[var(--sutra-deep-gold)] transition-colors"
+                    >
+                      View Specs <ArrowUpRight className="w-3.5 h-3.5" />
+                    </Link>
+                  </div>
                 </div>
               </div>
             ))}
@@ -458,7 +468,7 @@ export default function DashboardPage() {
             <p className="text-[15px] font-serif text-[var(--sutra-charcoal)]">No solutions generated</p>
             <p className="text-[13px] text-[var(--text-2)] mt-2 mb-6 font-light max-w-sm mx-auto">Start a custom AI builder session to generate your first architecture blueprint.</p>
             <Link
-              href="/chat"
+              href="/chat?new=true"
               className="btn btn-primary shadow-sm"
             >
               Start Building
