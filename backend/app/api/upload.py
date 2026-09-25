@@ -8,11 +8,11 @@ Parses uploaded files and returns extracted content.
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
-from app.core.i18n import detect_language
+from app.core.i18n import detect_language, normalize_language_code
 from app.core.security import get_current_user
 from app.ingestion.parser import parse_document, parse_url
 from app.models.user import User
@@ -95,12 +95,14 @@ async def upload_document(
 @router.post("/audio")
 async def upload_audio(
     file: UploadFile = File(...),
+    language: str | None = Form(None),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Upload and transcribe voice audio notes (WAV, MP3, M4A, OGG, WEBM).
 
-    Uses language auto-detection to support English, Indic languages (Gujarati,
-    Hindi, Tamil, Marathi, etc.), and major global languages.
+    Uses explicit language hints or automatic detection to support English,
+    Gujarati (ગુજરાતી), Hindi (हिन्दी), Marathi, Tamil, Telugu, and other
+    major native Indic and global languages.
     """
     max_bytes = 25 * 1024 * 1024
     declared_size = getattr(file, "size", None)
@@ -120,18 +122,26 @@ async def upload_audio(
         )
 
     transcription = ""
+    whisper_lang = ""
     try:
         # Check if Groq client is configured for whisper-large-v3
         if settings.GROQ_API_KEY:
             from groq import AsyncGroq
 
             groq_client = AsyncGroq(api_key=settings.GROQ_API_KEY)
-            res = await groq_client.audio.transcriptions.create(
-                file=(filename, contents),
-                model="whisper-large-v3",
-                response_format="json",
-            )
-            transcription = res.text
+            transcribe_kwargs: dict[str, Any] = {
+                "file": (filename, contents),
+                "model": "whisper-large-v3",
+                "response_format": "verbose_json",
+            }
+            if language:
+                norm_hint = normalize_language_code(language, "")
+                if norm_hint:
+                    transcribe_kwargs["language"] = norm_hint
+
+            res = await groq_client.audio.transcriptions.create(**transcribe_kwargs)
+            transcription = getattr(res, "text", "") or ""
+            whisper_lang = getattr(res, "language", "") or ""
     except Exception as err:
         logger.warning("Groq Whisper transcription unavailable: %s", err)
 
@@ -141,7 +151,13 @@ async def upload_audio(
             f"[Voice Note: Uploaded {filename} ({len(contents)} bytes). Voice input received.]"
         )
 
-    detected_lang = detect_language(transcription, default="en")
+    # Reconcile detected language
+    hinted_lang = normalize_language_code(language, "") if language else ""
+    detected_lang = (
+        hinted_lang
+        or normalize_language_code(whisper_lang, "")
+        or detect_language(transcription, default="en")
+    )
 
     return {
         "filename": filename,

@@ -38,7 +38,7 @@ function CallbackContent() {
 
   return (
     <div className="flex flex-col items-center gap-3">
-      <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
+      <Loader2 className="w-8 h-8 text-[var(--sutra-muted-gold)] animate-spin" />
       <p className="text-xs text-slate-300 font-medium">Securing session and entering workspace...</p>
     </div>
   );
@@ -50,7 +50,7 @@ export default function AuthCallbackPage() {
       <Suspense
         fallback={
           <div className="flex flex-col items-center gap-3">
-            <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
+            <Loader2 className="w-8 h-8 text-[var(--sutra-muted-gold)] animate-spin" />
             <p className="text-xs text-slate-300 font-medium">Authorizing...</p>
           </div>
         }

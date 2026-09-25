@@ -110,11 +110,30 @@ export function isDemoSession(): boolean {
   return localStorage.getItem('demo_session') === 'true';
 }
 
+export function getCurrentLanguage(): string {
+  if (typeof window === 'undefined') return 'en';
+  return localStorage.getItem('sutra.lang') || localStorage.getItem('sutra_lang') || getActiveLanguageCode() || 'en';
+}
+
+export function setCurrentLanguage(lang: string) {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('sutra.lang', lang);
+    localStorage.setItem('sutra_lang', lang);
+    try {
+      document.documentElement.lang = lang;
+    } catch {
+      // ignore
+    }
+  }
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = getAuthToken();
+  const currentLang = getCurrentLanguage() || getActiveLanguageCode();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'X-Content-Language': getActiveLanguageCode(),
+    'X-Content-Language': currentLang,
+    'Accept-Language': currentLang,
     ...(options.headers as Record<string, string>),
   };
 
@@ -703,7 +722,8 @@ export const uploadApi = {
 
   async uploadAudio(
     audioBlob: Blob,
-    filename: string = 'voice_recording.webm'
+    filename: string = 'voice_recording.webm',
+    language?: string
   ): Promise<{
     filename: string;
     transcription: string;
@@ -711,12 +731,19 @@ export const uploadApi = {
     character_count: number;
   }> {
     const token = getAuthToken();
+    const currentLang = language || getCurrentLanguage();
     const formData = new FormData();
     formData.append('file', audioBlob, filename);
+    if (currentLang && currentLang !== 'auto') {
+      formData.append('language', currentLang);
+    }
 
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    headers['X-Content-Language'] = getActiveLanguageCode();
+    if (currentLang) {
+      headers['X-Content-Language'] = currentLang;
+      headers['Accept-Language'] = currentLang;
+    }
 
     const response = await fetch(`${API_BASE_URL}/upload/audio`, {
       method: 'POST',
@@ -757,9 +784,11 @@ async function streamSSE(
   handlers: StreamHandlers
 ) {
   const token = getAuthToken();
-  const headers = {
+  const currentLang = getCurrentLanguage() || getActiveLanguageCode();
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'X-Content-Language': getActiveLanguageCode(),
+    'X-Content-Language': currentLang,
+    'Accept-Language': currentLang,
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 

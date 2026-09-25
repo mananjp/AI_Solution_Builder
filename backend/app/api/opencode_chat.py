@@ -36,7 +36,11 @@ from app.core.build_locks import allocate_build_number
 from app.core.config import settings
 from app.core.credits import require_and_deduct_credit
 from app.core.database import async_session_factory, get_db
-from app.core.i18n import translate_text
+from app.core.i18n import (
+    LANGUAGE_NAMES,
+    pick_best_language,
+    translate_text,
+)
 from app.core.llm import get_llm, has_llm_credentials
 from app.core.security import get_current_user
 from app.models.mvp_build import MVPBuild
@@ -56,7 +60,7 @@ _TARGET_MAX_CONTEXT = 20_000  # uploaded-context cap fed to the sidecar
 
 
 def _extract_app_title(prompt: str, fallback: str = "Custom App") -> str:
-    """Extract a clean, concise application title from a user prompt."""
+    """Extract a clean, concise application title from a user prompt, preserving Indic scripts."""
     if not prompt or not prompt.strip():
         return fallback
 
@@ -72,12 +76,16 @@ def _extract_app_title(prompt: str, fallback: str = "Custom App") -> str:
         "help",
         "yo",
         "start",
+        "નમસ્તે",
+        "કેમ છો",
+        "नमस्ते",
+        "પ્રણામ",
     }:
         return fallback
 
-    # Check for explicit named patterns first: "called XYZ" or "named XYZ"
+    # Check for explicit named patterns: "called XYZ", "named XYZ", or native equivalents
     named_match = re.search(
-        r"(?:called|named)\s+[\"']?([A-Za-z0-9_\-\s]{2,40}?)[\"']?(?:\s+(?:for|with|that|which|\.|\,)|$)",
+        r"(?:called|named|નામ|नाम)\s+[\"']?([^\W_][\w\-\s]{1,40}?)[\"']?(?:\s+(?:for|with|that|which|\.|\,)|$)",
         cleaned,
         flags=re.IGNORECASE,
     )
@@ -90,6 +98,9 @@ def _extract_app_title(prompt: str, fallback: str = "Custom App") -> str:
         r"^(?:please\s+)?(?:i\s+want\s+to\s+|i\s+would\s+like\s+to\s+|can\s+you\s+)?(?:build|create|make|develop|design|generate)\s+(?:me\s+)?(?:an?\s+)?(?:mvp\s+)?(?:app\s+for\s+|application\s+for\s+|system\s+for\s+|platform\s+for\s+)?(?:an?\s+)?",
         r"^(?:i\s+need\s+an?\s+app\s+for\s+|i\s+need\s+an?\s+application\s+for\s+|i\s+need\s+a\s+system\s+for\s+)",
         r"^(?:build\s+|create\s+|make\s+|design\s+)(?:an?\s+)?(?:app\s+for\s+|application\s+for\s+|system\s+for\s+)?(?:an?\s+)?",
+        # Gujarati and Hindi common intention prefixes
+        r"^(?:મને\s+|મારે\s+)?(?:એક\s+)?(?:નવી\s+)?(?:એપ|વેબસાઇટ|સિસ્ટમ)\s+(?:બનાવવી\s+છે|જોઈએ\s+છે|બનાવી\s+આપો)\s*",
+        r"^(?:मुझे\s+|हमे\s+)?(?:एक\s+)?(?:नया\s+|नई\s+)?(?:ऐप|वेबसाइट|सिस्टम)\s+(?:बनाना\s+है|बनानी\s+है|चाहिए)\s*",
     ]
     for p in patterns:
         cleaned = re.sub(p, "", cleaned, flags=re.IGNORECASE).strip()
@@ -773,11 +784,27 @@ async def chat(
 
                 target_dir = builder.chat_container_target(solution.id)
 
+                content_language = pick_best_language(
+                    request.headers.get("Accept-Language", ""),
+                    request.headers.get("X-Content-Language", ""),
+                    payload.message,
+                    default="en",
+                )
+                lang_name = LANGUAGE_NAMES.get(content_language, content_language)
+
                 # ── Generate the conversational reply ────────────────
                 if sidecar_ok:
+                    lang_rule = ""
+                    if content_language != "en":
+                        lang_rule = (
+                            f"\n## Language Requirement\nThe user communicates in {lang_name}. "
+                            f"Respond in {lang_name} while keeping code syntax, models, and file paths in standard English."
+                        )
+
                     instruction = (
                         f"# Custom Build Request — {solution.title}\n\n"
-                        f"{payload.message}\n\n"
+                        f"{payload.message}\n"
+                        f"{lang_rule}\n\n"
                         "## Working directory\n"
                         "A working FastAPI + Next.js scaffold already exists at `"
                         f"{target_dir}`. Implement the requested app by editing files "
@@ -862,6 +889,15 @@ async def chat(
 
                     arch_context = "\n".join(arch_summary_parts)
 
+                    multilingual_note = ""
+                    if content_language != "en":
+                        multilingual_note = (
+                            f"\n- CRITICAL LANGUAGE INSTRUCTION: The user is communicating in {lang_name} ({content_language}). "
+                            f"You MUST formulate your conversational explanation and replies in fluent {lang_name}. "
+                            "Preserve standard English naming for code snippets, JSON keys, SQL statements, and API paths, "
+                            f"but explain all architecture, features, workflows, and answers naturally in {lang_name}."
+                        )
+
                     sys_prompt = (
                         "You are an expert full-stack AI Developer & Solution Architect for AI Solution Builder. "
                         "You are helping the user architect, understand, and build a complete "
@@ -874,6 +910,7 @@ async def chat(
                         "or technical implementation details.\n"
                         "- If the user asks about technicalities, explain the concrete models, endpoints, state management, and frontend features.\n"
                         "- Keep responses structured, informative, professional, and concise."
+                        f"{multilingual_note}"
                     )
                     user_prompt = payload.message
                     if payload.uploaded_context:
@@ -904,13 +941,14 @@ async def chat(
                         )
                         assistant_text = ""
                     if not assistant_text or assistant_text == "Mock response":
-                        assistant_text = (
+                        raw_fallback = (
                             f"I've structured your application requirements for **{solution.title}** into the "
                             "FastAPI backend and Next.js frontend workspace.\n\n"
                             "• **Architecture**: FastAPI REST backend with SQLAlchemy 2.0 and PostgreSQL\n"
                             "• **Frontend**: Modern Next.js 15 App Router interface with responsive interactive components\n"
                             "• **Next step**: You can ask any technical questions or click **Synthesize & Build** to generate the working prototype."
                         )
+                        assistant_text = await translate_text(raw_fallback, content_language)
 
                 history = solution.conversation_history or []
                 history.append({"role": "user", "content": payload.message})
@@ -1110,15 +1148,20 @@ async def chat(
 
                     if sidecar_ok:
                         # Sidecar available — run verify+repair loop best-effort.
+                        async def _send_repair_turn(s: str | None, t: str) -> dict[str, Any]:
+                            if not s:
+                                raise ValueError("Missing session_id for repair turn")
+                            return await builder.send_message(
+                                s, t, timeout=settings.MVP_BUILD_TIMEOUT, seed=str(solution.id)
+                            )
+
                         try:
                             await asyncio.wait_for(
                                 mvp_verifier.verify_and_repair(
                                     ws_dir,
                                     session_id=session_id,
                                     target_dir=target_dir,
-                                    send_prompt_fn=lambda s, t: builder.send_message(
-                                        s, t, timeout=settings.MVP_BUILD_TIMEOUT, seed=str(solution.id)
-                                    ),
+                                    send_prompt_fn=_send_repair_turn,
                                     check_npm=False,
                                     max_repair_turns=settings.MVP_MAX_REPAIR_TURNS,
                                 ),

@@ -76,29 +76,29 @@ export default function ExportModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-xl bg-[#111] border border-[#1a1a1a] rounded-xl shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in">
+      <div className="w-full max-w-xl bg-[var(--bg)] border border-[var(--border)] rounded-sm shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="p-4 border-b border-[#1a1a1a] flex items-center justify-between bg-[#0a0a0a]">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-md bg-[#161616] border border-[#242424] text-[#818cf8]">
+        <div className="p-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--bg-2)]">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 rounded-sm bg-[var(--sutra-muted-gold)]/15 text-[var(--sutra-muted-gold)] border border-[var(--sutra-muted-gold)]/30">
               <Download className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="font-semibold text-white text-sm">Export Engineering Blueprint</h3>
-              <p className="text-xs text-[#555]">Choose target format or deployment bundle</p>
+              <h3 className="font-serif font-bold text-[var(--sutra-charcoal)] text-sm">Export Engineering Blueprint</h3>
+              <p className="text-xs text-[var(--text-2)] font-light">Choose target format or deployment bundle</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-md hover:bg-[#1f1f1f] text-[#555] hover:text-white transition-colors"
+            className="p-1 rounded-sm hover:bg-[var(--bg-3)] text-[var(--text-3)] hover:text-[var(--text)] transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Formats Grid */}
-        <div className="p-5 space-y-3">
+        <div className="p-5 space-y-3 bg-[var(--bg)]">
           {exportFormats.map((fmt) => {
             const Icon = fmt.icon;
             const isBusy = downloading === fmt.id;
@@ -106,20 +106,20 @@ export default function ExportModal({
             return (
               <div
                 key={fmt.id}
-                className="p-3.5 rounded-lg bg-[#0a0a0a] border border-[#1a1a1a] hover:border-[#2e2e2e] transition-colors flex items-start justify-between gap-3"
+                className="p-3.5 rounded-sm bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--sutra-muted-gold)]/40 transition-colors flex items-start justify-between gap-3"
               >
                 <div className="flex items-start gap-3">
-                  <div className="p-2 rounded-lg bg-[#161616] text-[#818cf8] mt-0.5">
+                  <div className="p-2 rounded-sm bg-[var(--sutra-muted-gold)]/15 text-[var(--sutra-muted-gold)] mt-0.5">
                     <Icon className="w-4 h-4" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h4 className="font-semibold text-xs text-white">{fmt.name}</h4>
-                      <span className="badge badge-gray text-[9px]">
+                      <h4 className="font-semibold text-xs text-[var(--sutra-charcoal)]">{fmt.name}</h4>
+                      <span className="px-2 py-0.5 text-[9px] font-mono uppercase rounded-sm bg-[var(--sutra-muted-gold)]/15 text-[var(--sutra-deep-gold)] border border-[var(--sutra-muted-gold)]/30">
                         {fmt.badge}
                       </span>
                     </div>
-                    <p className="text-xs text-[#555] mt-1 leading-relaxed max-w-sm">
+                    <p className="text-xs text-[var(--text-2)] mt-1 leading-relaxed max-w-sm font-light">
                       {fmt.desc}
                     </p>
                   </div>
@@ -128,7 +128,7 @@ export default function ExportModal({
                 <button
                   onClick={fmt.handler}
                   disabled={isBusy}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#6366f1] hover:bg-[#5558dd] text-white text-xs font-medium transition-colors whitespace-nowrap disabled:opacity-50"
+                  className="btn btn-primary px-3 py-1.5 text-xs font-medium whitespace-nowrap disabled:opacity-50 flex items-center gap-1.5"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>{isBusy ? 'Exporting...' : `Download ${fmt.ext}`}</span>
@@ -137,15 +137,15 @@ export default function ExportModal({
             );
           })}
 
-          <div className="p-3 rounded-lg bg-[#0a0a0a] border border-[#1a1a1a] flex items-center justify-between text-xs text-[#a1a1a1]">
+          <div className="p-3 rounded-sm bg-[var(--bg-3)] border border-[var(--border)] flex items-center justify-between text-xs text-[var(--text-2)]">
             <div className="flex items-center gap-2">
-              <GitBranch className="w-4 h-4 text-[#4ade80]" />
+              <GitBranch className="w-4 h-4 text-emerald-600" />
               <span>Direct GitHub repo deployment supported via ZIP manifest</span>
             </div>
-            <span className="text-[10px] text-[#4ade80] font-semibold uppercase">CI/CD Included</span>
+            <span className="text-[10px] text-emerald-600 font-semibold uppercase">CI/CD Included</span>
           </div>
           {error && (
-            <div className="p-3 rounded-lg bg-[#2a1414] border border-[#3d1f1f] text-xs text-[#f87171]">
+            <div className="p-3 rounded-sm bg-rose-500/10 border border-rose-500/20 text-xs text-rose-600">
               {error}
             </div>
           )}

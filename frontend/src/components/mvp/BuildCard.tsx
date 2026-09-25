@@ -222,16 +222,19 @@ export function DeployModal({
 
   useEffect(() => {
     if (!deployResult || !deployResult.deploy_state) return;
-    let current = deployResult.deploy_state;
-    setLiveStatus({
-      overall: (current.status as MVPDeployStatus['overall']) || 'building',
-      services: current.services,
-      injected_env: current.injected_env,
-      deploy_url: build.render_deploy_url || null,
-      repo_url: build.repo_url || null,
-      frontend_url: build.frontend_url || null,
-      backend_url: build.backend_url || null,
-    });
+    const current = deployResult.deploy_state;
+    const timer = setTimeout(() => {
+      setLiveStatus({
+        overall: (current.status as MVPDeployStatus['overall']) || 'building',
+        services: current.services,
+        injected_env: current.injected_env,
+        deploy_url: build.render_deploy_url || null,
+        repo_url: build.repo_url || null,
+        frontend_url: build.frontend_url || null,
+        backend_url: build.backend_url || null,
+      });
+    }, 0);
+    return () => clearTimeout(timer);
   }, [deployResult, build.render_deploy_url, build.repo_url, build.frontend_url, build.backend_url]);
 
   // Poll the real Render deploy objects until the app is live or failed.

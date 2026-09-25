@@ -319,7 +319,7 @@ def fallback_app_spec(
         or (user_prompt.split("\n")[0][:40] if user_prompt else "")
         or "Custom App"
     ).strip()
-    clean_name = re.sub(r"[^a-zA-Z0-9 ]+", " ", title).strip().title() or "Custom App"
+    clean_name = re.sub(r"[^\w\s]+", " ", title).strip() or "Custom App"
 
     # Extract entities from er_diagram or confirmed_modules or heuristics
     er = (

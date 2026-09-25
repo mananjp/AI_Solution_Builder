@@ -185,7 +185,7 @@ export function SandboxPreview({
                 <div className="h-full flex flex-col items-center justify-center text-center gap-3 p-6">
                   <Rocket className="w-8 h-8 text-[var(--text-3)]" />
                   <p className="text-[12px] text-[var(--text-2)] font-light max-w-sm">
-                    This build isn't deployed yet — the preview needs a live URL.
+                    This build isn&apos;t deployed yet — the preview needs a live URL.
                   </p>
                   <p className="text-[11px] font-mono text-[var(--sutra-muted-gold)]">
                     Use <strong>Deploy</strong> on the build card first, then return here to inspect the running app.
@@ -219,7 +219,7 @@ export function SandboxPreview({
               {messages.length === 0 && (
                 <p className="text-[11px] text-[var(--text-2)] font-light leading-relaxed">
                   This assistant knows exactly what was built — the entities, API, files, and any
-                  live URLs. Try: <em>“What's the data model?”</em>, <em>“How does auth work?”</em>, or{' '}
+                  live URLs. Try: <em>“What&apos;s the data model?”</em>, <em>“How does auth work?”</em>, or{' '}
                   <em>“Which endpoints does the frontend call?”</em>
                 </p>
               )}

@@ -47,6 +47,8 @@ export const viewport: Viewport = {
   userScalable: false,
 };
 
+import { LanguageProvider } from "@/context/LanguageContext";
+
 export default function RootLayout({
   children,
 }: {
@@ -69,7 +71,11 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-full flex flex-col bg-[#070a13] text-slate-100">
-        <I18nProvider>{children}</I18nProvider>
+        <I18nProvider>
+          <LanguageProvider>
+            {children}
+          </LanguageProvider>
+        </I18nProvider>
         <script
           dangerouslySetInnerHTML={{
             __html: `

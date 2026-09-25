@@ -63,6 +63,7 @@ export default function Navbar() {
 
       {/* Right */}
       <div className="ml-auto flex items-center gap-3">
+        {/* Language Selector */}
         <LanguageSelector />
 
         <button className="w-8 h-8 rounded-sm bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--sutra-muted-gold)] flex items-center justify-center text-[var(--text-2)] hover:text-[var(--text)] transition-colors shadow-sm">

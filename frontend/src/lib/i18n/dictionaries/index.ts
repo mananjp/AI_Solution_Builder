@@ -1,11 +1,13 @@
 import type { Dictionary, TranslationKey } from './en';
 import { en } from './en';
 import { hi } from './hi';
+import { gu } from './gu';
 
 // Registry of shipped UI translations; missing languages fall back to English.
 const DICTIONARIES: Record<string, Dictionary> = {
   en,
   hi,
+  gu,
 };
 
 export type { Dictionary, TranslationKey } from './en';

@@ -42,8 +42,8 @@ export function ResourceGauges({
 
   useEffect(() => {
     if (!engineOnline) {
-      setRes(null);
-      return;
+      const timer = setTimeout(() => setRes(null), 0);
+      return () => clearTimeout(timer);
     }
     let cancelled = false;
     const poll = async () => {

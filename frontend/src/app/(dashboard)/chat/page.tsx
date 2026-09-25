@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import ChatMessage from '@/components/ChatMessage';
 import FileUploader from '@/components/FileUploader';
+import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { opencodeApi, sendOpenCodeChatStream, mvpApi } from '@/lib/api';
 import { BuildStep, MVPBuild, MVPDeployResult, OpenCodeChatComplete, OpenCodeBuildProgress } from '@/types';
 import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
@@ -413,12 +414,24 @@ function ChatContent() {
                 <Paperclip className="w-4 h-4" />
               </button>
 
+              {/* Voice input button with language support */}
+              <VoiceInputButton
+                onTranscribed={(text) => {
+                  setInput((prev) => (prev ? `${prev} ${text}` : text));
+                }}
+                disabled={isStreaming}
+              />
+
               <div className="flex-1 relative flex items-center min-w-0">
                 <input
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder={uploadedFilename ? t('chat.instructSutra', { filename: uploadedFilename }) : t('chat.describeApp')}
+                  placeholder={
+                    uploadedFilename
+                      ? t('chat.instructSutra', { filename: uploadedFilename })
+                      : t('chat.describeApp')
+                  }
                   disabled={isStreaming}
                   className="w-full py-3.5 pl-4 pr-24 bg-[var(--bg)] border border-[var(--border)] text-[13px] text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm min-w-0"
                 />
