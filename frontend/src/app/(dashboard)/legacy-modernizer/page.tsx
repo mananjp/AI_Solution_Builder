@@ -29,6 +29,7 @@ import {
 export default function LegacyModernizerPage() {
   const [activeTab, setActiveTab] = useState<'upload' | 'github' | 'sample'>('sample');
   const [githubUrl, setGithubUrl] = useState('https://github.com/example/legacy-node-crm');
+  const [githubToken, setGithubToken] = useState('');
   const [localPath, setLocalPath] = useState('');
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
 
@@ -59,7 +60,10 @@ export default function LegacyModernizerPage() {
         const res = await legacyRepoApi.analyzeUpload(uploadedFile);
         setAnalysis(res);
       } else if (activeTab === 'github' && githubUrl) {
-        const res = await legacyRepoApi.analyze({ github_repo_url: githubUrl });
+        const res = await legacyRepoApi.analyze({
+          github_repo_url: githubUrl.trim(),
+          github_token: githubToken.trim() || undefined,
+        });
         setAnalysis(res);
       } else {
         // Sample or local path mode
@@ -102,7 +106,8 @@ export default function LegacyModernizerPage() {
 
       const res = await legacyRepoApi.modernize({
         local_path: analysis?.root_path || localPath,
-        github_repo_url: activeTab === 'github' ? githubUrl : undefined,
+        github_repo_url: activeTab === 'github' ? githubUrl.trim() : undefined,
+        github_token: activeTab === 'github' ? (githubToken.trim() || undefined) : undefined,
         requested_features: ['ai_chatbot'],
         credentials: creds,
       });
@@ -235,17 +240,39 @@ export default function LegacyModernizerPage() {
         )}
 
         {activeTab === 'github' && (
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-[var(--text-2)] mb-1">
-              GitHub Repository URL
-            </label>
-            <input
-              type="text"
-              value={githubUrl}
-              onChange={(e) => setGithubUrl(e.target.value)}
-              placeholder="https://github.com/owner/repository"
-              className="w-full px-3 py-2 text-sm bg-[var(--bg-1)] border border-[var(--border)] rounded focus:outline-none focus:border-[var(--sutra-muted-gold)] font-mono"
-            />
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-[var(--text-2)] mb-1">
+                GitHub Repository URL
+              </label>
+              <input
+                type="text"
+                value={githubUrl}
+                onChange={(e) => setGithubUrl(e.target.value)}
+                placeholder="https://github.com/owner/repository"
+                className="w-full px-3 py-2 text-sm bg-[var(--bg-1)] border border-[var(--border)] rounded focus:outline-none focus:border-[var(--sutra-muted-gold)] font-mono"
+              />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-[var(--text-2)]">
+                  GitHub Personal Access Token (PAT)
+                </label>
+                <span className="text-[11px] text-[var(--text-3)] font-normal">
+                  Optional override • Uses token saved in Settings by default
+                </span>
+              </div>
+              <input
+                type="password"
+                value={githubToken}
+                onChange={(e) => setGithubToken(e.target.value)}
+                placeholder="ghp_... (leave empty to use your saved Settings token)"
+                className="w-full px-3 py-2 text-sm bg-[var(--bg-1)] border border-[var(--border)] rounded focus:outline-none focus:border-[var(--sutra-muted-gold)] font-mono"
+              />
+              <p className="text-[11px] text-[var(--text-3)] mt-1">
+                Ensures 5,000 requests/hour rate limit and access to private repositories.
+              </p>
+            </div>
           </div>
         )}
 
