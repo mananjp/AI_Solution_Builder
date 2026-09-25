@@ -28,7 +28,7 @@ help:
 	@echo "  docker-up       Start postgres + redis via docker compose"
 	@echo "  security        Run pip-audit against requirements"
 	@echo "  run             Start uvicorn on :8000"
-	@echo "OpenCode sidecar (uses GROQ_API_KEY; OPENCODE_ZEN_API_KEY optional):"
+	@echo "OpenCode sidecar (default model opencode/big-pickle via OPENCODE_ZEN_API_KEY):"
 	@echo "  sidecar-build   Build the opencode sidecar image"
 	@echo "  sidecar-up      Start the opencode sidecar container (docker compose)"
 	@echo "  sidecar-logs    Tail the sidecar's [opencode] logs"
@@ -77,10 +77,10 @@ run:
 	uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 # ── OpenCode sidecar ─────────────────────────────────────────────────────
-# Default model groq/openai/gpt-oss-120b uses GROQ_API_KEY (in root .env).
-# To switch to the free opencode/big-pickle Zen model add:
-#   OPENCODE_ZEN_API_KEY=<your-zen-key>
-#   OPENCODE_MODEL=opencode/big-pickle
+# Default model opencode/big-pickle needs OPENCODE_ZEN_API_KEY (in root .env).
+# To use Groq instead add:
+#   OPENCODE_MODEL=groq/openai/gpt-oss-120b
+#   GROQ_API_KEY=<your-groq-key>
 COMPOSE ?= docker compose -f ../docker-compose.yml
 
 sidecar-build:

@@ -30,10 +30,10 @@ log() { echo "[entrypoint] $*"; }
 
 # Seed OpenCode Zen credentials so `opencode serve` (any role) can authenticate.
 # Non-fatal here: the app/worker roles keep running; the sidecar logs its own
-# failures loudly. Optional — the default model uses Groq (GROQ_API_KEY).
+# failures loudly. Optional — the default model opencode/big-pickle needs it.
 seed_opencode_auth() {
   [ -n "${OPENCODE_ZEN_API_KEY:-}" ] || {
-    log "OPENCODE_ZEN_API_KEY not set; using Groq provider (model groq/openai/gpt-oss-120b by default)."
+    log "OPENCODE_ZEN_API_KEY not set; default model opencode/big-pickle will fail LLM auth unless OPENCODE_MODEL is overridden to a groq/* model (with GROQ_API_KEY)."
     return 0
   }
   local dir="${HOME}/.local/share/opencode"

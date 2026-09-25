@@ -2,10 +2,10 @@
 # AI Solution Builder — OpenCode sidecar entrypoint
 #
 # Responsibilities:
-#   1. Work out of the box with NO secret beyond GROQ_API_KEY: the default
-#      model is `groq/openai/gpt-oss-120b` (config.json). OPENCODE_ZEN_API_KEY
-#      is optional — it is only needed to run the `opencode/big-pickle` Zen
-#      model. Neither OPENCODE_SERVER_PASSWORD nor a Zen key is required.
+#   1. Work out of the box: the default model is `opencode/big-pickle` (OpenCode
+#      Zen). Set OPENCODE_ZEN_API_KEY for it; without it, generation degrades to
+#      the GROQ_API_KEY fallback (groq/* model) if you override OPENCODE_MODEL.
+#      Neither OPENCODE_SERVER_PASSWORD nor a Zen key is required to boot.
 #   2. Seed the OpenCode Zen credential file (~/.local/share/opencode/auth.json)
 #      ONLY when OPENCODE_ZEN_API_KEY is set.
 #   3. Print a startup diagnostics banner for `docker logs`/`render logs`.
@@ -36,11 +36,11 @@ EOF
   chmod 600 "${AUTH_FILE}"
   log "diag: zen credentials seeded"
 else
-  log "diag: OPENCODE_ZEN_API_KEY unset — using Groq provider (model groq/openai/gpt-oss-120b)"
+  log "diag: OPENCODE_ZEN_API_KEY unset — set it (https://opencode.ai/zen) or override OPENCODE_MODEL with a groq/* model"
 fi
 
 # ── 2. Diagnostics banner ────────────────────────────────────────────────
-log "diag: starting opencode serve (model=${OPENCODE_MODEL:-groq/openai/gpt-oss-120b}, agent=${OPENCODE_AGENT:-mvp-builder})"
+log "diag: starting opencode serve (model=${OPENCODE_MODEL:-opencode/big-pickle}, agent=${OPENCODE_AGENT:-mvp-builder})"
 log "diag: auth file present: $([ -f "${AUTH_FILE}" ] && echo yes || echo no)"
 log "diag: node: $(node --version 2>/dev/null || echo missing)"
 log "diag: python3: $(python3 --version 2>&1 || echo missing)"

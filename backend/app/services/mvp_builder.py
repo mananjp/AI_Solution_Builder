@@ -91,9 +91,9 @@ def _auth_hint(status_code: int) -> str | None:
     """Return an actionable error message for auth-related sidecar failures."""
     if status_code in (401, 403):
         return (
-            "LLM provider rejected the credentials (HTTP {status}). Make sure GROQ_API_KEY "
-            "(default model groq/openai/gpt-oss-120b) is set in the sidecar env — and "
-            "OPENCODE_ZEN_API_KEY if you switch OPENCODE_MODEL to an opencode/* Zen model."
+            "LLM provider rejected the credentials (HTTP {status}). Make sure OPENCODE_ZEN_API_KEY "
+            "(default model opencode/big-pickle) is set in the sidecar env, or set "
+            "OPENCODE_MODEL to a groq/* model and provide GROQ_API_KEY."
         ).format(status=status_code)
     return None
 
@@ -262,7 +262,7 @@ def _fix_for_error(exc: Exception) -> str:
     text = str(exc)
     lowered = f"{type(exc).__name__}: {text}".lower()
     if "401" in lowered or "403" in lowered or "unauthorized" in lowered or "denied" in lowered:
-        return "LLM provider rejected the key. Set GROQ_API_KEY in the sidecar env (model groq/openai/gpt-oss-120b). Only set OPENCODE_ZEN_API_KEY if OPENCODE_MODEL is an opencode/* Zen model."
+        return "LLM provider rejected the key. Set OPENCODE_ZEN_API_KEY in the sidecar env (default model opencode/big-pickle), or override OPENCODE_MODEL to a groq/* model and use GROQ_API_KEY."
     if "timed out" in lowered or "connecterror" in lowered or "connect" in lowered:
         return "Sidecar unreachable: is the opencode container running?\n  docker compose up -d opencode   (local)  ·  see README 'OpenCode sidecar' (Render/Fly)"
     if "404" in lowered or "not found" in lowered:
@@ -329,8 +329,8 @@ async def diagnose() -> dict[str, Any]:
         {
             "status": "ok" if llm_key else "warn",
             "label": "LLM API key for code generation (backend)",
-            "detail": "GROQ_API_KEY present" if groq_key else ("OPENCODE_ZEN_API_KEY present (model opencode/* required)" if zen_key else "neither GROQ_API_KEY nor OPENCODE_ZEN_API_KEY is set on the backend"),
-            "fix": None if llm_key else "Set GROQ_API_KEY (default model groq/openai/gpt-oss-120b) in the service that runs opencode.",
+            "detail": "GROQ_API_KEY present" if groq_key else ("OPENCODE_ZEN_API_KEY present (model opencode/* required)" if zen_key else "the default model opencode/big-pickle needs OPENCODE_ZEN_API_KEY (or set OPENCODE_MODEL to a groq/* model with GROQ_API_KEY)"),
+            "fix": None if llm_key else "Set OPENCODE_ZEN_API_KEY in the service that runs opencode (or override OPENCODE_MODEL to a groq/* model with GROQ_API_KEY).",
         }
     )
 

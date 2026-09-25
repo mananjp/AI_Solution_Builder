@@ -55,7 +55,7 @@ services:
       - key: OPENCODE_ZEN_API_KEY
         sync: false
       - key: OPENCODE_MODEL
-        value: groq/openai/gpt-oss-120b
+        value: opencode/big-pickle
       - key: OPENCODE_AGENT
         value: mvp-builder
       - key: WORKER_MODE
@@ -136,6 +136,6 @@ services:
       - key: OPENCODE_ZEN_API_KEY
         sync: false
       - key: OPENCODE_MODEL
-        value: groq/openai/gpt-oss-120b
+        value: opencode/big-pickle
       - key: OPENCODE_AGENT
         value: mvp-builder

@@ -109,7 +109,7 @@ services:
     restart: unless-stopped
     environment:
       OPENCODE_ZEN_API_KEY: ${OPENCODE_ZEN_API_KEY:-}
-      OPENCODE_MODEL: ${OPENCODE_MODEL:-groq/openai/gpt-oss-120b}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-opencode/big-pickle}
       OPENCODE_AGENT: ${OPENCODE_AGENT:-mvp-builder}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_MODEL_NAME: ${GROQ_MODEL_NAME:-openai/gpt-oss-120b}

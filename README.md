@@ -181,18 +181,19 @@ The backend and the OpenCode sidecar share the `mvp_workspace` Docker volume: th
 ### 7. OpenCode MVP Builder
 - **Template presets**: `todo`, `calculator`, `portfolio` — small, deployable starters listed by `GET /api/v1/mvp/templates`.
 - **Custom builds**: generates a full functional app from any validated solution's artifacts (HLD, LLD, ER, API spec, DDL, wireframes).
-- **OpenCode sidecar**: a headless `opencode serve` container whose `mvp-builder` agent (default model `groq/openai/gpt-oss-120b` via your `GROQ_API_KEY` — the free `opencode/big-pickle` Zen model is a one-line opt-in) "slot-fills" a pre-scaffolded FastAPI + Next.js project with the artifact-specific models, schemas, routers, and pages.
+- **OpenCode sidecar**: a headless `opencode serve` container whose `mvp-builder` agent (default model `opencode/big-pickle` — free on OpenCode Zen; `groq/openai/gpt-oss-120b` is the no-key fallback) "slot-fills" a pre-scaffolded FastAPI + Next.js project with the artifact-specific models, schemas, routers, and pages.
 - **GitHub deploy**: `POST /api/v1/mvp/builds/{id}/deploy` pushes the workspace (with `render.yaml`, Dockerfile, CI workflow remapped to the repo root) to a fresh GitHub repository using the user's saved PAT, ready for a Render blueprint auto-deploy.
 
 ### 7a. Running & fixing the sidecar
-The sidecar is a headless `opencode serve` server on `:4096`. Local dev — no extra key beyond `GROQ_API_KEY`:
+The sidecar is a headless `opencode serve` server on `:4096`. Local dev:
 ```bash
-# From the repo root
+# From the repo root — put OPENCODE_ZEN_API_KEY in .env first (free at
+# https://opencode.ai/zen); the default model is opencode/big-pickle
 docker compose up -d opencode
 make -C backend sidecar-logs      # tail [opencode] logs
 curl http://localhost:4096/api/info   # or /global/health (older builds)
 ```
-Want the free `opencode/big-pickle` model instead? Set `OPENCODE_ZEN_API_KEY` (https://opencode.ai/zen) and `OPENCODE_MODEL=opencode/big-pickle` in `.env` — everything else stays the same.
+No Zen key? Set `OPENCODE_MODEL=groq/openai/gpt-oss-120b` in `.env` and the sidecar uses your existing `GROQ_API_KEY` instead — no other change needed.
 When in doubt, hit `/api/v1/opencode/diagnose` (authenticated) — it checks reachability,
 the LLM key, and runs a live generation round-trip, returning a copy-paste fix for
 each failing check. The dashboard's status chip shows the sidecar state + active model.
@@ -252,7 +253,7 @@ GET  /api/v1/mvp/builds/{id}/status     # status + generated file tree
 ### Phase 6 — What happens inside a build
 1. The backend **scaffolds** a complete FastAPI + Next.js + infra project into the shared volume (`scaffold_build` substitutes app name / slug / title).
 2. It compiles a **compact "slot-fill" prompt** from the HLD, LLD, ER entities, API endpoints, wireframe screens, and DDL — deliberately small so it fits the model's token limits.
-3. The **OpenCode sidecar agent** (`mvp-builder`, default model `groq/openai/gpt-oss-120b`) edits only these slots: `models.py`, `schemas.py`, `routers.py`, Alembic migration, and one CRUD page per module.
+3. The **OpenCode sidecar agent** (`mvp-builder`, default model `opencode/big-pickle` — free on OpenCode Zen) edits only these slots: `models.py`, `schemas.py`, `routers.py`, Alembic migration, and one CRUD page per module.
 4. You can **download** the project as a ZIP (`GET …/download`) or **tune it** before shipping via a config overlay (`POST …/configure` with env values / app name).
 
 ### Phase 7 — One-click deploy to GitHub + Render
@@ -291,7 +292,7 @@ Prometheus metrics (`/metrics`), health/ready probes, audit logs, and credit met
 | **Backend** | Python 3.12, FastAPI, SQLAlchemy 2.0 (Async), Pydantic v2, LangGraph, LangChain, pgvector, Redis, PyMuPDF, python-docx, python-pptx, openpyxl/pandas, beautifulsoup4, PyYAML |
 | **Frontend** | Next.js 16 (App Router, Turbopack), React 19, TypeScript 5, Tailwind CSS v4, `@xyflow/react`, Lucide Icons |
 | **Mobile & PWA** | Capacitor 8 (Android shell; web app / PWA), PWA Service Worker |
-| **MVP Builder** | OpenCode headless sidecar (`opencode serve`), agent `mvp-builder` on model `groq/openai/gpt-oss-120b` (Groq, uses existing key; `opencode/big-pickle` Zen opt-in), HTTP proxy client (`httpx`) |
+| **MVP Builder** | OpenCode headless sidecar (`opencode serve`), agent `mvp-builder` on model `opencode/big-pickle` (free via OpenCode Zen; Groq fallback), HTTP proxy client (`httpx`) |
 | **Data & Cache** | PostgreSQL 16 with `vector` extension, Redis 7 |
 | **DevOps & CI/CD**| GitHub Actions (CI & GHCR publishing), Docker & Docker Compose, Dockle security scanning, Ruff, Mypy, Pytest (Coverage ≥ 80%), ESLint |
 
@@ -329,7 +330,7 @@ AI_Solution_Builder/
 │   │   └── workable/                 # Dynamic schema provisioner & runtime engine
 │   ├── opencode/                     # OpenCode sidecar — built into Docker image
 │   │   ├── Dockerfile
-│   │   ├── config.json               # model: groq/openai/gpt-oss-120b (Groq)
+│   │   ├── config.json               # model: opencode/big-pickle (Zen)
 │   │   ├── agents/
 │   │   │   └── mvp-builder.md        # Agent instructions (slot-fill workflow)
 │   │   └── templates/mvp/            # Pre-scaffolded MVP project base
@@ -372,10 +373,9 @@ cd AI_Solution_Builder
 # Copy environment template
 cp .env.example .env
 # Edit .env with your LLM API keys (Groq or OpenAI).
-# The OpenCode sidecar uses GROQ_API_KEY with the default model
-# groq/openai/gpt-oss-120b — no extra key needed. To use the free
-# opencode/big-pickle Zen model instead, also set OPENCODE_ZEN_API_KEY
-# (https://opencode.ai/zen) and OPENCODE_MODEL=opencode/big-pickle.
+# The OpenCode sidecar defaults to the free opencode/big-pickle model, which
+# needs OPENCODE_ZEN_API_KEY (https://opencode.ai/zen). No Zen key? Set
+# OPENCODE_MODEL=groq/openai/gpt-oss-120b and it uses your GROQ_API_KEY.
 ```
 
 ### 2. Run with Docker Compose
@@ -455,9 +455,9 @@ The repository includes ready-to-deploy root manifests:
        connects to Neon & Upstash.
      - `ai-solution-builder-builder`: Background worker service running `app.worker`
        plus its own `opencode serve` on the same localhost.
-   - LLM keys: each service needs `GROQ_API_KEY` (default model
-     `groq/openai/gpt-oss-120b`). `OPENCODE_ZEN_API_KEY` is optional — only if you
-     override `OPENCODE_MODEL=opencode/big-pickle`.
+   - LLM keys: set `OPENCODE_ZEN_API_KEY` (secret, https://opencode.ai/zen) in **both**
+     services for the default `opencode/big-pickle` model; alternatively set
+     `OPENCODE_MODEL=groq/openai/gpt-oss-120b` and use `GROQ_API_KEY`.
    - `/workspace` is per-container **ephemeral disk** (wiped on redeploy). Generated
      code is packaged and summarized immediately; set `STORAGE_BACKEND=cloudinary`
      with credentials for durable ZIP/build-artifact retention.
