@@ -26,7 +26,7 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     pytest \
     pytest-asyncio
 
-RUN npm install -g @opencode/cli@latest
+RUN npm install -g opencode-ai@1.18.32
 
 # Copy OpenCode configuration and custom agents
 RUN mkdir -p /root/.config/opencode/agents

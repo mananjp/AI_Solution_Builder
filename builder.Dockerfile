@@ -20,12 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         curl \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install -g @opencode/cli@latest
-
-# OpenCode configuration + custom agents
-RUN mkdir -p /root/.config/opencode/agents
-COPY backend/opencode/config.json /root/.config/opencode/opencode.json
-COPY backend/opencode/agents/ /root/.config/opencode/agents/
+    && npm install -g opencode-ai@1.18.32
 
 # Python backend (worker + alembic)
 COPY backend/requirements.txt .
@@ -36,6 +31,12 @@ COPY backend/alembic ./alembic
 COPY backend/opencode/templates ./opencode/templates
 COPY backend/scripts/run_migrations.py scripts/
 COPY backend/entrypoint.sh /app/entrypoint.sh
+
+# OpenCode configuration + custom agents (copied after the heavy pip layer so
+# agent/config edits don't invalidate the pip install cache)
+RUN mkdir -p /root/.config/opencode/agents
+COPY backend/opencode/config.json /root/.config/opencode/opencode.json
+COPY backend/opencode/agents/ /root/.config/opencode/agents/
 
 # Shared workspace for opencode + worker
 RUN mkdir -p /workspace && \
