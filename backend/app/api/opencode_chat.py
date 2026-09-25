@@ -568,14 +568,33 @@ async def health() -> dict[str, Any]:
 
     ``healthy`` is ``True`` whenever the service can handle a request —
     either via the live sidecar *or* via the integrated synthesizer
-    fallback.  ``sidecar_healthy`` reports the sidecar process itself.
+    fallback.  ``sidecar_healthy`` reports the sidecar process itself, along
+    with a best-effort version/model/latency snapshot for the dashboard.
     """
-    sidecar_ok = await builder.health()
-    return {
+    info = await builder.health_info()
+    sidecar_ok = bool(info["sidecar_healthy"])
+    payload: dict[str, Any] = {
         "healthy": True,
         "sidecar_healthy": sidecar_ok,
         "mode": "opencode-sidecar" if sidecar_ok else "integrated-synthesizer",
     }
+    if info.get("version"):
+        payload["version"] = info["version"]
+    if info.get("model"):
+        payload["model"] = info["model"]
+    if info.get("latency_ms") is not None:
+        payload["latency_ms"] = info["latency_ms"]
+    return payload
+
+
+@router.get("/diagnose")
+async def diagnose(user: User = Depends(get_current_user)) -> dict[str, Any]:
+    """Run a lightweight sidecar self-check with actionable fixes.
+
+    Performs a live round-trip (create session -> prompt -> echo) so it proves
+    the sidecar can actually generate, not just that the port is open.
+    """
+    return await builder.diagnose()
 
 
 async def _verify_solution_access(db: AsyncSession, solution_id: UUID, user: User) -> Solution:

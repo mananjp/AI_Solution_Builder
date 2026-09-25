@@ -52,10 +52,10 @@ services:
         value: "false"
       - key: OPENCODE_SERVER_URL
         value: http://127.0.0.1:4096
-      - key: OPENCODE_SERVER_PASSWORD
+- key: OPENCODE_SERVER_PASSWORD
         sync: false
       - key: OPENCODE_MODEL
-        value: groq/openai/gpt-oss-120b
+        value: opencode/big-pickle
       - key: MVP_BUILD_DIR
         value: /workspace
       - key: MVP_BUILD_TIMEOUT
@@ -131,5 +131,9 @@ services:
         value: "120"
       - key: OPENCODE_SERVER_PASSWORD
         sync: false
+      - key: OPENCODE_ZEN_API_KEY
+        sync: false
       - key: OPENCODE_MODEL
-        value: groq/openai/gpt-oss-120b
+        value: opencode/big-pickle
+      - key: OPENCODE_AGENT
+        value: mvp-builder

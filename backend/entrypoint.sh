@@ -28,6 +28,40 @@ export MALLOC_ARENA_MAX=2
 
 log() { echo "[entrypoint] $*"; }
 
+# Seed OpenCode Zen credentials so `opencode serve` (any role) can authenticate.
+# Non-fatal here: the app/worker roles keep running; the sidecar logs its own
+# failures loudly. The dedicated sidecar image (backend/opencode) fails fast.
+seed_opencode_auth() {
+  [ -n "${OPENCODE_ZEN_API_KEY:-}" ] || {
+    log "WARN: OPENCODE_ZEN_API_KEY not set; opencode LLM calls will fail auth."
+    return 0
+  }
+  local dir="${HOME}/.local/share/opencode"
+  mkdir -p "$dir"
+  umask 077
+  cat > "$dir/auth.json" <<EOF
+{
+  "opencode": {
+    "type": "api",
+    "key": "${OPENCODE_ZEN_API_KEY}"
+  }
+}
+EOF
+  chmod 600 "$dir/auth.json"
+  log "OpenCode Zen auth seeded: $dir/auth.json"
+}
+
+wait_for_sidecar() {
+  for i in $(seq 1 15); do
+    if curl -fsS http://127.0.0.1:4096/global/health >/dev/null 2>&1; then
+      log "OpenCode sidecar is ready on :4096."
+      return 0
+    fi
+    sleep 1
+  done
+  log "WARN: OpenCode sidecar not ready within 15s (check [opencode] logs)."
+}
+
 run_migrations() {
   root_dir="${1:-$PWD}"
   log "Running database migrations (advisory-locked alembic upgrade head) in $root_dir ..."
@@ -61,6 +95,7 @@ start_app() {
   if [ "$ENABLE_OPENCODE_SIDECAR" = "true" ]; then
     # Brief pause to let Next.js finish its initial compilation/cache warmup
     sleep 2
+    seed_opencode_auth
     log "Starting OpenCode sidecar on 0.0.0.0:4096 (with auto-restart supervisor) ..."
     (
       while true; do
@@ -71,13 +106,7 @@ start_app() {
       done
     ) &
     OPENCODE_PID=$!
-    for i in $(seq 1 15); do
-      if curl -fsS http://127.0.0.1:4096/global/health >/dev/null 2>&1; then
-        log "OpenCode sidecar is ready on :4096."
-        break
-      fi
-      sleep 1
-    done
+    wait_for_sidecar
   else
     log "OpenCode sidecar disabled (ENABLE_OPENCODE_SIDECAR=false) to conserve RAM."
   fi
@@ -106,6 +135,7 @@ start_api() {
 
   OPENCODE_PID=""
   if [ "$ENABLE_OPENCODE_SIDECAR" = "true" ]; then
+    seed_opencode_auth
     log "Starting OpenCode sidecar on 0.0.0.0:4096 (with auto-restart supervisor) ..."
     (
       while true; do
@@ -116,13 +146,7 @@ start_api() {
       done
     ) &
     OPENCODE_PID=$!
-    for i in $(seq 1 15); do
-      if curl -fsS http://127.0.0.1:4096/global/health >/dev/null 2>&1; then
-        log "OpenCode sidecar is ready on :4096."
-        break
-      fi
-      sleep 1
-    done
+    wait_for_sidecar
   else
     log "OpenCode sidecar disabled (ENABLE_OPENCODE_SIDECAR=false) to conserve RAM."
   fi
@@ -132,9 +156,11 @@ start_api() {
 }
 
 start_builder() {
+  seed_opencode_auth
   log "Starting opencode serve on 0.0.0.0:4096 ..."
-  (cd /workspace && opencode serve --port 4096 --hostname 0.0.0.0) &
+  (cd /workspace && NODE_OPTIONS="--max-old-space-size=256" opencode serve --port 4096 --hostname 0.0.0.0 2>&1 | sed 's/^/[opencode] /') &
   OPENCODE_PID=$!
+  wait_for_sidecar
 
   log "Starting background build worker ..."
   (cd /app && $PYTHON_BIN -m app.worker) &

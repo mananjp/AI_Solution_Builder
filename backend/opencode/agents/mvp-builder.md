@@ -1,7 +1,7 @@
 ---
 description: Implements business logic and screens for a spec-driven MVP until its acceptance tests pass
 mode: primary
-model: groq/openai/gpt-oss-120b
+model: opencode/big-pickle
 permission:
   read: allow
   glob: allow

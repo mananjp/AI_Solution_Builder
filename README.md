@@ -184,6 +184,19 @@ The backend and the OpenCode sidecar share the `mvp_workspace` Docker volume: th
 - **OpenCode sidecar**: a headless `opencode serve` container whose `mvp-builder` agent (model `opencode/big-pickle` — free on OpenCode Zen) "slot-fills" a pre-scaffolded FastAPI + Next.js project with the artifact-specific models, schemas, routers, and pages.
 - **GitHub deploy**: `POST /api/v1/mvp/builds/{id}/deploy` pushes the workspace (with `render.yaml`, Dockerfile, CI workflow remapped to the repo root) to a fresh GitHub repository using the user's saved PAT, ready for a Render blueprint auto-deploy.
 
+### 7a. Running & fixing the sidecar
+The sidecar is a headless `opencode serve` server on `:4096`. Local dev:
+```bash
+# From the repo root — needs OPENCODE_ZEN_API_KEY in .env
+docker compose up -d opencode
+make -C backend sidecar-logs      # tail [opencode] logs
+curl http://localhost:4096/global/health   # {"healthy":true}
+```
+The container **fails fast** when `OPENCODE_ZEN_API_KEY` is missing or wrong.
+When in doubt, hit `/api/v1/opencode/diagnose` (authenticated) — it checks reachability,
+auth, the Zen key, and runs a live generation round-trip, returning a copy-paste fix for
+each failing check. The dashboard's status chip shows the sidecar state + active model.
+
 ---
 
 ## 🔄 End-to-End Workflow
@@ -358,9 +371,10 @@ cd AI_Solution_Builder
 
 # Copy environment template
 cp .env.example .env
-# Edit .env with your LLM API keys (Groq or OpenAI). For the MVP builder,
-# OPENCODE_MODEL=opencode/big-pickle is used by the sidecar's own config.json
-# (free via OpenCode Zen) — no extra key needed.
+# Edit .env with your LLM API keys (Groq or OpenAI).
+# The OpenCode sidecar additionally requires OPENCODE_ZEN_API_KEY (free at
+# https://opencode.ai/zen) — the sidecar container fails fast without it.
+# OPENCODE_MODEL=opencode/big-pickle (free via OpenCode Zen)
 ```
 
 ### 2. Run with Docker Compose

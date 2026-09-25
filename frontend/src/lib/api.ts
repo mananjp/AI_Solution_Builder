@@ -789,9 +789,35 @@ export async function confirmRecommendationsStream(
 }
 
 // ── OpenCode API (Custom App Builder path) ───────
+export interface EngineHealth {
+  healthy: boolean;
+  sidecar_healthy: boolean;
+  mode: 'opencode-sidecar' | 'integrated-synthesizer';
+  version?: string;
+  model?: string;
+  latency_ms?: number;
+}
+
+export interface DiagnoseCheck {
+  status: 'ok' | 'warn' | 'fail';
+  label: string;
+  detail: string;
+  fix: string | null;
+}
+
+export interface OpenCodeDiagnosis {
+  ok: boolean;
+  model?: string;
+  version?: string;
+  checks: DiagnoseCheck[];
+}
+
 export const opencodeApi = {
-  async health(): Promise<{ healthy: boolean }> {
-    return request<{ healthy: boolean }>('/opencode/health');
+  async health(): Promise<EngineHealth> {
+    return request<EngineHealth>('/opencode/health');
+  },
+  async diagnose(): Promise<OpenCodeDiagnosis> {
+    return request<OpenCodeDiagnosis>('/opencode/diagnose');
   },
 };
 

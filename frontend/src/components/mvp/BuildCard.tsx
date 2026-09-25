@@ -48,15 +48,15 @@ function FileTree({ build }: { build: MVPBuild }) {
         <span className="text-[var(--sutra-muted-gold)] font-mono">{open ? '▾' : '▸'}</span>
       </button>
       {open && (
-        <div className="mt-3 max-h-64 overflow-y-auto rounded-sm bg-[var(--bg-2)] border border-[var(--border)] p-4 shadow-inner">
+        <div className="mt-3 max-h-64 overflow-y-auto overflow-x-hidden rounded-sm bg-[var(--bg-2)] border border-[var(--border)] p-4 shadow-inner">
           {files.length === 0 ? (
             <p className="text-[11px] text-[var(--text-3)] font-mono">No file tree returned yet.</p>
           ) : (
-            <ul className="space-y-1.5">
+            <ul className="space-y-1.5 min-w-0">
               {files.map((f) => (
-                <li key={f.path} className="flex items-center gap-2 text-[11px] font-mono">
-                  <Box className="w-3.5 h-3.5 text-[var(--text-3)] shrink-0" />
-                  <span className={f.is_dir ? 'font-semibold text-[var(--sutra-charcoal)]' : 'text-[var(--text-2)] font-light'}>{f.path}</span>
+                <li key={f.path} className="flex items-start gap-2 text-[11px] font-mono min-w-0">
+                  <Box className="w-3.5 h-3.5 text-[var(--text-3)] shrink-0 mt-0.5" />
+                  <span className={`min-w-0 break-all ${f.is_dir ? 'font-semibold text-[var(--sutra-charcoal)]' : 'text-[var(--text-2)] font-light'}`}>{f.path}</span>
                 </li>
               ))}
             </ul>
@@ -105,7 +105,7 @@ export function DeployModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--sutra-charcoal)]/80 backdrop-blur-sm animate-fade-in">
-      <div className="w-full max-w-lg bg-[var(--bg)] border border-[var(--sutra-muted-gold)] p-8 shadow-2xl relative">
+      <div className="w-full max-w-lg bg-[var(--bg)] border border-[var(--sutra-muted-gold)] p-5 sm:p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between border-b border-[var(--border)] pb-4 mb-6">
           <h3 className="text-[14px] font-serif text-[var(--sutra-charcoal)] flex items-center gap-2">
             <Rocket className="w-4 h-4 text-[var(--sutra-muted-gold)]" />
@@ -214,11 +214,11 @@ export function DeployModal({
                   rel="noreferrer"
                   className="flex items-center justify-between p-4 bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--sutra-muted-gold)] transition-colors shadow-sm"
                 >
-                  <div className="flex items-center gap-3">
-                    <Globe className="w-5 h-5 text-[var(--green)]" />
-                    <div>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Globe className="w-5 h-5 text-[var(--green)] shrink-0" />
+                    <div className="min-w-0">
                       <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--sutra-charcoal)] block">Frontend Application</span>
-                      <span className="text-[11px] text-[var(--text-2)] font-mono truncate max-w-xs block mt-0.5">
+                      <span className="text-[11px] text-[var(--text-2)] font-mono truncate max-w-[240px] lg:max-w-xs block mt-0.5">
                         {deployResult.frontend_url || deployResult.render_service_url}
                       </span>
                     </div>
@@ -234,11 +234,11 @@ export function DeployModal({
                   rel="noreferrer"
                   className="flex items-center justify-between p-4 bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--sutra-muted-gold)] transition-colors shadow-sm"
                 >
-                  <div className="flex items-center gap-3">
-                    <Rocket className="w-5 h-5 text-[var(--sutra-charcoal)]" />
-                    <div>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Rocket className="w-5 h-5 text-[var(--sutra-charcoal)] shrink-0" />
+                    <div className="min-w-0">
                       <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--sutra-charcoal)] block">GitHub Repository</span>
-                      <span className="font-mono text-[var(--sutra-muted-gold)] text-[11px] truncate max-w-[200px] block mt-0.5">{deployResult.repo_url}</span>
+                      <span className="font-mono text-[var(--sutra-muted-gold)] text-[11px] truncate max-w-[220px] lg:max-w-[200px] block mt-0.5">{deployResult.repo_url}</span>
                     </div>
                   </div>
                   <ExternalLink className="w-4 h-4 text-[var(--text-3)]" />
@@ -306,7 +306,7 @@ export function ConfigureModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--sutra-charcoal)]/80 backdrop-blur-sm animate-fade-in">
-      <div className="w-full max-w-md bg-[var(--bg)] border border-[var(--border)] p-8 shadow-2xl">
+      <div className="w-full max-w-md bg-[var(--bg)] border border-[var(--border)] p-5 sm:p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between border-b border-[var(--border)] pb-4 mb-6">
           <h3 className="text-[14px] font-serif text-[var(--sutra-charcoal)] flex items-center gap-2">
             <Settings2 className="w-4 h-4 text-[var(--sutra-muted-gold)]" />
@@ -386,16 +386,16 @@ export function BuildCard({
   return (
     <div className="sutra-card p-5 bg-[var(--bg)] space-y-4 shadow-sm border-l-2 border-l-[var(--sutra-muted-gold)] hover:shadow-md transition-shadow">
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] flex items-center justify-center font-serif text-lg">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] flex items-center justify-center font-serif text-lg shrink-0">
             {build.build_number}
           </div>
-          <div>
-            <div className="flex items-center gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-3 flex-wrap">
               <h4 className="text-[12px] font-bold uppercase tracking-widest text-[var(--sutra-charcoal)]">Build Orchestration</h4>
               <StatusBadge status={build.status} />
             </div>
-            <p className="text-[11px] text-[var(--text-2)] font-mono mt-1">
+            <p className="text-[11px] text-[var(--text-2)] font-mono mt-1 break-all">
               {build.file_count} files · {build.build_id.slice(0, 8)}
             </p>
           </div>
@@ -429,7 +429,7 @@ export function BuildCard({
 
       {/* Acceptance Tests Quality Badge */}
       {build.app_config?.quality && (
-        <div className="flex items-center justify-between p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs">
+        <div className="flex items-center justify-between gap-2 flex-wrap p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs">
           <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-mono">
             <Check className="w-4 h-4 text-emerald-500" />
             <span className="font-semibold">

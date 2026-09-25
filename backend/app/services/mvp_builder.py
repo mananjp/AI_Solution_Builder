@@ -26,6 +26,7 @@ import logging
 import re
 import secrets
 import shutil
+import time
 import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -93,6 +94,16 @@ def _auth_headers() -> dict[str, str]:
 _working_opencode_url: str | None = None
 
 
+def _auth_hint(status_code: int) -> str | None:
+    """Return an actionable error message for auth-related sidecar failures."""
+    if status_code in (401, 403):
+        return (
+            "OpenCode sidecar rejected credentials (HTTP {status}). The OpenCode Zen key is "
+            "missing or invalid — set OPENCODE_ZEN_API_KEY in the opencode service env and restart it."
+        ).format(status=status_code)
+    return None
+
+
 def _candidate_urls() -> list[str]:
     candidates: list[str] = []
     configured = (settings.OPENCODE_SERVER_URL or "").strip().rstrip("/")
@@ -158,13 +169,198 @@ async def health() -> bool:
     return False
 
 
+async def health_info() -> dict[str, Any]:
+    """Lightweight status snapshot for the dashboard UI (best-effort).
+
+    Never raises — every sub-check is defensive.  Returns the sidecar liveness,
+    latency, version, and the active model so the UI can show whether the
+    OpenCode sidecar is *really* running without any heavy logging.
+    """
+    info: dict[str, Any] = {
+        "sidecar_healthy": False,
+        "version": None,
+        "model": None,
+        "latency_ms": None,
+        "error": None,
+    }
+    url = _working_opencode_url or _get_base_url()
+    try:
+        async with _client(base_url=url) as client:
+            t0 = time.monotonic()
+            resp = await client.get("/global/health", timeout=3.0)
+            elapsed_ms = round((time.monotonic() - t0) * 1000)
+            if resp.status_code != 200:
+                info["error"] = f"GET /global/health -> {resp.status_code}"
+                return info
+            body = resp.json()
+            info["sidecar_healthy"] = bool(body.get("healthy", False))
+            info["version"] = body.get("version")
+            info["latency_ms"] = elapsed_ms
+            if not info["sidecar_healthy"]:
+                info["error"] = body.get("message") or "sidecar reported unhealthy"
+                return info
+
+            cfg = await client.get("/config", timeout=3.0)
+            if cfg.status_code == 200:
+                data = cfg.json()
+                model = data.get("model") or None
+                agent_cfg = data.get("agent")
+                if not model and isinstance(agent_cfg, dict):
+                    model = agent_cfg.get("model") or None
+                info["model"] = model
+    except Exception as exc:
+        logger.debug("health_info detail check failed: %s", exc)
+        info["error"] = f"{type(exc).__name__}: {exc}"
+    return info
+
+
+async def round_trip_ping(timeout: int = 90) -> dict[str, Any]:
+    """Prove the sidecar can *actually* generate: open a session and require an echo.
+
+    Returns a verdict dict — never raises.  A bare ``OK`` reply from the
+    ``build`` agent is the strongest cheap proof that the Zen key, model, and
+    tooling are all working end-to-end.
+    """
+    start = time.monotonic()
+    try:
+        session_id = await create_session("diagnostic ping")
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error": f"Session creation failed: {exc}",
+            "fix": _fix_for_error(exc),
+        }
+    try:
+        resp = await send_message(session_id, "Reply with exactly: OK", agent="build", timeout=timeout)
+        blob = json.dumps(resp, default=str)[:2000]
+        echoed = "OK" in blob
+        return {
+            "ok": echoed,
+            "session_id": session_id,
+            "latency_ms": round((time.monotonic() - start) * 1000),
+            "error": None if echoed else f"Sidecar replied but did not echo OK (response truncated: {blob[:300]})",
+            "fix": None if echoed else "The sidecar is up but the model isn't responding sanely — check OPENCODE_MODEL and sidecar logs (`[opencode]` lines).",
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "session_id": session_id,
+            "error": f"Message round-trip failed: {exc}",
+            "fix": _fix_for_error(exc),
+        }
+
+
+def _fix_for_error(exc: Exception) -> str:
+    """Map common sidecar/LLM failures to a copy-paste fix string."""
+    text = str(exc)
+    lowered = f"{type(exc).__name__}: {text}".lower()
+    if "401" in lowered or "403" in lowered or "unauthorized" in lowered or "denied" in lowered:
+        return "OpenCode Zen rejected the key. Regenerate it and re-deploy:\n  OPENCODE_ZEN_API_KEY=<new-key>  (https://opencode.ai/zen)"
+    if "timed out" in lowered or "connecterror" in lowered or "connect" in lowered:
+        return "Sidecar unreachable: is the opencode container running?\n  docker compose up -d opencode   (local)  ·  see README 'OpenCode sidecar' (Render/Fly)"
+    if "404" in lowered or "not found" in lowered:
+        return "The endpoint does not exist on this opencode version — upgrade the sidecar to @opencode/cli@1.18.31."
+    return (
+        "See sidecar logs:\n  docker compose logs -f opencode        (local)\n  render logs ai-solution-builder-builder   (Render)"
+    )
+
+
+async def diagnose() -> dict[str, Any]:
+    """Run a full self-check without writing anything to the database.
+
+    Returns a list of ``{status, label, detail, fix}`` items the frontend can
+    render directly.  Every step is defensive and independently reported.
+    """
+    checks: list[dict[str, Any]] = []
+
+    info = await health_info()
+    if info["sidecar_healthy"]:
+        checks.append(
+            {
+                "status": "ok",
+                "label": "Sidecar reachable",
+                "detail": (
+                    f"version={info.get('version') or 'unknown'}, "
+                    f"latency={info.get('latency_ms') or 0}ms, url={_get_base_url()}"
+                ),
+                "fix": None,
+            }
+        )
+    else:
+        checks.append(
+            {
+                "status": "fail",
+                "label": "Sidecar reachable",
+                "detail": (
+                    f"{info.get('error') or 'unreachable'} (tried: {', '.join(_candidate_urls())})"
+                ),
+                "fix": (
+                    "Start the sidecar:\n  docker compose up -d opencode   (local, needs OPENCODE_ZEN_API_KEY in .env)\n"
+                    "Render: open an issue on the ai-solution-builder-builder service. Free tier sleeps and kills it — use a paid plan."
+                ),
+            }
+        )
+
+    configured_url = (settings.OPENCODE_SERVER_URL or "").strip()
+    if not configured_url:
+        checks.append(
+            {"status": "warn", "label": "OPENCODE_SERVER_URL configured", "detail": "defaulting to http://127.0.0.1:4096", "fix": "Set OPENCODE_SERVER_URL in .env/deploy settings.", }
+        )
+    else:
+        checks.append(
+            {"status": "ok" if configured_url in _candidate_urls() else "warn",
+             "label": "OPENCODE_SERVER_URL configured",
+             "detail": f"configured={configured_url}",
+             "fix": None if configured_url in _candidate_urls() else "URL is filtered out (contains 'ai-solution-builder-builder') — update it to the sidecar address.",
+             }
+        )
+
+    zen_key = (settings.OPENCODE_ZEN_API_KEY or "").strip()
+    checks.append(
+        {
+            "status": "ok" if zen_key else "warn",
+            "label": "OPENCODE_ZEN_API_KEY set (backend)",
+            "detail": "present" if zen_key else "missing on backend container (the sidecar needs it to authenticate)",
+            "fix": None if zen_key else "Add OPENCODE_ZEN_API_KEY to the service that runs opencode (docker-compose opencode env, render builder service, or the sidecar image env).",
+        }
+    )
+
+    ping = await round_trip_ping()
+    if ping.get("ok"):
+        checks.append(
+            {
+                "status": "ok",
+                "label": "Live generation round-trip",
+                "detail": f"model replied 'OK' in {ping.get('latency_ms')}ms (session {ping.get('session_id')})",
+                "fix": None,
+            }
+        )
+    else:
+        checks.append(
+            {
+                "status": "fail",
+                "label": "Live generation round-trip",
+                "detail": ping.get("error") or "unknown failure",
+                "fix": ping.get("fix") or "See sidecar logs ([opencode] lines).",
+            }
+        )
+
+    return {
+        "ok": all(c["status"] == "ok" for c in checks),
+        "model": info.get("model"),
+        "version": info.get("version"),
+        "checks": checks,
+    }
+
+
 async def create_session(title: str) -> str:
     """Create a new OpenCode session and return its id."""
     async with _client() as client:
         resp = await client.post("/session", json={"title": title})
         if resp.status_code not in (200, 201):
             raise MVPBuilderError(
-                f"Failed to create OpenCode session ({resp.status_code}): {resp.text[:300]}"
+                _auth_hint(resp.status_code)
+                or f"Failed to create OpenCode session ({resp.status_code}): {resp.text[:300]}"
             )
         body: dict[str, Any] = resp.json()
         session_id = body.get("id")
@@ -194,7 +390,8 @@ async def send_message(
         )
         if resp.status_code not in (200, 201):
             raise MVPBuilderError(
-                f"OpenCode message failed ({resp.status_code}): {resp.text[:500]}"
+                _auth_hint(resp.status_code)
+                or f"OpenCode message failed ({resp.status_code}): {resp.text[:500]}"
             )
         result: dict[str, Any] = resp.json()
         return result
