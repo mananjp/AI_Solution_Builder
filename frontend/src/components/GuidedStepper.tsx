@@ -34,7 +34,7 @@ export function GuidedStepper({
   const currentIndex = STAGES.findIndex((s) => s.key === currentStage);
 
   return (
-    <div className="w-full bg-slate-900/90 border-b border-slate-800 px-6 py-3">
+    <div className="w-full bg-[var(--bg-2)] border-b border-[var(--border)] px-6 py-3 shadow-2xs">
       <div className="max-w-6xl mx-auto flex items-center justify-between">
         {STAGES.map((step, idx) => {
           const isCurrent = step.key === currentStage;
@@ -46,33 +46,33 @@ export function GuidedStepper({
                 onClick={() => onStageClick?.(step.key)}
                 className={`flex items-center gap-2.5 cursor-pointer transition-all ${
                   isCurrent
-                    ? 'text-indigo-400 font-semibold scale-105'
+                    ? 'text-[var(--sutra-charcoal)] font-semibold scale-105'
                     : isDone
-                    ? 'text-emerald-400 font-medium'
-                    : 'text-slate-500 hover:text-slate-300'
+                    ? 'text-emerald-700 font-medium'
+                    : 'text-[var(--text-3)] hover:text-[var(--text-2)]'
                 }`}
               >
                 <div
                   className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-mono transition-colors ${
                     isCurrent
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/30 ring-2 ring-indigo-400/40'
+                      ? 'bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] shadow-sm ring-2 ring-[var(--sutra-muted-gold)]/50'
                       : isDone
                       ? 'bg-emerald-600 text-white'
-                      : 'bg-slate-800 text-slate-400 border border-slate-700'
+                      : 'bg-[var(--bg-3)] text-[var(--text-3)] border border-[var(--border)]'
                   }`}
                 >
                   {isDone ? '✓' : idx + 1}
                 </div>
                 <div className="hidden sm:block text-left">
                   <div className="text-xs font-semibold leading-tight">{step.label}</div>
-                  <div className="text-[10px] text-slate-400">{step.description}</div>
+                  <div className="text-[10px] text-[var(--text-3)] font-light">{step.description}</div>
                 </div>
               </div>
 
               {idx < STAGES.length - 1 && (
                 <div
                   className={`flex-1 h-0.5 mx-3 transition-colors ${
-                    idx < currentIndex ? 'bg-emerald-500/60' : 'bg-slate-800'
+                    idx < currentIndex ? 'bg-emerald-600/70' : 'bg-[var(--border)]'
                   }`}
                 />
               )}

@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import ChatMessage from '@/components/ChatMessage';
 import FileUploader from '@/components/FileUploader';
+import { VoiceInputButton } from '@/components/VoiceInputButton';
+import { useLanguage } from '@/context/LanguageContext';
 import { opencodeApi, sendOpenCodeChatStream, mvpApi } from '@/lib/api';
 import { MVPBuild, MVPDeployResult, OpenCodeChatComplete, OpenCodeBuildProgress } from '@/types';
 import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
@@ -46,6 +48,7 @@ const BUILD_MILESTONES = [
 ];
 
 function ChatContent() {
+  const { t } = useLanguage();
   const searchParams = useSearchParams();
   const initialPrompt = searchParams.get('prompt') || '';
   const initialSolutionId = searchParams.get('solution_id') || null;
@@ -369,12 +372,24 @@ function ChatContent() {
                 <Paperclip className="w-4 h-4" />
               </button>
 
+              {/* Voice input button with language support */}
+              <VoiceInputButton
+                onTranscribed={(text) => {
+                  setInput((prev) => (prev ? `${prev} ${text}` : text));
+                }}
+                disabled={isStreaming}
+              />
+
               <div className="flex-1 relative flex items-center min-w-0">
                 <input
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder={uploadedFilename ? `Instruct SUTRA (Context: ${uploadedFilename})...` : 'Describe your application...'}
+                  placeholder={
+                    uploadedFilename
+                      ? `Instruct SUTRA (Context: ${uploadedFilename})...`
+                      : t('describeApp', 'Describe your application...')
+                  }
                   disabled={isStreaming}
                   className="w-full py-3.5 pl-4 pr-24 bg-[var(--bg)] border border-[var(--border)] text-[13px] text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm min-w-0"
                 />
@@ -383,7 +398,7 @@ function ChatContent() {
                 <label className={`absolute right-2 flex items-center gap-2 px-3 py-1.5 rounded-sm text-[10px] uppercase tracking-widest font-bold cursor-pointer select-none transition-colors ${buildRequested ? 'bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)]' : 'bg-[var(--bg-2)] border border-[var(--border)] text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] hover:border-[var(--text-3)]'
                   }`}>
                   <input type="checkbox" checked={buildRequested} onChange={(e) => setBuildRequested(e.target.checked)} className="sr-only" />
-                  <Settings2 className="w-3 h-3" /> Build
+                  <Settings2 className="w-3 h-3" /> {t('build', 'Build')}
                 </label>
               </div>
 

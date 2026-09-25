@@ -45,7 +45,7 @@ function ScreenNode({ data, selected }: NodeProps<Node<NodeKind<WireframeNodeDat
   return (
     <div
       className={`w-[240px] rounded-lg border bg-slate-900 shadow-lg transition-shadow ${
-        selected ? 'border-indigo-400 ring-2 ring-indigo-500/30' : 'border-white/10'
+        selected ? 'border-[var(--sutra-muted-gold)] ring-2 ring-[var(--sutra-muted-gold)]/40' : 'border-white/10'
       }`}
     >
       <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-t-lg bg-slate-950/80 border-b border-white/5">
@@ -55,12 +55,12 @@ function ScreenNode({ data, selected }: NodeProps<Node<NodeKind<WireframeNodeDat
         <span className="ml-2 text-[10px] font-medium text-slate-200 truncate">{data.label}</span>
       </div>
       <div className="px-3 py-3">
-        <div className="text-[10px] font-semibold text-indigo-300 uppercase tracking-wide">Screen</div>
+        <div className="text-[10px] font-semibold text-[var(--sutra-muted-gold)] uppercase tracking-wide">Screen</div>
         <div className="mt-0.5 text-[10px] text-slate-400 leading-relaxed line-clamp-2">
           {data.subtitle || 'Mobile screen blueprint — drag to reposition'}
         </div>
       </div>
-      <Handle type="source" position={Position.Bottom} className="!w-2 !h-2 !bg-indigo-400" />
+      <Handle type="source" position={Position.Bottom} className="!w-2 !h-2 !bg-[var(--sutra-muted-gold)]" />
     </div>
   );
 }
@@ -147,7 +147,7 @@ function buildCanvas(wireframes: Artifact[]): { nodes: Node[]; edges: Edge[] } {
           source: screenNodeId,
           target: compNodeId,
           animated: true,
-          style: { stroke: '#818cf8', strokeWidth: 1.5 },
+          style: { stroke: '#B08A4A', strokeWidth: 1.5 },
         });
       });
       cursorX += SCREEN_GAP_X;
@@ -361,7 +361,7 @@ function WireframeCanvasInner({ wireframes, onUpdate }: WireframeCanvasInnerProp
             pannable
             zoomable
             className="!bg-slate-900/80"
-            nodeColor={(n) => (n.type === 'screen' ? '#6366f1' : '#06b6d4')}
+            nodeColor={(n) => (n.type === 'screen' ? '#B08A4A' : '#06b6d4')}
           />
           <Controls className="!bg-slate-900 !border-white/10" />
         </ReactFlow>

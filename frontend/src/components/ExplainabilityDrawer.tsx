@@ -60,21 +60,23 @@ export function ExplainabilityDrawer({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-xs transition-opacity animate-in fade-in">
-      <div className="relative w-full max-w-md h-full bg-slate-900 border-l border-slate-800 p-6 flex flex-col overflow-y-auto text-slate-100 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in">
+      <div className="relative w-full max-w-md h-full bg-[var(--bg)] border-l border-[var(--border)] p-6 flex flex-col overflow-y-auto text-[var(--sutra-charcoal)] shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div className="flex items-center justify-between pb-4 border-b border-[var(--border)]">
           <div className="flex items-center gap-2">
-            <span className="text-emerald-400 font-semibold text-lg">💡 Architectural Why?</span>
+            <span className="font-serif font-bold text-base text-[var(--sutra-charcoal)] flex items-center gap-1.5">
+              <span className="text-[var(--sutra-muted-gold)]">💡</span> Architectural Why?
+            </span>
             {data && (
-              <span className="px-2 py-0.5 text-xs font-mono rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
+              <span className="px-2 py-0.5 text-xs font-mono rounded-sm bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
                 {Math.round(data.confidence * 100)}% Confidence
               </span>
             )}
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800"
+            className="p-1 rounded-sm text-[var(--text-3)] hover:text-[var(--text)] hover:bg-[var(--bg-3)] transition-colors"
           >
             ✕
           </button>
@@ -82,33 +84,33 @@ export function ExplainabilityDrawer({
 
         {/* Content */}
         {loading ? (
-          <div className="flex items-center justify-center py-16 text-slate-400 text-sm">
+          <div className="flex items-center justify-center py-16 text-[var(--text-3)] text-xs font-mono">
             Tracing decisions and evidence citations...
           </div>
         ) : data ? (
           <div className="space-y-6 pt-4">
             {/* Decisions */}
             <div>
-              <h4 className="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-3">
+              <h4 className="text-xs uppercase tracking-wider text-[var(--text-2)] font-semibold mb-3">
                 Key Decisions ({data.decisions.length})
               </h4>
               <div className="space-y-3">
                 {data.decisions.map((dec) => (
                   <div
                     key={dec.id}
-                    className="p-3.5 rounded-lg bg-slate-800/80 border border-slate-700/60 text-sm space-y-2"
+                    className="p-3.5 rounded-sm bg-[var(--bg-2)] border border-[var(--border)] text-xs space-y-2 shadow-2xs"
                   >
-                    <div className="flex justify-between items-start">
-                      <span className="font-medium text-slate-200">{dec.topic}</span>
-                      <span className="text-xs px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800">
+                    <div className="flex justify-between items-start gap-2">
+                      <span className="font-medium text-[var(--sutra-charcoal)]">{dec.topic}</span>
+                      <span className="text-xs px-2 py-0.5 rounded-sm bg-[var(--sutra-muted-gold)]/15 text-[var(--sutra-deep-gold)] border border-[var(--sutra-muted-gold)]/30 font-semibold font-mono whitespace-nowrap">
                         {dec.choice}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-400 leading-relaxed">{dec.rationale}</p>
+                    <p className="text-xs text-[var(--text-2)] leading-relaxed font-light">{dec.rationale}</p>
 
                     {dec.alternatives?.length > 0 && (
-                      <div className="text-xs text-slate-500">
-                        <span className="text-slate-400">Alternatives evaluated: </span>
+                      <div className="text-xs text-[var(--text-3)]">
+                        <span className="text-[var(--text-2)] font-medium">Alternatives evaluated: </span>
                         {dec.alternatives.join(', ')}
                       </div>
                     )}
@@ -120,20 +122,20 @@ export function ExplainabilityDrawer({
             {/* Assumptions */}
             {data.assumptions?.length > 0 && (
               <div>
-                <h4 className="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-2">
+                <h4 className="text-xs uppercase tracking-wider text-[var(--text-2)] font-semibold mb-2">
                   Underlying Assumptions
                 </h4>
                 <ul className="space-y-2">
                   {data.assumptions.map((asm, idx) => (
                     <li
                       key={idx}
-                      className="p-2.5 rounded bg-slate-950/60 border border-slate-800 text-xs text-slate-300 flex justify-between items-center"
+                      className="p-2.5 rounded-sm bg-[var(--bg-2)] border border-[var(--border)] text-xs text-[var(--sutra-charcoal)] flex justify-between items-center"
                     >
-                      <span>{asm}</span>
+                      <span className="font-light">{asm}</span>
                       {onAssumptionEdit && (
                         <button
                           onClick={() => onAssumptionEdit(asm)}
-                          className="text-[11px] text-indigo-400 hover:text-indigo-300 ml-2"
+                          className="text-[11px] text-[var(--sutra-muted-gold)] hover:underline ml-2 font-medium"
                         >
                           Edit
                         </button>
@@ -147,17 +149,17 @@ export function ExplainabilityDrawer({
             {/* Evidence Sources */}
             {data.evidence?.length > 0 && (
               <div>
-                <h4 className="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-2">
+                <h4 className="text-xs uppercase tracking-wider text-[var(--text-2)] font-semibold mb-2">
                   Evidence Citations ({data.evidence.length})
                 </h4>
                 <div className="space-y-2">
                   {data.evidence.map((ev, idx) => (
                     <div
                       key={idx}
-                      className="p-2 rounded bg-slate-950/40 border border-slate-800/80 text-xs"
+                      className="p-2.5 rounded-sm bg-[var(--bg-2)] border border-[var(--border)] text-xs"
                     >
-                      <span className="font-mono text-emerald-400 text-[11px]">[{ev.source}]</span>
-                      <p className="text-slate-400 italic mt-0.5">&ldquo;{ev.excerpt}&rdquo;</p>
+                      <span className="font-mono text-emerald-700 text-[11px] font-semibold">[{ev.source}]</span>
+                      <p className="text-[var(--text-2)] italic mt-0.5 font-light">&ldquo;{ev.excerpt}&rdquo;</p>
                     </div>
                   ))}
                 </div>
@@ -165,7 +167,7 @@ export function ExplainabilityDrawer({
             )}
           </div>
         ) : (
-          <div className="py-12 text-center text-sm text-slate-500">
+          <div className="py-12 text-center text-xs text-[var(--text-3)] font-mono">
             No explainability records found for this artifact.
           </div>
         )}

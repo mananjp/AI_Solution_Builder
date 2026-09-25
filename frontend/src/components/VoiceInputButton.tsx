@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Mic, Square, Loader2, Globe } from 'lucide-react';
 import { uploadApi } from '@/lib/api';
+import { useLanguage } from '@/context/LanguageContext';
 
 interface VoiceInputButtonProps {
   onTranscribed: (text: string, lang?: string) => void;
@@ -15,6 +16,7 @@ export function VoiceInputButton({
   className = '',
   disabled = false,
 }: VoiceInputButtonProps) {
+  const { language, currentOption, t } = useLanguage();
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
@@ -79,7 +81,8 @@ export function VoiceInputButton({
 
         setIsProcessing(true);
         try {
-          const res = await uploadApi.uploadAudio(audioBlob, `voice_note.${ext}`);
+          // Pass the user's selected language (e.g. 'gu', 'hi', 'en') to Groq Whisper
+          const res = await uploadApi.uploadAudio(audioBlob, `voice_note.${ext}`, language);
           if (res?.transcription) {
             onTranscribed(res.transcription, res.detected_language);
             if (res.detected_language) {
@@ -136,16 +139,16 @@ export function VoiceInputButton({
           title="Click to stop recording and transcribe"
         >
           <Square className="w-3.5 h-3.5 fill-current" />
-          <span>Recording {formatTime(recordSeconds)}</span>
+          <span>{t('recording', 'Recording')} {formatTime(recordSeconds)}</span>
         </button>
       ) : isProcessing ? (
         <button
           type="button"
           disabled
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 cursor-wait"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-[var(--sutra-muted-gold)]/10 text-[var(--sutra-deep-gold)] border border-[var(--sutra-muted-gold)]/30 cursor-wait"
         >
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          <span>Transcribing (Groq Whisper)...</span>
+          <span>{t('transcribing', 'Transcribing (Groq Whisper)...')}</span>
         </button>
       ) : (
         <button
@@ -153,10 +156,13 @@ export function VoiceInputButton({
           onClick={startRecording}
           disabled={disabled}
           className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--bg-2)] border border-[var(--border)] transition-all"
-          title="Speak in Gujarati, Hindi, English, or any language (Groq Whisper AI)"
+          title={`Speak in ${currentOption.nativeName} (${currentOption.name}), English, or any language (Groq Whisper AI)`}
         >
-          <Mic className="w-4 h-4 text-indigo-500" />
-          <span className="hidden sm:inline">Voice Note</span>
+          <Mic className="w-4 h-4 text-[var(--sutra-muted-gold)]" />
+          <span className="hidden sm:inline">{t('voiceNote', 'Voice Note')}</span>
+          <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-[var(--bg)] border border-[var(--border)] text-[var(--sutra-muted-gold)]">
+            {currentOption.code.toUpperCase()}
+          </span>
         </button>
       )}
 

@@ -46,6 +46,8 @@ export const viewport: Viewport = {
   userScalable: false,
 };
 
+import { LanguageProvider } from "@/context/LanguageContext";
+
 export default function RootLayout({
   children,
 }: {
@@ -61,7 +63,9 @@ export default function RootLayout({
         <meta name="mobile-web-app-capable" content="yes" />
       </head>
       <body className="min-h-full flex flex-col bg-[#070a13] text-slate-100">
-        {children}
+        <LanguageProvider>
+          {children}
+        </LanguageProvider>
         <script
           dangerouslySetInnerHTML={{
             __html: `

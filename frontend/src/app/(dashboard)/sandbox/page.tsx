@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { mvpApi } from '@/lib/api';
 import { MVPBuild } from '@/types';
+import { VoiceInputButton } from '@/components/VoiceInputButton';
 
 type ViewMode = 'code' | 'preview' | 'split';
 type DeviceSize = 'desktop' | 'mobile';
@@ -292,7 +293,7 @@ function SandboxContent() {
   const previewUrl = build?.frontend_url || build?.render_service_url || (buildId ? mvpApi.getPreviewUrl(buildId) : null);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-140px)] -mx-2 lg:-mx-4 mt-[-10px] sutra-surface rounded-md overflow-hidden shadow-sm border border-[var(--border)]">
+    <div className="flex flex-col h-[calc(100vh-4.25rem)] -mx-4 lg:-mx-6 -mt-3.5 -mb-6 sutra-surface rounded-md overflow-hidden shadow-sm border border-[var(--border)]">
       {/* Sandbox Header */}
       <div className="h-14 border-b border-[var(--border)] bg-[var(--bg-2)] flex items-center justify-between px-4 shrink-0 z-20">
         <div className="flex items-center gap-3">
@@ -503,7 +504,7 @@ function SandboxContent() {
                     e.preventDefault();
                     handleSendEdit();
                   }}
-                  className="flex gap-2"
+                  className="flex items-center gap-2"
                 >
                   <input
                     type="text"
@@ -512,6 +513,12 @@ function SandboxContent() {
                     placeholder="Describe edits to UI or code..."
                     disabled={isApplyingEdit}
                     className="flex-1 py-2 px-3 bg-[var(--bg-2)] border border-[var(--border)] text-xs text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] rounded-sm transition-colors shadow-inner"
+                  />
+                  <VoiceInputButton
+                    onTranscribed={(text) => {
+                      setChatInput((prev) => (prev ? `${prev} ${text}` : text));
+                    }}
+                    disabled={isApplyingEdit}
                   />
                   <button
                     type="submit"
@@ -800,7 +807,7 @@ function SandboxContent() {
               </div>
 
               {/* Browser Canvas */}
-              <div className="flex-1 overflow-auto flex items-center justify-center p-4 lg:p-6 bg-gradient-to-br from-[var(--bg-3)] to-[var(--bg)] bg-sutra-grid">
+              <div className="flex-1 overflow-auto flex items-center justify-center p-2 lg:p-3 bg-gradient-to-br from-[var(--bg-3)] to-[var(--bg)] bg-sutra-grid">
                 <div 
                   className={`bg-white shadow-xl rounded-sm overflow-hidden border border-[var(--border)] transition-all duration-300 ease-in-out relative ${
                     isRefreshing ? 'opacity-60 scale-[0.99]' : 'opacity-100 scale-100'
@@ -808,8 +815,8 @@ function SandboxContent() {
                   style={{
                     width: deviceSize === 'mobile' ? '375px' : '100%',
                     height: deviceSize === 'mobile' ? '667px' : '100%',
-                    maxWidth: deviceSize === 'desktop' ? '1200px' : '375px',
-                    maxHeight: deviceSize === 'desktop' ? '820px' : '667px',
+                    maxWidth: deviceSize === 'desktop' ? '100%' : '375px',
+                    maxHeight: deviceSize === 'desktop' ? '100%' : '667px',
                   }}
                 >
                   {isRefreshing && (
@@ -853,7 +860,7 @@ function SandboxContent() {
 export default function SandboxPage() {
   return (
     <Suspense fallback={
-      <div className="flex h-[calc(100vh-140px)] items-center justify-center gap-3">
+      <div className="flex h-[calc(100vh-4.25rem)] items-center justify-center gap-3">
         <Loader2 className="w-8 h-8 animate-spin text-[var(--sutra-muted-gold)]" />
         <span className="text-sm font-mono text-[var(--text-2)]">Initializing Live Sandbox...</span>
       </div>
