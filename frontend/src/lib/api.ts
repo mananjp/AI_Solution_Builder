@@ -24,6 +24,7 @@ import {
   AnonymousAuthResponse,
   UpgradeAnonymousPayload,
 } from '@/types';
+import { getActiveLanguageCode } from '@/lib/i18n/client';
 
 function normalizeApiUrl(url?: string | null): string {
   if (!url) return '';
@@ -109,6 +110,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   const token = getAuthToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'X-Content-Language': getActiveLanguageCode(),
     ...(options.headers as Record<string, string>),
   };
 
@@ -425,6 +427,7 @@ export const exportApi = {
     const token = getAuthToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    headers['X-Content-Language'] = getActiveLanguageCode();
 
     const res = await fetch(`${API_BASE_URL}/export/${solutionId}/${format}`, { headers });
     if (!res.ok) throw new Error(`Export failed with status ${res.status}`);
@@ -471,6 +474,7 @@ export const mvpApi = {
     const token = getAuthToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    headers['X-Content-Language'] = getActiveLanguageCode();
 
     const res = await fetch(`${API_BASE_URL}/mvp/builds/${buildId}/download`, { headers });
     if (!res.ok) throw new Error(`Download failed with status ${res.status}`);
@@ -612,6 +616,7 @@ export const uploadApi = {
 
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    headers['X-Content-Language'] = getActiveLanguageCode();
 
     const response = await fetch(`${API_BASE_URL}/upload/document`, {
       method: 'POST',
@@ -636,6 +641,7 @@ export const uploadApi = {
     const token = getAuthToken();
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    headers['X-Content-Language'] = getActiveLanguageCode();
 
     const response = await fetch(`${API_BASE_URL}/upload/url`, {
       method: 'POST',
@@ -673,6 +679,7 @@ export const uploadApi = {
 
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    headers['X-Content-Language'] = getActiveLanguageCode();
 
     const response = await fetch(`${API_BASE_URL}/upload/audio`, {
       method: 'POST',
@@ -715,6 +722,7 @@ async function streamSSE(
   const token = getAuthToken();
   const headers = {
     'Content-Type': 'application/json',
+    'X-Content-Language': getActiveLanguageCode(),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 

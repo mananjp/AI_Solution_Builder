@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Playfair_Display, Noto_Serif_Devanagari, Geist_Mono } from "next/font/google";
+import { I18nProvider } from "@/components/I18nProvider";
 import "./globals.css";
 
 const inter = Inter({
@@ -59,9 +60,16 @@ export default function RootLayout({
       <head>
         <link rel="manifest" href="/manifest.json" />
         <meta name="mobile-web-app-capable" content="yes" />
+        {/* Apply the saved language + RTL direction before hydration to avoid a
+            flash of the wrong UI language/layout. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var l=localStorage.getItem('sutra.lang');if(!l)return;var rtl=['ar','ur','fa','he'];var d=rtl.indexOf(l)>-1?'rtl':'ltr';var e=document.documentElement;e.lang=l;e.dir=d;}catch(e){}})();`,
+          }}
+        />
       </head>
       <body className="min-h-full flex flex-col bg-[#070a13] text-slate-100">
-        {children}
+        <I18nProvider>{children}</I18nProvider>
         <script
           dangerouslySetInnerHTML={{
             __html: `

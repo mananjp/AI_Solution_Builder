@@ -22,6 +22,8 @@ import FileUploader from '@/components/FileUploader';
 import { opencodeApi, sendOpenCodeChatStream, mvpApi } from '@/lib/api';
 import { MVPBuild, MVPDeployResult, OpenCodeChatComplete, OpenCodeBuildProgress } from '@/types';
 import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
+import { useI18n } from '@/components/I18nProvider';
+import type { TranslationKey } from '@/lib/i18n/dictionaries';
 
 type Msg = { role: 'user' | 'assistant' | 'system'; content: string; agent?: string };
 
@@ -35,18 +37,19 @@ interface BuildProgressState {
   startedAt: number;
 }
 
-const BUILD_MILESTONES = [
-  { step: 1, label: 'Domain Architecture & Specs', phase: 'analyzing' },
-  { step: 2, label: 'Database & API Schema Registry', phase: 'persisting' },
-  { step: 3, label: 'Full-Stack Codebase Scaffold', phase: 'scaffolding' },
-  { step: 4, label: 'Domain Models & REST Routers', phase: 'coding' },
-  { step: 5, label: 'Interactive UI Studios & Playground', phase: 'frontend' },
-  { step: 6, label: 'Codebase Integrity Verification', phase: 'verifying' },
-  { step: 7, label: 'Production Package Archive (.zip)', phase: 'packaging' },
+const BUILD_MILESTONES: { step: number; key: TranslationKey; phase: string }[] = [
+  { step: 1, key: 'buildMilestones.domainArchitecture', phase: 'analyzing' },
+  { step: 2, key: 'buildMilestones.databaseSchema', phase: 'persisting' },
+  { step: 3, key: 'buildMilestones.fullStackScaffold', phase: 'scaffolding' },
+  { step: 4, key: 'buildMilestones.domainModels', phase: 'coding' },
+  { step: 5, key: 'buildMilestones.interactiveUi', phase: 'frontend' },
+  { step: 6, key: 'buildMilestones.codebaseVerification', phase: 'verifying' },
+  { step: 7, key: 'buildMilestones.productionPackage', phase: 'packaging' },
 ];
 
 function ChatContent() {
   const searchParams = useSearchParams();
+  const { t } = useI18n();
   const initialPrompt = searchParams.get('prompt') || '';
   const initialSolutionId = searchParams.get('solution_id') || null;
 
@@ -54,8 +57,8 @@ function ChatContent() {
   const [appName, setAppName] = useState(searchParams.get('app_name') || '');
   const [messages, setMessages] = useState<Msg[]>([{
     role: 'assistant',
-    agent: 'SUTRA Orchestrator',
-    content: "I am SUTRA, your intelligence architect. Describe your application requirements, and I will synthesize a complete FastAPI + Next.js solution. Provide a PRD or spec for enhanced context, and select **Build** to finalize the architecture.",
+    agent: t('common.sutraOrchestrator'),
+    content: t('chat.welcomeMessage'),
   }]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [solutionId, setSolutionId] = useState<string | null>(initialSolutionId);
@@ -151,7 +154,7 @@ function ChatContent() {
             if (event === 'agent_start') {
               if (typeof data.session_id === 'string') setSessionId(data.session_id);
               if (typeof data.solution_id === 'string') setSolutionId(data.solution_id);
-              push((data.message as string) || 'Initializing intelligence sequence…', (data.agent as string) || 'SUTRA Intelligence');
+              push((data.message as string) || t('chat.initializingIntelligence'), 'SUTRA Intelligence');
             } else if (event === 'build_progress') {
               const p = data as unknown as OpenCodeBuildProgress;
               if (p.solution_id) setSolutionId(p.solution_id);
@@ -179,7 +182,7 @@ function ChatContent() {
             const c = data as OpenCodeChatComplete;
             if (c.session_id) setSessionId(c.session_id);
             if (c.solution_id) setSolutionId(c.solution_id);
-            push(c.message || 'Synthesis complete.', 'SUTRA Orchestrator');
+            push(c.message || t('chat.synthesisComplete'), t('common.sutraOrchestrator'));
             if (c.build_id) {
               try {
                 const fresh = await mvpApi.getStatus(c.build_id);
@@ -203,7 +206,7 @@ function ChatContent() {
           onError: (err) => {
             const msg = typeof err === 'object' && err && 'message' in err ? String((err as { message: string }).message) : 'Sequence interrupted.';
             setError(msg);
-            push(msg, 'SUTRA Orchestrator');
+            push(msg, t('common.sutraOrchestrator'));
             setBuildProgress(null);
             setIsStreaming(false);
           },
@@ -247,13 +250,13 @@ function ChatContent() {
             <Layout className="w-4 h-4" />
           </div>
           <div>
-            <h1 className="text-xl font-serif text-[var(--sutra-charcoal)]">AI Architect Workspace</h1>
-            <p className="text-[11px] uppercase tracking-widest font-semibold text-[var(--text-2)] mt-0.5">Synthesis Engine</p>
+            <h1 className="text-xl font-serif text-[var(--sutra-charcoal)]">{t('chat.aiArchitectWorkspace')}</h1>
+            <p className="text-[11px] uppercase tracking-widest font-semibold text-[var(--text-2)] mt-0.5">{t('chat.synthesisEngine')}</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold">
-          <span className="text-[var(--text-3)]">Intelligence Layer</span>
+          <span className="text-[var(--text-3)]">{t('chat.intelligenceLayer')}</span>
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-sm border shadow-sm ${
               engineOnline === null ? 'bg-[var(--bg-2)] border-[var(--border)] text-[var(--text-2)]'
               : engineOnline ? 'bg-[var(--bg-2)] border-[var(--border)] text-[var(--green)]'
@@ -265,7 +268,7 @@ function ChatContent() {
                 ? <CheckCircle2 className="w-3 h-3" />
                 : <Circle className="w-3 h-3 animate-pulse-dot" />
             }
-            {engineOnline === null ? 'Connecting...' : engineOnline ? 'Active' : 'Offline'}
+            {engineOnline === null ? t('common.connecting') : engineOnline ? t('common.active') : t('common.offline')}
           </div>
         </div>
       </div>
@@ -277,7 +280,7 @@ function ChatContent() {
         <div className="hidden lg:flex flex-col lg:col-span-3 h-full sutra-card bg-[var(--bg-2)] border-[var(--border)] min-w-0">
           <div className="p-4 border-b border-[var(--border)] flex items-center gap-2 bg-[var(--bg)]">
             <FileText className="w-4 h-4 text-[var(--text-3)]" />
-            <h2 className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">Contextual Data</h2>
+            <h2 className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">{t('chat.contextualData')}</h2>
           </div>
           <div className="flex-1 p-4 overflow-y-auto overflow-x-hidden">
             {uploadedContext ? (
@@ -290,7 +293,7 @@ function ChatContent() {
                   onClick={() => { setUploadedContext(''); setUploadedFilename(''); }}
                   className="btn btn-ghost w-full text-[10px] uppercase tracking-widest font-semibold"
                 >
-                  Clear Context
+                  {t('chat.clearContext')}
                 </button>
               </div>
             ) : (
@@ -304,7 +307,7 @@ function ChatContent() {
                   onClear={() => { setUploadedContext(''); setUploadedFilename(''); }}
                 />
                 <p className="text-[11px] text-[var(--text-2)] font-light max-w-[200px] break-words">
-                  Provide a PRD, specs, or schema. SUTRA will incorporate this into the architecture.
+                  {t('chat.providePrd')}
                 </p>
               </div>
             )}
@@ -322,10 +325,10 @@ function ChatContent() {
                 <Loader2 className="w-4 h-4 animate-spin text-[var(--sutra-muted-gold)]" />
                 {buildProgress ? (
                   <span>
-                    Building application: <strong className="text-[var(--sutra-charcoal)]">{buildProgress.percentage}%</strong> — Step {buildProgress.step}/{buildProgress.total_steps}: {buildProgress.message}
+                    {t('chat.buildingAppStatus')} <strong className="text-[var(--sutra-charcoal)]">{buildProgress.percentage}%</strong> — {t('chat.stepLabel')} {buildProgress.step}/{buildProgress.total_steps}: {buildProgress.message}
                   </span>
                 ) : (
-                  'Synthesizing architecture...'
+                  t('chat.synthesizingArchitecture')
                 )}
               </div>
             )}
@@ -340,12 +343,12 @@ function ChatContent() {
 
             {buildRequested && (
               <div className="mb-2.5 flex items-center gap-2 animate-fade-in">
-                <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)] shrink-0">App Name (optional):</span>
+                <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)] shrink-0">{t('chat.appNameOptional')}</span>
                 <input
                   type="text"
                   value={appName}
                   onChange={(e) => setAppName(e.target.value)}
-                  placeholder="e.g. FitPulse Gym, Gourmet Bistro, PetHaven..."
+                  placeholder={t('chat.appNamePlaceholder')}
                   disabled={isStreaming}
                   className="flex-1 py-1.5 px-3 bg-[var(--bg)] border border-[var(--border)] text-[12px] text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm"
                 />
@@ -364,7 +367,7 @@ function ChatContent() {
                     ? 'bg-[var(--bg)] border-[var(--sutra-muted-gold)] text-[var(--sutra-muted-gold)] shadow-sm'
                     : 'bg-[var(--bg)] border-[var(--border)] text-[var(--text-3)]'
                   }`}
-                title="Attach context"
+                title={t('chat.attachContext')}
               >
                 <Paperclip className="w-4 h-4" />
               </button>
@@ -374,7 +377,7 @@ function ChatContent() {
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder={uploadedFilename ? `Instruct SUTRA (Context: ${uploadedFilename})...` : 'Describe your application...'}
+                  placeholder={uploadedFilename ? t('chat.instructSutra', { filename: uploadedFilename }) : t('chat.describeApp')}
                   disabled={isStreaming}
                   className="w-full py-3.5 pl-4 pr-24 bg-[var(--bg)] border border-[var(--border)] text-[13px] text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm min-w-0"
                 />
@@ -383,7 +386,7 @@ function ChatContent() {
                 <label className={`absolute right-2 flex items-center gap-2 px-3 py-1.5 rounded-sm text-[10px] uppercase tracking-widest font-bold cursor-pointer select-none transition-colors ${buildRequested ? 'bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)]' : 'bg-[var(--bg-2)] border border-[var(--border)] text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] hover:border-[var(--text-3)]'
                   }`}>
                   <input type="checkbox" checked={buildRequested} onChange={(e) => setBuildRequested(e.target.checked)} className="sr-only" />
-                  <Settings2 className="w-3 h-3" /> Build
+                  <Settings2 className="w-3 h-3" /> {t('chat.buildTab')}
                 </label>
               </div>
 
@@ -403,7 +406,7 @@ function ChatContent() {
           <div className="p-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--bg)]">
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-[var(--text-3)]" />
-              <h2 className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">Build Artifacts</h2>
+              <h2 className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">{t('chat.buildArtifacts')}</h2>
             </div>
             {isStreaming && buildProgress && (
               <div className="flex items-center gap-1.5 text-[10px] font-mono text-[var(--sutra-muted-gold)] font-bold">
@@ -419,14 +422,14 @@ function ChatContent() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold text-[var(--green)] bg-[var(--bg)] border border-[var(--border)] p-2">
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Build Orchestrated</span>
+                    <span>{t('chat.buildOrchestrated')}</span>
                   </div>
                   {finalizedBuild.solution_id && (
                     <a
                       href={`/solution/${finalizedBuild.solution_id}`}
                       className="text-[11px] font-medium text-[var(--sutra-muted-gold)] hover:underline"
                     >
-                      View Artifacts →
+                      {t('chat.viewArtifacts')} →
                     </a>
                   )}
                 </div>
@@ -447,7 +450,7 @@ function ChatContent() {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">
                       <Activity className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)] animate-pulse" />
-                      <span>Building Application</span>
+                      <span>{t('chat.buildingApplication')}</span>
                     </div>
                     <span className="text-[11px] font-mono font-bold text-[var(--sutra-muted-gold)]">
                       {buildProgress?.percentage ?? 15}%
@@ -463,14 +466,14 @@ function ChatContent() {
                   </div>
 
                   <p className="text-[11px] text-[var(--text-2)] font-light mt-2 break-words">
-                    {buildProgress?.message || 'Synthesizing application structure...'}
+                    {buildProgress?.message || t('chat.synthesizingStructure')}
                   </p>
                 </div>
 
                 {/* Milestone Checklist */}
                 <div className="bg-[var(--bg)] border border-[var(--border)] p-3 space-y-2">
                   <h3 className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)] mb-2">
-                    Execution Milestones
+                    {t('chat.executionMilestones')}
                   </h3>
                   <div className="space-y-2">
                     {BUILD_MILESTONES.map((m) => {
@@ -495,7 +498,7 @@ function ChatContent() {
                                 : 'text-[var(--text-3)] font-light'
                             }
                           >
-                            {m.label}
+                            {t(m.key)}
                           </span>
                         </div>
                       );
@@ -508,7 +511,7 @@ function ChatContent() {
                   <div className="bg-[var(--bg)] border border-[var(--border)] p-3">
                     <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)] mb-2">
                       <Terminal className="w-3 h-3" />
-                      <span>Live Build Log</span>
+                      <span>{t('chat.liveBuildLog')}</span>
                     </div>
                     <div className="max-h-36 overflow-y-auto space-y-1 font-mono text-[10px] text-[var(--text-2)] bg-[var(--bg-2)] p-2 rounded-sm border border-[var(--border)]">
                       {buildProgress.logs.map((log, idx) => (
@@ -527,9 +530,9 @@ function ChatContent() {
                   <Play className="w-5 h-5 text-[var(--text-3)]" />
                 </div>
                 <div>
-                  <p className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">Awaiting Synthesis</p>
+                  <p className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">{t('chat.awaitingSynthesis')}</p>
                   <p className="text-[11px] text-[var(--text-2)] font-light max-w-[180px] mx-auto mt-2">
-                    Toggle <span className="font-semibold">BUILD</span> before sending to generate a deployable MVP architecture.
+                    {t('chat.buildToggleHint')}
                   </p>
                 </div>
               </div>
@@ -546,8 +549,9 @@ function ChatContent() {
 }
 
 export default function ChatPage() {
+  const { t } = useI18n();
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-full text-[var(--text-2)] font-serif italic">Initializing Workspace...</div>}>
+    <Suspense fallback={<div className="flex items-center justify-center h-full text-[var(--text-2)] font-serif italic">{t('chat.initializingIntelligence')}</div>}>
       <ChatContent />
     </Suspense>
   );

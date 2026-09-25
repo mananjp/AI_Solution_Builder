@@ -36,6 +36,7 @@ from app.core.build_locks import allocate_build_number
 from app.core.config import settings
 from app.core.credits import require_and_deduct_credit
 from app.core.database import async_session_factory, get_db
+from app.core.i18n import translate_text
 from app.core.llm import get_llm
 from app.core.security import get_current_user
 from app.models.mvp_build import MVPBuild
@@ -634,6 +635,7 @@ async def chat(
 ) -> EventSourceResponse:
     """Chat directly with OpenCode; streaming SSE response."""
     # Eager ownership check; gracefully fall back to fresh session if solution was purged or uncommitted
+    content_language: str = getattr(request.state, "language", "en")
     if payload.solution_id:
         try:
             await _verify_solution_access(db, payload.solution_id, current_user)
@@ -1204,6 +1206,11 @@ async def chat(
                         lock.release()
 
                 await stream_db.commit()
+
+            # Multilingual pipeline: translate the conversational reply into the
+            # caller's language (best-effort, fail-open — see app/core/i18n.py).
+            if content_language not in ("", settings.DEFAULT_LANGUAGE):
+                assistant_text = await translate_text(assistant_text, content_language)
 
             yield {
                 "event": "message",

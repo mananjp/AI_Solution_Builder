@@ -14,19 +14,29 @@ import {
 } from 'lucide-react';
 import { authApi } from '@/lib/api';
 import { User } from '@/types';
+import { useI18n } from '@/components/I18nProvider';
 
-const navItems = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Custom Builder', href: '/chat', icon: Wrench, badge: 'AI' },
-  { name: 'Solutions', href: '/dashboard#blueprints', icon: Layers },
-  { name: 'Billing', href: '/billing', icon: CreditCard },
-  { name: 'Deploy Keys', href: '/settings', icon: Rocket },
-  { name: 'Admin', href: '/admin', icon: Settings },
+type NavItem = {
+  name: string;
+  key: 'dashboard' | 'customBuilder' | 'solutions' | 'billing' | 'deployKeys' | 'admin';
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  badge?: string;
+};
+
+const navItems: NavItem[] = [
+  { name: 'Dashboard', key: 'dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Custom Builder', key: 'customBuilder', href: '/chat', icon: Wrench, badge: 'AI' },
+  { name: 'Solutions', key: 'solutions', href: '/dashboard#blueprints', icon: Layers },
+  { name: 'Billing', key: 'billing', href: '/billing', icon: CreditCard },
+  { name: 'Deploy Keys', key: 'deployKeys', href: '/settings', icon: Rocket },
+  { name: 'Admin', key: 'admin', href: '/admin', icon: Settings },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const { t } = useI18n();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   useEffect(() => {
@@ -64,7 +74,7 @@ export default function Sidebar() {
               (item.href !== '/dashboard' && pathname.startsWith(item.href.split('#')[0]));
 
             return (
-              <div key={item.name} className="relative group/nav flex items-center justify-center w-full">
+              <div key={item.key} className="relative group/nav flex items-center justify-center w-full">
                 <Link
                   href={item.href}
                   className={`flex items-center justify-center w-10 h-10 rounded-sm transition-all duration-200 ${
@@ -77,7 +87,7 @@ export default function Sidebar() {
                 </Link>
                 {/* Tooltip */}
                 <div className="absolute left-[110%] ml-2 px-2 py-1 bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] text-[10px] uppercase tracking-widest font-bold rounded-sm opacity-0 pointer-events-none group-hover/nav:opacity-100 transition-opacity whitespace-nowrap z-50 shadow-sm border border-[var(--border)]">
-                  {item.name} {item.badge && <span className="ml-1 text-[var(--sutra-muted-gold)]">({item.badge})</span>}
+                  {t(`side.${item.key}` as const)} {item.badge && <span className="ml-1 text-[var(--sutra-muted-gold)]">({item.badge})</span>}
                 </div>
               </div>
             );
@@ -94,7 +104,7 @@ export default function Sidebar() {
           </div>
           {/* Tooltip */}
           <div className="absolute left-[110%] ml-2 px-2 py-1 bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] text-[10px] uppercase tracking-widest font-bold rounded-sm opacity-0 pointer-events-none group-hover/user:opacity-100 transition-opacity whitespace-nowrap z-50 shadow-sm border border-[var(--border)]">
-            {currentUser?.full_name || 'Guest User'}
+            {currentUser?.full_name || t('side.guestUser')}
           </div>
         </div>
 
@@ -109,7 +119,7 @@ export default function Sidebar() {
             </button>
             {/* Tooltip */}
             <div className="absolute left-[110%] ml-2 px-2 py-1 bg-[#C53B3B] text-[var(--sutra-warm-ivory)] text-[10px] uppercase tracking-widest font-bold rounded-sm opacity-0 pointer-events-none group-hover/logout:opacity-100 transition-opacity whitespace-nowrap z-50 shadow-sm border border-[var(--border)]">
-              Sign out
+              {t('side.signOut')}
             </div>
           </div>
         </div>

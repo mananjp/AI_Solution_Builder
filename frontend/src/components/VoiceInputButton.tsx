@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Mic, Square, Loader2, Globe } from 'lucide-react';
 import { uploadApi } from '@/lib/api';
+import { useI18n } from '@/components/I18nProvider';
 
 interface VoiceInputButtonProps {
   onTranscribed: (text: string, lang?: string) => void;
@@ -15,6 +16,7 @@ export function VoiceInputButton({
   className = '',
   disabled = false,
 }: VoiceInputButtonProps) {
+  const { t } = useI18n();
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
@@ -133,10 +135,10 @@ export function VoiceInputButton({
           onClick={stopRecording}
           disabled={disabled || isProcessing}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30 hover:bg-red-500/20 transition-all shadow-sm animate-pulse"
-          title="Click to stop recording and transcribe"
+          title={t('voice.stopRecordingTitle')}
         >
           <Square className="w-3.5 h-3.5 fill-current" />
-          <span>Recording {formatTime(recordSeconds)}</span>
+          <span>{t('voice.recording')} {formatTime(recordSeconds)}</span>
         </button>
       ) : isProcessing ? (
         <button
@@ -145,7 +147,7 @@ export function VoiceInputButton({
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 cursor-wait"
         >
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          <span>Transcribing (Groq Whisper)...</span>
+          <span>{t('voice.transcribing')}</span>
         </button>
       ) : (
         <button
@@ -153,10 +155,10 @@ export function VoiceInputButton({
           onClick={startRecording}
           disabled={disabled}
           className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--bg-2)] border border-[var(--border)] transition-all"
-          title="Speak in Gujarati, Hindi, English, or any language (Groq Whisper AI)"
+          title={t('voice.speakHint')}
         >
           <Mic className="w-4 h-4 text-indigo-500" />
-          <span className="hidden sm:inline">Voice Note</span>
+          <span className="hidden sm:inline">{t('voice.voiceNote')}</span>
         </button>
       )}
 

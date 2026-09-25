@@ -4,6 +4,7 @@ import React, { useRef } from 'react';
 import { motion, useScroll, useTransform, useSpring } from 'framer-motion';
 import Link from 'next/link';
 import { ArrowRight, Brain, Compass, Code, CheckSquare, Lightbulb, Network, Rocket, Settings, Layout, CheckCircle2, FileText, Database, ArrowDown, Files } from 'lucide-react';
+import { LanguageSelector } from '@/components/LanguageSelector';
 
 // Interactive "Alive" Pipeline Card
 const PipelineCard = ({ stage, index }: { stage: { step: string; title: string; desc: string; icon: React.ElementType }, index: number }) => {
@@ -444,6 +445,7 @@ export default function LandingPage() {
             <span className="text-[var(--sutra-muted-gold)] font-sanskrit font-bold text-4xl leading-none drop-shadow-sm">सूत्र</span>
           </div>
           <div className="flex items-center gap-6">
+            <LanguageSelector compact />
             <Link href="/login" className="text-[12px] uppercase tracking-widest text-[#8E959A] hover:text-white transition-colors">
               Sign in
             </Link>

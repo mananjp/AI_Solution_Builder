@@ -9,6 +9,7 @@ import {
 import { workspaceApi, solutionApi, mvpApi, opencodeApi } from '@/lib/api';
 import { Solution, Workspace, MVPBuild, MVPTemplate, MVPDeployResult } from '@/types';
 import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
+import { useI18n } from '@/components/I18nProvider';
 
 const FALLBACK_TEMPLATES: MVPTemplate[] = [
   { slug: 'todo', title: 'Todo List', description: 'Simple CRUD app with items, tags, and completion states.', app_name: 'todo-app', industry: 'Productivity' },
@@ -40,6 +41,7 @@ const INDUSTRY_PROMPTS = [
 ];
 
 export default function DashboardPage() {
+  const { t } = useI18n();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [solutions, setSolutions] = useState<Solution[]>([]);
   const [selectedWorkspace, setSelectedWorkspace] = useState('');
@@ -177,22 +179,22 @@ export default function DashboardPage() {
       {/* Page header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-serif text-[var(--sutra-charcoal)]">Overview</h1>
+          <h1 className="text-3xl font-serif text-[var(--sutra-charcoal)]">{t('dash.overview')}</h1>
           <p className="text-[13px] text-[var(--text-2)] mt-2 max-w-lg leading-relaxed font-light">
-            Manage your intelligent solution blueprints, orchestrate AI swarm builds, and view your workspaces.
+            {t('dash.overviewSub')}
           </p>
         </div>
         
         {engineOnline !== null && (
           <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase tracking-widest font-semibold text-[var(--text-3)]">Engine Status</span>
+            <span className="text-[10px] uppercase tracking-widest font-semibold text-[var(--text-3)]">{t('dash.engineStatus')}</span>
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-sm border text-[11px] uppercase tracking-widest font-bold shadow-sm ${
                 engineOnline
                   ? 'bg-[var(--bg-2)] border-[var(--border)] text-[var(--green)]'
                   : 'bg-[var(--bg-2)] border-[var(--border)] text-[var(--red)]'
               }`}>
               <Circle className={`w-2 h-2 fill-current ${engineOnline ? 'animate-pulse-dot' : ''}`} />
-              {engineOnline ? 'Online' : 'Offline'}
+              {engineOnline ? t('common.online') : t('common.offline')}
             </div>
           </div>
         )}
@@ -201,10 +203,10 @@ export default function DashboardPage() {
       {/* Stat row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Total Solutions', value: solutions.length, icon: Layers },
-          { label: 'Workspaces', value: workspaces.length, icon: FolderKanban },
-          { label: 'Active Builds', value: builds.length, icon: Rocket },
-          { label: 'Credits', value: '1,450', icon: Zap },
+          { label: t('dash.totalSolutions'), value: solutions.length, icon: Layers },
+          { label: t('dash.workspaces'), value: workspaces.length, icon: FolderKanban },
+          { label: t('dash.activeBuilds'), value: builds.length, icon: Rocket },
+          { label: t('dash.credits'), value: '1,450', icon: Zap },
         ].map((m) => {
           const Icon = m.icon;
           return (
@@ -229,17 +231,17 @@ export default function DashboardPage() {
               <div className="w-8 h-8 flex items-center justify-center border border-[var(--sutra-muted-gold)] bg-[var(--bg-2)]">
                 <span className="text-[var(--sutra-muted-gold)] font-serif italic text-lg leading-none">S</span>
               </div>
-              AI Solution Builder
+              {t('dash.aiSolutionBuilder')}
             </h2>
             <p className="text-[13px] text-[var(--text-2)] leading-relaxed">
-              Design complex application architectures from a single natural language prompt. SUTRA will synthesize the domain, create the database schema, write APIs, and scaffold a complete frontend.
+              {t('dash.aiSolutionBuilderDesc')}
             </p>
             <ul className="space-y-3 pt-2">
               {[
-                'Contextual Chat & Orchestration',
-                'Live Architecture & HLD/LLD Generation',
-                'Document parsing & PRD understanding',
-                'Instant Full-stack Next.js scaffolding',
+                t('dash.featContextual'),
+                t('dash.featArchitecture'),
+                t('dash.featDocs'),
+                t('dash.featScaffold'),
               ].map((item) => (
                 <li key={item} className="flex items-center gap-3 text-[12px] font-medium text-[var(--sutra-charcoal)]">
                   <span className="w-1.5 h-1.5 bg-[var(--sutra-muted-gold)]" />
@@ -252,7 +254,7 @@ export default function DashboardPage() {
             href="/chat"
             className="btn btn-primary flex justify-center w-full shadow-md hover:shadow-lg"
           >
-            Start a New Build Session
+            {t('dash.startNewBuild')}
             <ArrowUpRight className="w-4 h-4 ml-2 opacity-70" />
           </Link>
         </div>
@@ -263,9 +265,9 @@ export default function DashboardPage() {
             <div>
               <h2 className="text-xl font-serif text-[var(--sutra-charcoal)] flex items-center gap-3">
                 <Zap className="w-5 h-5 text-[var(--text-3)]" />
-                Templates & Pre-builds
+                {t('dash.templates')}
               </h2>
-              <p className="text-[12px] text-[var(--text-2)] mt-1">Instant scaffolding from verified industry patterns.</p>
+              <p className="text-[12px] text-[var(--text-2)] mt-1">{t('dash.templatesSub')}</p>
             </div>
             <button
               onClick={async () => {
