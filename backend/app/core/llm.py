@@ -11,8 +11,10 @@ The mock provider inspects the system prompt to return valid,
 node-specific JSON so the full LangGraph pipeline completes offline.
 """
 
+import difflib
 import json
 import logging
+import re
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -389,82 +391,322 @@ def _mock_blueprint() -> dict[str, Any]:
     }
 
 
+def _normalize_domain_text(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+# Shared domain knowledge base used by the mock AI Developer (prose reply) and
+# the mock AppSpec generator (build synthesis). Matches are fuzzy on the user's
+# raw text, so misspellings like "e-commerse" still map to e-commerce.
+_DOMAINS: list[dict[str, Any]] = [
+    {
+        "keywords": (
+            "agent",
+            "bot",
+            "assistant",
+            "copilot",
+            "llm",
+            "autonomous",
+            "orchestrator",
+            "rag",
+            "prompt",
+            "workspace",
+            "synthesis",
+            "architect",
+        ),
+        "app_type": "Autonomous AI Agent Workspace",
+        "entities": ["Agents", "Tools", "Conversations", "Messages", "Executions"],
+        "spec_entities": [
+            ("agent", "agents"),
+            ("tool", "tools"),
+            ("conversation", "conversations"),
+            ("workspace", "workspaces"),
+        ],
+        "endpoints": [
+            "/api/v1/agents",
+            "/api/v1/agents/{id}/run",
+            "/api/v1/tools",
+            "/api/v1/conversations",
+            "/api/v1/executions",
+        ],
+    },
+    {
+        "keywords": (
+            "commerce",
+            "commerse",
+            "store",
+            "shop",
+            "retail",
+            "product",
+            "inventory",
+            "cart",
+            "checkout",
+            "order",
+            "sell",
+            "buy",
+            "payment",
+        ),
+        "app_type": "E-Commerce & Storefront Platform",
+        "entities": ["Products", "Orders", "Customers", "Categories", "Cart Items"],
+        "spec_entities": [
+            ("product", "products"),
+            ("category", "categories"),
+            ("order", "orders"),
+            ("customer", "customers"),
+        ],
+        "endpoints": [
+            "/api/v1/products",
+            "/api/v1/products/{id}",
+            "/api/v1/orders",
+            "/api/v1/customers",
+            "/api/v1/cart",
+        ],
+    },
+    {
+        "keywords": (
+            "health",
+            "clinic",
+            "doctor",
+            "patient",
+            "medical",
+            "telehealth",
+            "ehr",
+            "hospital",
+        ),
+        "app_type": "Healthcare & Clinic Management System",
+        "entities": ["Patients", "Doctors", "Appointments", "Prescriptions", "Departments"],
+        "spec_entities": [
+            ("patient", "patients"),
+            ("physician", "physicians"),
+            ("appointment", "appointments"),
+            ("treatment", "treatments"),
+        ],
+        "endpoints": [
+            "/api/v1/patients",
+            "/api/v1/appointments",
+            "/api/v1/physicians",
+            "/api/v1/records",
+        ],
+    },
+    {
+        "keywords": (
+            "logistics",
+            "fleet",
+            "dispatch",
+            "driver",
+            "freight",
+            "truck",
+            "shipment",
+            "courier",
+        ),
+        "app_type": "Logistics & Fleet Dispatch Platform",
+        "entities": ["Shipments", "Vehicles", "Drivers", "Routes", "Deliveries"],
+        "spec_entities": [
+            ("shipment", "shipments"),
+            ("vehicle", "vehicles"),
+            ("driver", "drivers"),
+            ("route", "routes"),
+        ],
+        "endpoints": [
+            "/api/v1/shipments",
+            "/api/v1/routes",
+            "/api/v1/drivers",
+            "/api/v1/deliveries",
+        ],
+    },
+    {
+        "keywords": ("crm", "lead", "client", "sales", "deal", "pipeline", "prospect"),
+        "app_type": "CRM & Sales Pipeline Platform",
+        "entities": ["Leads", "Contacts", "Deals", "Activities", "Pipelines"],
+        "spec_entities": [
+            ("lead", "leads"),
+            ("contact", "contacts"),
+            ("deal", "deals"),
+            ("activity", "activities"),
+        ],
+        "endpoints": ["/api/v1/leads", "/api/v1/clients", "/api/v1/deals", "/api/v1/activities"],
+    },
+    {
+        "keywords": ("todo", "task", "project", "kanban", "sprint", "trello", "issue", "jira"),
+        "app_type": "Project & Task Management System",
+        "entities": ["Projects", "Tasks", "Milestones", "Tags", "Boards"],
+        "spec_entities": [
+            ("project", "projects"),
+            ("task", "tasks"),
+            ("sprint", "sprints"),
+            ("milestone", "milestones"),
+        ],
+        "endpoints": ["/api/v1/projects", "/api/v1/tasks", "/api/v1/boards"],
+    },
+    {
+        "keywords": (
+            "finance",
+            "invoice",
+            "billing",
+            "expense",
+            "accounting",
+            "bookkeeping",
+            "revenue",
+        ),
+        "app_type": "Finance & Invoicing Platform",
+        "entities": ["Invoices", "Transactions", "Expenses", "Accounts", "Clients"],
+        "spec_entities": [
+            ("invoice", "invoices"),
+            ("expense", "expenses"),
+            ("customer", "customers"),
+            ("payment", "payments"),
+        ],
+        "endpoints": [
+            "/api/v1/invoices",
+            "/api/v1/transactions",
+            "/api/v1/expenses",
+            "/api/v1/accounts",
+        ],
+    },
+    {
+        "keywords": ("property", "realestate", "listing", "tenant", "rental", "realtor", "lease"),
+        "app_type": "Real Estate & Property Management",
+        "entities": ["Properties", "Listings", "Leases", "Tenants", "Showings"],
+        "spec_entities": [
+            ("property", "properties"),
+            ("listing", "listings"),
+            ("tenant", "tenants"),
+            ("showing", "showings"),
+        ],
+        "endpoints": ["/api/v1/properties", "/api/v1/listings", "/api/v1/leases"],
+    },
+    {
+        "keywords": ("course", "student", "teacher", "learning", "lms", "classroom", "lesson"),
+        "app_type": "Education & Learning Management System",
+        "entities": ["Courses", "Lessons", "Students", "Enrollments", "Instructors"],
+        "spec_entities": [
+            ("course", "courses"),
+            ("student", "students"),
+            ("enrollment", "enrollments"),
+            ("lesson", "lessons"),
+        ],
+        "endpoints": ["/api/v1/courses", "/api/v1/lessons", "/api/v1/students"],
+    },
+    {
+        "keywords": ("member", "class", "fitness", "gym", "coach", "wellness", "workout"),
+        "app_type": "Fitness & Wellness Club Platform",
+        "entities": ["Members", "Classes", "Trainers", "Bookings", "Plans"],
+        "spec_entities": [
+            ("member", "members"),
+            ("class", "classes"),
+            ("trainer", "trainers"),
+            ("booking", "bookings"),
+        ],
+        "endpoints": ["/api/v1/members", "/api/v1/classes", "/api/v1/bookings"],
+    },
+    {
+        "keywords": (
+            "restaurant",
+            "menu",
+            "dish",
+            "reservation",
+            "chef",
+            "catering",
+            "kitchen",
+        ),
+        "app_type": "Restaurant & Kitchen Management",
+        "entities": ["Dishes", "Menu Items", "Reservations", "Orders", "Ingredients"],
+        "spec_entities": [
+            ("menu_item", "menu_items"),
+            ("dish", "dishes"),
+            ("reservation", "reservations"),
+            ("ingredient", "ingredients"),
+        ],
+        "endpoints": ["/api/v1/menu-items", "/api/v1/reservations", "/api/v1/orders"],
+    },
+    {
+        "keywords": (
+            "movie",
+            "event",
+            "ticket",
+            "venue",
+            "show",
+            "concert",
+            "booking",
+            "festival",
+        ),
+        "app_type": "Events & Ticketing Platform",
+        "entities": ["Events", "Tickets", "Attendees", "Venues", "Orders"],
+        "spec_entities": [
+            ("event", "events"),
+            ("ticket", "tickets"),
+            ("attendee", "attendees"),
+            ("venue", "venues"),
+        ],
+        "endpoints": ["/api/v1/events", "/api/v1/tickets", "/api/v1/venues"],
+    },
+    {
+        "keywords": ("employee", "candidate", "applicant", "hiring", "onboarding", "timesheet"),
+        "app_type": "HR & Workforce Management",
+        "entities": ["Employees", "Candidates", "Job Posts", "Reviews", "Leave Requests"],
+        "spec_entities": [
+            ("employee", "employees"),
+            ("candidate", "candidates"),
+            ("job_post", "job_posts"),
+            ("review", "reviews"),
+        ],
+        "endpoints": ["/api/v1/employees", "/api/v1/candidates", "/api/v1/job-posts"],
+    },
+    {
+        "keywords": [],
+        "app_type": "Full-Stack Web Application",
+        "entities": ["Users", "Records", "Categories", "Activities"],
+        "spec_entities": [("item", "items"), ("category", "categories")],
+        "endpoints": ["/api/v1/items", "/api/v1/categories", "/api/v1/users"],
+    },
+]
+
+
+def _detect_domain(user_text: str) -> dict[str, Any]:
+    """Pick the domain that best matches *user_text* (fuzzy, misspelling-tolerant).
+
+    Exact keyword matches win; otherwise the best normalized fuzzy match wins;
+    otherwise the generic fallback domain is returned.
+    """
+    tokens = [t for t in re.findall(r"[a-z0-9]+", user_text.lower()) if len(t) >= 2]
+
+    def _score_keyword(kw_norm: str) -> float:
+        best = -1.0
+        for tok in tokens:
+            if kw_norm == tok:
+                return 2.0
+            if kw_norm in tok:
+                best = max(best, 1.5)
+            elif len(kw_norm) >= 4 and difflib.SequenceMatcher(None, kw_norm, tok).ratio() >= 0.8:
+                best = max(best, 1.0)
+        return best
+
+    best_domain: dict[str, Any] | None = None
+    best_score = -1.0
+    for dom in _DOMAINS[:-1]:
+        for kw in dom["keywords"]:
+            kw_norm = _normalize_domain_text(kw)
+            if not kw_norm:
+                continue
+            score = _score_keyword(kw_norm)
+            if score > best_score:
+                best_score = score
+                best_domain = dom
+    if best_domain is not None and best_score > 0.0:
+        return best_domain
+    return _DOMAINS[-1]
+
+
 def _mock_ai_developer(messages: list[Any]) -> dict[str, Any]:
     user_text = ""
     for msg in messages:
         if isinstance(msg, HumanMessage) or getattr(msg, "type", "") == "human":
             user_text = str(getattr(msg, "content", ""))
 
-    lower = user_text.lower()
-    if any(
-        k in lower
-        for k in (
-            "agent",
-            "bot",
-            "assistant",
-            "copilot",
-            "llm",
-            "ai",
-            "autonomous",
-            "orchestrator",
-            "rag",
-            "prompt",
-        )
-    ):
-        app_type = "Autonomous AI Agent System"
-        entities = ["Agents", "Tools", "Conversations", "Messages", "Executions"]
-        endpoints = [
-            "/api/v1/agents",
-            "/api/v1/agents/{agent_id}/run",
-            "/api/v1/tools",
-            "/api/v1/conversations",
-            "/api/v1/executions",
-        ]
-    elif any(
-        k in lower
-        for k in ("retail", "store", "ecommerce", "inventory", "pos", "shop", "product", "stock")
-    ):
-        app_type = "Omnichannel Retail & Inventory Platform"
-        entities = ["Products", "Orders", "Customers", "Inventory"]
-        endpoints = ["/api/v1/products", "/api/v1/orders", "/api/v1/inventory"]
-    elif any(
-        k in lower
-        for k in ("health", "clinic", "doctor", "patient", "medical", "telehealth", "ehr")
-    ):
-        app_type = "Healthcare & Clinic Management System"
-        entities = ["Patients", "Doctors", "Appointments", "Prescriptions"]
-        endpoints = ["/api/v1/patients", "/api/v1/appointments", "/api/v1/records"]
-    elif any(
-        k in lower
-        for k in ("logistics", "fleet", "dispatch", "driver", "freight", "truck", "shipment")
-    ):
-        app_type = "Logistics & Fleet Dispatch Platform"
-        entities = ["Shipments", "Vehicles", "Drivers", "Routes"]
-        endpoints = ["/api/v1/shipments", "/api/v1/routes", "/api/v1/drivers"]
-    elif any(k in lower for k in ("crm", "lead", "client", "sales", "deal")):
-        app_type = "CRM & Sales Pipeline Platform"
-        entities = ["Leads", "Clients", "Deals", "Activities"]
-        endpoints = ["/api/v1/leads", "/api/v1/clients", "/api/v1/deals"]
-    elif any(k in lower for k in ("todo", "task", "project", "kanban", "sprint")):
-        app_type = "Project & Task Management System"
-        entities = ["Projects", "Tasks", "Milestones", "Tags"]
-        endpoints = ["/api/v1/projects", "/api/v1/tasks"]
-    elif any(k in lower for k in ("finance", "invoice", "billing", "payment", "expense")):
-        app_type = "Finance & Invoicing Platform"
-        entities = ["Invoices", "Transactions", "Expenses", "Accounts"]
-        endpoints = ["/api/v1/invoices", "/api/v1/transactions", "/api/v1/expenses"]
-    elif any(k in lower for k in ("property", "real estate", "listing", "tenant", "rental")):
-        app_type = "Real Estate & Property Management"
-        entities = ["Properties", "Units", "Leases", "Tenants"]
-        endpoints = ["/api/v1/properties", "/api/v1/units", "/api/v1/leases"]
-    elif any(k in lower for k in ("course", "student", "teacher", "learning", "lms")):
-        app_type = "Education & Learning Management System"
-        entities = ["Courses", "Lessons", "Students", "Enrollments"]
-        endpoints = ["/api/v1/courses", "/api/v1/lessons", "/api/v1/students"]
-    else:
-        app_type = "Full-Stack Web Application"
-        entities = ["Users", "Items", "Categories", "Activities"]
-        endpoints = ["/api/v1/items", "/api/v1/categories", "/api/v1/users"]
+    domain = _detect_domain(user_text)
+    app_type = domain["app_type"]
+    entities = domain["entities"]
+    endpoints = domain["endpoints"]
 
     ent_bullets = "\n".join(
         f"- **{e}**: UUID identifier, status tracking, timestamps, and relationship mapping."
@@ -502,40 +744,131 @@ def _mock_app_spec(messages: list[Any]) -> dict[str, Any]:
         if isinstance(msg, HumanMessage) or getattr(msg, "type", "") == "human":
             user_text += "\n" + str(getattr(msg, "content", ""))
 
-    lower = user_text.lower()
-    if any(
-        k in lower
-        for k in (
-            "agent",
-            "bot",
-            "assistant",
-            "copilot",
-            "llm",
-            "autonomous",
-            "orchestrator",
-            "rag",
-            "prompt",
-        )
-    ):
-        entities = [("agent", "agents"), ("tool", "tools"), ("conversation", "conversations")]
-    elif any(k in lower for k in ("project", "task", "kanban", "sprint", "todo")):
-        entities = [("project", "projects"), ("task", "tasks")]
-    elif any(k in lower for k in ("retail", "store", "inventory", "product", "stock", "pos")):
-        entities = [("product", "products"), ("order", "orders")]
-    elif any(k in lower for k in ("invoice", "expense", "billing", "payment", "accounting")):
-        entities = [("invoice", "invoices"), ("expense", "expenses")]
-    else:
-        entities = [("item", "items"), ("category", "categories")]
+    domain = _detect_domain(user_text)
+    entities = domain["spec_entities"]
+
+    _FIELD_SETS: dict[str, list[dict[str, Any]]] = {
+        "product": [
+            {"name": "name", "type": "string", "required": True, "description": "Product name"},
+            {"name": "price", "type": "float", "required": True, "description": "Sale price"},
+            {"name": "stock_quantity", "type": "int", "required": False, "description": "Units on hand"},
+            {"name": "is_active", "type": "bool", "required": False, "description": "Visible in storefront"},
+        ],
+        "order": [
+            {"name": "order_number", "type": "string", "required": True, "description": "Public order reference"},
+            {"name": "customer_email", "type": "string", "required": True, "description": "Buyer email"},
+            {"name": "total_amount", "type": "float", "required": True, "description": "Order total"},
+            {"name": "status", "type": "string", "required": False, "description": "Order lifecycle status"},
+        ],
+        "customer": [
+            {"name": "full_name", "type": "string", "required": True, "description": "Customer name"},
+            {"name": "email", "type": "string", "required": True, "description": "Contact email"},
+            {"name": "phone", "type": "string", "required": False, "description": "Contact phone"},
+            {"name": "city", "type": "string", "required": False, "description": "Billing city"},
+        ],
+        "category": [
+            {"name": "name", "type": "string", "required": True, "description": "Category name"},
+            {"name": "slug", "type": "string", "required": False, "description": "URL-friendly identifier"},
+        ],
+        "patient": [
+            {"name": "full_name", "type": "string", "required": True, "description": "Patient name"},
+            {"name": "email", "type": "string", "required": True, "description": "Contact email"},
+            {"name": "date_of_birth", "type": "date", "required": False, "description": "Date of birth"},
+            {"name": "blood_group", "type": "string", "required": False, "description": "ABO group"},
+        ],
+        "appointment": [
+            {"name": "scheduled_at", "type": "datetime", "required": True, "description": "Appointment time"},
+            {"name": "status", "type": "string", "required": False, "description": "Status"},
+            {"name": "reason", "type": "text", "required": False, "description": "Visit reason"},
+        ],
+        "invoice": [
+            {"name": "invoice_number", "type": "string", "required": True, "description": "Invoice reference"},
+            {"name": "client_name", "type": "string", "required": True, "description": "Billed party"},
+            {"name": "amount_due", "type": "float", "required": True, "description": "Amount owed"},
+            {"name": "due_date", "type": "date", "required": False, "description": "Payment due date"},
+            {"name": "status", "type": "string", "required": False, "description": "Billing status"},
+        ],
+        "shipment": [
+            {"name": "tracking_number", "type": "string", "required": True, "description": "Courier tracking"},
+            {"name": "status", "type": "string", "required": False, "description": "Delivery status"},
+            {"name": "destination_city", "type": "string", "required": False, "description": "Destination"},
+            {"name": "estimated_delivery", "type": "date", "required": False, "description": "ETA"},
+        ],
+        "event": [
+            {"name": "title", "type": "string", "required": True, "description": "Event title"},
+            {"name": "starts_at", "type": "datetime", "required": True, "description": "Start time"},
+            {"name": "venue", "type": "string", "required": False, "description": "Venue name"},
+            {"name": "capacity", "type": "int", "required": False, "description": "Seat capacity"},
+        ],
+        "ticket": [
+            {"name": "holder_name", "type": "string", "required": True, "description": "Ticket holder"},
+            {"name": "price", "type": "float", "required": True, "description": "Ticket price"},
+            {"name": "status", "type": "string", "required": False, "description": "Booking status"},
+        ],
+        "task": [
+            {"name": "title", "type": "string", "required": True, "description": "Task title"},
+            {"name": "due_date", "type": "date", "required": False, "description": "Due date"},
+            {"name": "priority", "type": "string", "required": False, "description": "Priority level"},
+            {"name": "completed", "type": "bool", "required": False, "description": "Done flag"},
+        ],
+        "project": [
+            {"name": "name", "type": "string", "required": True, "description": "Project name"},
+            {"name": "description", "type": "text", "required": False, "description": "Notes"},
+            {"name": "start_date", "type": "date", "required": False, "description": "Start date"},
+            {"name": "status", "type": "string", "required": False, "description": "Project status"},
+        ],
+        "member": [
+            {"name": "full_name", "type": "string", "required": True, "description": "Member name"},
+            {"name": "email", "type": "string", "required": True, "description": "Contact email"},
+            {"name": "plan_name", "type": "string", "required": False, "description": "Membership plan"},
+            {"name": "joined_at", "type": "date", "required": False, "description": "Join date"},
+        ],
+        "course": [
+            {"name": "title", "type": "string", "required": True, "description": "Course title"},
+            {"name": "description", "type": "text", "required": False, "description": "Course details"},
+            {"name": "price", "type": "float", "required": False, "description": "Tuition price"},
+        ],
+        "lead": [
+            {"name": "full_name", "type": "string", "required": True, "description": "Lead name"},
+            {"name": "email", "type": "string", "required": True, "description": "Contact email"},
+            {"name": "status", "type": "string", "required": False, "description": "Pipeline stage"},
+            {"name": "deal_value", "type": "float", "required": False, "description": "Opportunity value"},
+        ],
+        "candidate": [
+            {"name": "full_name", "type": "string", "required": True, "description": "Candidate name"},
+            {"name": "email", "type": "string", "required": True, "description": "Contact email"},
+            {"name": "status", "type": "string", "required": False, "description": "Hiring stage"},
+        ],
+        "menu_item": [
+            {"name": "name", "type": "string", "required": True, "description": "Dish name"},
+            {"name": "price", "type": "float", "required": True, "description": "Selling price"},
+            {"name": "is_available", "type": "bool", "required": False, "description": "On menu"},
+        ],
+        "employee": [
+            {"name": "full_name", "type": "string", "required": True, "description": "Employee name"},
+            {"name": "email", "type": "string", "required": True, "description": "Work email"},
+            {"name": "department", "type": "string", "required": False, "description": "Department"},
+            {"name": "hire_date", "type": "date", "required": False, "description": "Hire date"},
+        ],
+        "property": [
+            {"name": "address", "type": "string", "required": True, "description": "Property address"},
+            {"name": "price", "type": "float", "required": True, "description": "Listing price"},
+            {"name": "status", "type": "string", "required": False, "description": "Listing status"},
+        ],
+    }
+
+    def _fields_for(name: str) -> list[dict[str, Any]]:
+        return _FIELD_SETS.get(name) or [
+            {"name": "name", "type": "string", "required": True, "description": "Display name"},
+            {"name": "description", "type": "text", "required": False, "description": "Notes"},
+        ]
 
     spec_entities = [
         {
             "name": name,
             "plural": plural,
             "description": f"{name} managed by the app",
-            "fields": [
-                {"name": "name", "type": "string", "required": True, "description": "Display name"},
-                {"name": "description", "type": "text", "required": False, "description": "Notes"},
-            ],
+            "fields": _fields_for(name),
         }
         for name, plural in entities
     ]
@@ -616,7 +949,7 @@ def _mock_app_spec(messages: list[Any]) -> dict[str, Any]:
 
     return {
         "app_name": "My App",
-        "one_liner": "A small working application",
+        "one_liner": f"A {domain['app_type']} based on your request",
         "core_value": "",
         "assumptions": [],
         "entities": spec_entities,

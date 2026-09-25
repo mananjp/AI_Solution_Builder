@@ -1,5 +1,9 @@
 # AI Solution Builder — OpenCode Sidecar
 # Headless OpenCode server that generates MVP prototypes for the backend API.
+#
+# Provider: Groq (groq/openai/gpt-oss-120b) via GROQ_API_KEY.
+# OPENCODE_ZEN_API_KEY is optional — only needed for opencode/* Zen models.
+# See entrypoint.sh — auth file is seeded only when the Zen key is provided.
 
 FROM node:20-slim AS runtime
 
@@ -9,7 +13,18 @@ ENV NODE_ENV=production \
 
 WORKDIR /opt/opencode
 
-RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip \
+# Runtime tools: opencode's grep/VCS/tool features and the agent's pytest/npm
+# commands need git, ripgrep, bash, curl, jq on PATH.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    ripgrep \
+    bash \
+    curl \
+    jq \
+    ca-certificates \
+    procps \
+    python3 \
+    python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
 # Preinstall MVP runtime dependencies so pytest and verification succeed inside the sidecar
@@ -26,12 +41,15 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     pytest \
     pytest-asyncio
 
+# Pin the CLI — matches opencode-ai@1.18.32 in app.Dockerfile (no @latest drift)
 RUN npm install -g opencode-ai@1.18.32
 
-# Copy OpenCode configuration and custom agents
+# Copy OpenCode configuration, custom agents, and the entrypoint
 RUN mkdir -p /root/.config/opencode/agents
 COPY config.json /root/.config/opencode/opencode.json
 COPY agents/mvp-builder.md /root/.config/opencode/agents/mvp-builder.md
+COPY entrypoint.sh /opt/opencode/entrypoint.sh
+RUN chmod +x /opt/opencode/entrypoint.sh
 
 # Workspace root where the backend drops per-solution build directories.
 # Mounted as a shared volume so the Python service can read generated files.
@@ -43,6 +61,7 @@ VOLUME ["/workspace"]
 EXPOSE 4096
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=6 \
-  CMD node -e "fetch('http://localhost:4096/global/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))" || exit 1
+  CMD node -e "fetch('http://localhost:4096/api/info').then(r => { if (r.ok) process.exit(0); return fetch('http://localhost:4096/global/health') }).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))" || exit 1
 
+ENTRYPOINT ["/opt/opencode/entrypoint.sh"]
 CMD ["opencode", "serve", "--port", "4096", "--hostname", "0.0.0.0"]
