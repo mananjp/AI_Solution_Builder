@@ -743,9 +743,9 @@ export default function Dashboard() {
     </main>
   );
 }
-\"\"\"
+"""
 
-_ENTITY_PAGE_TSX = \"\"\"\\
+_ENTITY_PAGE_TSX = """\
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
