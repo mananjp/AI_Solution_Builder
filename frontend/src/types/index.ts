@@ -377,3 +377,17 @@ export interface OpenCodeAgentStart {
 export interface OpenCodeHealth {
   healthy: boolean;
 }
+
+export interface MVPFileUpdate {
+  path: string;
+  content: string;
+}
+
+export interface MVPChatEditResponse {
+  status: string;
+  message: string;
+  updated_files: MVPFileUpdate[];
+  all_files: MVPFileEntry[];
+  build_id: string;
+  build_number: number;
+}
