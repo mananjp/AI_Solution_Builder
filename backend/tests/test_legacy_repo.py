@@ -390,5 +390,48 @@ async def test_legacy_repo_api_endpoints(sample_legacy_repo: Path):
             mod_data = mod_resp.json()
             assert mod_data["status"] == "complete"
             assert mod_data["sutra_os"] == "NOT MODIFIED (strictly preserved and untouched)"
+
+            # 5. Test Demo sample fallback when requested
+            demo_resp = await client.post(
+                "/api/v1/legacy-repo/analyze",
+                json={"local_path": "sample_legacy_repo"},
+                headers=headers,
+            )
+            assert demo_resp.status_code == 200
+            demo_data = demo_resp.json()
+            assert "technology_stack" in demo_data
+
     finally:
         app.dependency_overrides.clear()
+
+
+def test_github_url_parsing_and_token_resolution():
+    """Verify GitHub URL parsing and user profile token resolution."""
+    from app.api.legacy_repo import _parse_github_owner_repo, _resolve_github_token
+    from app.core.secrets import encrypt_secret
+    from app.models.user import User
+    import uuid
+
+    # URL parsing
+    o1, r1 = _parse_github_owner_repo("https://github.com/Ladnil03/rag-document-intelligence")
+    assert o1 == "Ladnil03" and r1 == "rag-document-intelligence"
+
+    o2, r2 = _parse_github_owner_repo("https://github.com/Ladnil03/rag-document-intelligence.git/")
+    assert o2 == "Ladnil03" and r2 == "rag-document-intelligence"
+
+    o3, r3 = _parse_github_owner_repo("git@github.com:Ladnil03/rag-document-intelligence.git")
+    assert o3 == "Ladnil03" and r3 == "rag-document-intelligence"
+
+    # Token resolution from user settings
+    encrypted_pat = encrypt_secret("ghp_testpat1234567890")
+    user_with_token = User(
+        id=uuid.uuid4(),
+        email="dev@example.com",
+        settings={"github_token": encrypted_pat},
+    )
+    resolved = _resolve_github_token(None, user_with_token)
+    assert resolved == "ghp_testpat1234567890"
+
+    # Override with payload token
+    override = _resolve_github_token("ghp_overridetoken999", user_with_token)
+    assert override == "ghp_overridetoken999"

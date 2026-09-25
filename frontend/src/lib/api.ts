@@ -75,7 +75,7 @@ export interface WorkableSystemResponse {
 
 export function getAuthToken(): string | null {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem('access_token');
+  return localStorage.getItem('access_token') || localStorage.getItem('token');
 }
 
 export function setAuthToken(token: string) {
@@ -1092,7 +1092,7 @@ export interface ModernizeReport {
 }
 
 export const legacyRepoApi = {
-  async analyze(payload: { local_path?: string; github_repo_url?: string }): Promise<LegacyRepoAnalysis> {
+  async analyze(payload: { local_path?: string; github_repo_url?: string; github_token?: string }): Promise<LegacyRepoAnalysis> {
     return request<LegacyRepoAnalysis>('/legacy-repo/analyze', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -1102,13 +1102,16 @@ export const legacyRepoApi = {
   async analyzeUpload(file: File): Promise<LegacyRepoAnalysis> {
     const formData = new FormData();
     formData.append('file', file);
-    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const token = getAuthToken();
     const res = await fetch(`${API_BASE_URL}/legacy-repo/analyze-upload`, {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: formData,
     });
     if (!res.ok) {
+      if (res.status === 401) {
+        throw new Error('Your session has expired or you are not logged in. Please log in to inspect repositories.');
+      }
       const err = await res.json().catch(() => ({ detail: 'Upload analysis failed' }));
       throw new Error(err.error?.message || err.detail || 'Upload analysis failed');
     }
@@ -1125,6 +1128,7 @@ export const legacyRepoApi = {
   async modernize(payload: {
     local_path?: string;
     github_repo_url?: string;
+    github_token?: string;
     requested_features?: string[];
     credentials?: Record<string, string>;
   }): Promise<ModernizeReport> {
