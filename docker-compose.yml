@@ -50,6 +50,8 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-groq}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-to-a-long-random-string-in-production}
       OPENCODE_SERVER_URL: http://opencode:4096
+      # Comma-separated sidecar pool (see opencode service comment). Empty = single OPENCODE_SERVER_URL.
+      OPENCODE_POOL_URLS: ${OPENCODE_POOL_URLS:-}
       MVP_BUILD_DIR: .data/mvp_builds
     ports:
       - "8000:8000"
@@ -85,6 +87,8 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-groq}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-to-a-long-random-string-in-production}
       OPENCODE_SERVER_URL: http://opencode:4096
+      # Comma-separated sidecar pool (see opencode service comment). Empty = single OPENCODE_SERVER_URL.
+      OPENCODE_POOL_URLS: ${OPENCODE_POOL_URLS:-}
       MVP_BUILD_DIR: .data/mvp_builds
       WORKER_MODE: worker
     volumes:
