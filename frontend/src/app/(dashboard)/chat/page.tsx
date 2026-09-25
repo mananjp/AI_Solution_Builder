@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, Suspense } from 'react';
+import React, { useState, useEffect, useRef, Suspense, useSyncExternalStore } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   Send,
@@ -21,7 +21,7 @@ import {
 import ChatMessage from '@/components/ChatMessage';
 import FileUploader from '@/components/FileUploader';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
-import { opencodeApi, sendOpenCodeChatStream, mvpApi, solutionApi } from '@/lib/api';
+import { opencodeApi, sendOpenCodeChatStream, mvpApi, solutionApi, workspaceApi } from '@/lib/api';
 import { BuildStep, MVPBuild, MVPDeployResult, OpenCodeChatComplete, OpenCodeBuildProgress } from '@/types';
 import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
 import { useI18n } from '@/components/I18nProvider';
@@ -58,14 +58,56 @@ const BUILD_MILESTONES: { step: number; key: TranslationKey; phase: string }[] =
   { step: 7, key: 'buildMilestones.productionPackage', phase: 'packaging' },
 ];
 
+function getStoredSolutionId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem('sutra_active_solution_id');
+    if (raw && raw !== 'null' && raw !== 'undefined' && raw.trim()) {
+      return raw.trim();
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+const storageListeners = new Set<() => void>();
+
+function subscribeStorage(callback: () => void): () => void {
+  storageListeners.add(callback);
+  const handleStorage = () => callback();
+  if (typeof window !== 'undefined') {
+    window.addEventListener('storage', handleStorage);
+  }
+  return () => {
+    storageListeners.delete(callback);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('storage', handleStorage);
+    }
+  };
+}
+
+function setActiveSolutionId(id: string | null) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (id) {
+      localStorage.setItem('sutra_active_solution_id', id);
+    } else {
+      localStorage.removeItem('sutra_active_solution_id');
+    }
+  } catch {
+    // ignore
+  }
+  storageListeners.forEach((listener) => listener());
+}
+
 function ChatContent() {
   const searchParams = useSearchParams();
   const { t } = useI18n();
   const initialPrompt = searchParams.get('prompt') || '';
   const querySolutionId = searchParams.get('solution_id');
   const isNewRequested = searchParams.get('new') === 'true' || Boolean(initialPrompt && !querySolutionId);
-  const storedSolutionId = typeof window !== 'undefined' && !isNewRequested ? localStorage.getItem('sutra_active_solution_id') : null;
-  const initialSolutionId = querySolutionId || storedSolutionId || null;
+  const storedSolutionId = useSyncExternalStore(subscribeStorage, getStoredSolutionId, () => null);
 
   const [input, setInput] = useState(initialPrompt);
   const [appName, setAppName] = useState(searchParams.get('app_name') || '');
@@ -75,8 +117,26 @@ function ChatContent() {
     content: t('chat.welcomeMessage'),
   }]);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [solutionId, setSolutionId] = useState<string | null>(initialSolutionId);
+  const [solutionId, setSolutionId] = useState<string | null>(null);
   const loadedSolutionIdRef = useRef<string | null>(null);
+
+  // If user requested a new build, reset states during render
+  const [prevIsNew, setPrevIsNew] = useState(isNewRequested);
+  if (isNewRequested && !prevIsNew) {
+    setPrevIsNew(true);
+    setSolutionId(null);
+    setAppName('');
+    setSessionId(null);
+    setMessages([{
+      role: 'assistant',
+      agent: t('common.sutraOrchestrator'),
+      content: t('chat.welcomeMessage'),
+    }]);
+  } else if (!isNewRequested && prevIsNew) {
+    setPrevIsNew(false);
+  }
+
+  const targetId = isNewRequested ? null : (querySolutionId || solutionId || storedSolutionId);
   const [uploadedContext, setUploadedContext] = useState('');
   const [uploadedFilename, setUploadedFilename] = useState('');
   const [showUploader, setShowUploader] = useState(true);
@@ -109,9 +169,33 @@ function ChatContent() {
     return () => clearInterval(timer);
   }, [isStreaming, buildProgress]);
 
-  const targetId = isNewRequested ? null : (querySolutionId || solutionId);
+  // 1. Discover user's latest solution from DB if no active solution is present
+  useEffect(() => {
+    if (isNewRequested || targetId) return;
+    let active = true;
 
-  // Hydrate conversation history and metadata when solution is established
+    workspaceApi
+      .list()
+      .then(async (workspaces) => {
+        if (!active || !workspaces || workspaces.length === 0) return;
+        try {
+          const solutions = await solutionApi.list(workspaces[0].id);
+          if (!active || !solutions || solutions.length === 0) return;
+          const latest = solutions[0];
+          setSolutionId(latest.id);
+          setActiveSolutionId(latest.id);
+        } catch {
+          // ignore
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, [isNewRequested, targetId]);
+
+  // 2. Hydrate conversation history and metadata when solution is established
   useEffect(() => {
     if (!targetId) {
       loadedSolutionIdRef.current = null;
@@ -143,8 +227,8 @@ function ChatContent() {
           }));
           setMessages(restored);
         }
+        setActiveSolutionId(sol.id);
         if (typeof window !== 'undefined') {
-          localStorage.setItem('sutra_active_solution_id', sol.id);
           const currentUrl = new URL(window.location.href);
           if (currentUrl.searchParams.get('solution_id') !== sol.id) {
             currentUrl.searchParams.set('solution_id', sol.id);
@@ -152,16 +236,21 @@ function ChatContent() {
           }
         }
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (!active) return;
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('sutra_active_solution_id');
-          const currentUrl = new URL(window.location.href);
-          currentUrl.searchParams.delete('solution_id');
-          window.history.replaceState(null, '', currentUrl.pathname + currentUrl.search);
+        const is404 =
+          (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 404) ||
+          (err instanceof Error && (err.message.includes('404') || err.message.toLowerCase().includes('not found')));
+        if (is404) {
+          setActiveSolutionId(null);
+          if (typeof window !== 'undefined') {
+            const currentUrl = new URL(window.location.href);
+            currentUrl.searchParams.delete('solution_id');
+            window.history.replaceState(null, '', currentUrl.pathname + currentUrl.search);
+          }
+          setSolutionId(null);
+          loadedSolutionIdRef.current = null;
         }
-        setSolutionId(null);
-        loadedSolutionIdRef.current = null;
       });
 
     return () => {
@@ -221,12 +310,14 @@ function ChatContent() {
       setElapsedSeconds(0);
     }
 
+    let receivedMessageEvent = false;
+
     try {
       await sendOpenCodeChatStream(
         {
           message: text,
           app_name: appName.trim() || undefined,
-          solution_id: solutionId,
+          solution_id: solutionId || targetId || undefined,
           session_id: sessionId,
           uploaded_context: uploadedContext,
           build_requested: finalize,
@@ -238,8 +329,8 @@ function ChatContent() {
               if (typeof data.solution_id === 'string' && data.solution_id) {
                 loadedSolutionIdRef.current = data.solution_id;
                 setSolutionId(data.solution_id);
+                setActiveSolutionId(data.solution_id);
                 if (typeof window !== 'undefined') {
-                  localStorage.setItem('sutra_active_solution_id', data.solution_id);
                   const currentUrl = new URL(window.location.href);
                   if (currentUrl.searchParams.get('solution_id') !== data.solution_id) {
                     currentUrl.searchParams.set('solution_id', data.solution_id);
@@ -255,8 +346,8 @@ function ChatContent() {
               if (p.solution_id) {
                 loadedSolutionIdRef.current = p.solution_id;
                 setSolutionId(p.solution_id);
+                setActiveSolutionId(p.solution_id);
                 if (typeof window !== 'undefined') {
-                  localStorage.setItem('sutra_active_solution_id', p.solution_id);
                   const currentUrl = new URL(window.location.href);
                   if (currentUrl.searchParams.get('solution_id') !== p.solution_id) {
                     currentUrl.searchParams.set('solution_id', p.solution_id);
@@ -283,6 +374,7 @@ function ChatContent() {
                 };
               });
             } else if (event === 'message' && data.message) {
+              receivedMessageEvent = true;
               push(data.message as string, (data.agent as string) || 'SUTRA Intelligence');
             }
           },
@@ -292,8 +384,8 @@ function ChatContent() {
             if (c.solution_id) {
               loadedSolutionIdRef.current = c.solution_id;
               setSolutionId(c.solution_id);
+              setActiveSolutionId(c.solution_id);
               if (typeof window !== 'undefined') {
-                localStorage.setItem('sutra_active_solution_id', c.solution_id);
                 const currentUrl = new URL(window.location.href);
                 if (currentUrl.searchParams.get('solution_id') !== c.solution_id) {
                   currentUrl.searchParams.set('solution_id', c.solution_id);
@@ -301,7 +393,9 @@ function ChatContent() {
                 }
               }
             }
-            push(c.message || t('chat.synthesisComplete'), t('common.sutraOrchestrator'));
+            if (c.build_id || c.status === 'complete' || !receivedMessageEvent) {
+              push(c.message || t('chat.synthesisComplete'), t('common.sutraOrchestrator'));
+            }
             if (c.build_id) {
               try {
                 const fresh = await mvpApi.getStatus(c.build_id);
@@ -377,7 +471,9 @@ function ChatContent() {
           </div>
           <div>
             <h1 className="text-xl font-serif text-[var(--sutra-charcoal)]">{t('chat.aiArchitectWorkspace')}</h1>
-            <p className="text-[11px] uppercase tracking-widest font-semibold text-[var(--text-2)] mt-0.5">{t('chat.synthesisEngine')}</p>
+            <p className="text-[11px] uppercase tracking-widest font-semibold text-[var(--text-2)] mt-0.5">
+              {appName ? `${appName} • ` : ''}{t('chat.synthesisEngine')}
+            </p>
           </div>
         </div>
 
