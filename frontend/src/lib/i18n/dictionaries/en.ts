@@ -17,6 +17,7 @@ export const en = {
   side: {
     dashboard: 'Dashboard',
     customBuilder: 'Custom Builder',
+    legacyModernizer: 'Legacy Modernizer',
     solutions: 'Solutions',
     billing: 'Billing',
     deployKeys: 'Deploy Keys',

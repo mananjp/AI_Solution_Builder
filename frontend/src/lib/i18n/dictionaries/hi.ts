@@ -19,6 +19,7 @@ export const hi: Dictionary = {
   side: {
     dashboard: 'डैशबोर्ड',
     customBuilder: 'कस्टम बिल्डर',
+    legacyModernizer: 'लेगसी मॉडर्नाइज़र',
     solutions: 'समाधान',
     billing: 'बिलिंग',
     deployKeys: 'डिप्लॉय कुंजियाँ',

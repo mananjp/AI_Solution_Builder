@@ -259,7 +259,7 @@ const MockWorkspace = () => {
                              <motion.path 
                                 d="M0,100 L0,50 Q25,80 50,40 T100,20 L100,100 Z" 
                                 fill="url(#lineGrad)" 
-                                animate={{ d: ["M0,100 L0,50 Q25,80 50,40 T100,20 L100,100 Z", "M0,100 L0,60 Q25,40 50,60 T100,30 L100,100 Z", "M0,100 L0,50 Q25,80 50,40 T100,20 L100,100 Z"] }}
+                                animate={{ opacity: [0.5, 0.8, 0.5] }}
                                 transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
                              />
                              {/* Line */}
@@ -269,7 +269,7 @@ const MockWorkspace = () => {
                                 stroke="var(--sutra-muted-gold)" 
                                 strokeWidth="1.5" 
                                 className="drop-shadow-[0_0_8px_var(--sutra-muted-gold)]"
-                                animate={{ d: ["M0,50 Q25,80 50,40 T100,20", "M0,60 Q25,40 50,60 T100,30", "M0,50 Q25,80 50,40 T100,20"] }}
+                                animate={{ pathLength: [0.85, 1, 0.85], opacity: [0.7, 1, 0.7] }}
                                 transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
                              />
                           </svg>
