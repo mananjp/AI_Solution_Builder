@@ -324,28 +324,26 @@ class RenderDeployer:
         repo_url: str,
         repo_name: str,
         branch: str = "main",
-        dockerfile_path: str = "./frontend/Dockerfile",
-        docker_context: str = "./frontend",
+        dockerfile_path: str = "./Dockerfile",
+        docker_context: str = ".",
         backend_env_vars: list[dict[str, str]] | None = None,
         frontend_env_vars: list[dict[str, str]] | None = None,
+        unified: bool = True,
     ) -> dict[str, Any]:
         """Create or update Web Services on Render for the specified repository.
 
-        Deploys in dependency order so auto-injected environment variables are
-        correct from the start:
-          1. Backend service (:8000) — accepts ``backend_env_vars`` secrets.
-          2. Frontend service (:3000) — receives ``NEXT_PUBLIC_API_URL`` set to
-             the freshly provisioned backend URL, plus any ``frontend_env_vars``
-             (NEXT_PUBLIC_* build-time values the user supplied).
+        When ``unified=True`` (default), provisions a single unified web service
+        (FastAPI backend + Next.js frontend in one container), eliminating
+        chicken-and-egg deployment ordering, CORS latency, and NEXT_PUBLIC_API_URL
+        build-time baking issues.
 
-        Returns per-service state (service ids, deploy ids, urls, dashboard
-        links) under ``services`` so callers can poll real deploy status — this
-        result NEVER claims the app is live; ``check_deploy_status`` does that.
+        When ``unified=False``, deploys in staged 2-service order for legacy
+        scaffolds.
 
         Returns a dictionary with:
-          - services: {backend: {...}, frontend: {...}} each with
+          - services: {web/backend/frontend: {...}} each with
             name, service_id, deploy_id, url, dashboard_url, status
-          - service_id / service_url / frontend_url / backend_url (legacy)
+          - service_id / service_url / frontend_url / backend_url
           - dashboard_url / deploy_url / status / render_deploy_status
           - message: str
         """
@@ -369,9 +367,6 @@ class RenderDeployer:
             }
 
         base_name = clean_service_name(repo_name)
-        api_service_name = f"{base_name}-api"
-        fe_service_name = base_name
-
         unknown: dict[str, Any] = {
             "service_id": None,
             "deploy_id": None,
@@ -380,7 +375,77 @@ class RenderDeployer:
             "status": "failed",
         }
 
-        # 1. Deploy / update backend service on port 8000 (env first, then FE)
+        if unified:
+            # ── Unified single-container deployment ──────────────────────────
+            env_map: dict[str, str] = {
+                "PORT": "3000",
+                "CORS_ORIGINS": "*",
+            }
+            for ev in backend_env_vars or []:
+                if ev.get("key"):
+                    env_map[ev["key"]] = ev.get("value", "")
+            for ev in frontend_env_vars or []:
+                if ev.get("key") and ev["key"] != "NEXT_PUBLIC_API_URL":
+                    env_map[ev["key"]] = ev.get("value", "")
+
+            combined_env_vars = [{"key": k, "value": v} for k, v in env_map.items()]
+
+            web_info = await self.create_or_update_service(
+                name=base_name,
+                owner_id=owner_id,
+                repo_url=repo_url,
+                branch=branch,
+                dockerfile_path=dockerfile_path,
+                docker_context=docker_context,
+                env_vars=combined_env_vars,
+            )
+
+            web_url = web_info.get("url") if web_info else None
+            web_services: dict[str, Any] = {
+                **unknown,
+                "name": base_name,
+            }
+            if web_info:
+                web_services.update(
+                    {
+                        "service_id": web_info.get("id"),
+                        "deploy_id": web_info.get("deploy_id"),
+                        "url": web_url,
+                        "dashboard_url": web_info.get("dashboard_url"),
+                        "status": "building",
+                    }
+                )
+
+            services = {
+                "web": web_services,
+                "frontend": web_services,
+                "backend": web_services,
+            }
+            service_id = web_services.get("service_id")
+            dashboard_url = web_services.get("dashboard_url")
+
+            if web_url or web_info:
+                return {
+                    "services": services,
+                    "service_id": service_id,
+                    "service_url": web_url,
+                    "frontend_url": web_url,
+                    "backend_url": web_url,
+                    "dashboard_url": dashboard_url,
+                    "deploy_url": deploy_portal_url,
+                    "status": "deploying",
+                    "render_deploy_status": "building",
+                    "message": (
+                        "Unified full-stack web application is being provisioned on Render as a "
+                        "single container service; live status is streamed by the deploy status endpoint."
+                    ),
+                }
+
+        # ── Legacy 2-service deployment fallback ─────────────────────────────
+        api_service_name = f"{base_name}-api"
+        fe_service_name = base_name
+
+        # 1. Deploy / update backend service on port 8000
         backend_info = await self.create_or_update_service(
             name=api_service_name,
             owner_id=owner_id,
@@ -410,7 +475,7 @@ class RenderDeployer:
                 }
             )
 
-        # 2. Deploy / update frontend service on port 3000, wiring the backend URL
+        # 2. Deploy / update frontend service on port 3000
         fe_env_vars = [{"key": "PORT", "value": "3000"}]
         if backend_url:
             fe_env_vars.append({"key": "NEXT_PUBLIC_API_URL", "value": backend_url})
@@ -423,8 +488,8 @@ class RenderDeployer:
             owner_id=owner_id,
             repo_url=repo_url,
             branch=branch,
-            dockerfile_path=dockerfile_path,
-            docker_context=docker_context,
+            dockerfile_path="./frontend/Dockerfile" if dockerfile_path == "./Dockerfile" else dockerfile_path,
+            docker_context="./frontend" if docker_context == "." else docker_context,
             env_vars=fe_env_vars,
         )
         frontend_url = frontend_info.get("url") if frontend_info else None

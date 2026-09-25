@@ -1229,7 +1229,9 @@ def _generate_universal_app_page(
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== 'undefined' ? '' : 'http://localhost:8000');
 
 const DEFAULT_CATALOG: any[] = __MOCK_CATALOG__;
 const DEFAULT_TRANSACTIONS: any[] = __MOCK_TRANSACTIONS__;
@@ -1889,7 +1891,9 @@ def _generate_frontend_module_page(
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== 'undefined' ? '' : 'http://localhost:8000');
 
 export default function __CLASS_NAME__Page() {
   const [items, setItems] = useState<any[]>([]);
@@ -2901,7 +2905,12 @@ async def run_build(
         ai_state=ai_state,
         spec=spec,
     )
-    await _notify(1, 40, "Scaffolded full-stack codebase (FastAPI + Next.js)...")
+    arch_name = (
+        "Next.js Fullstack"
+        if (spec and getattr(spec, "architecture", "") == "next_fullstack")
+        else "FastAPI + Next.js Unified"
+    )
+    await _notify(1, 40, f"Scaffolded full-stack codebase ({arch_name})...")
 
     prompt = build_mvp_prompt(spec if spec else ai_state, target_dir, app_title=title)
     await _notify(0, 10, "Analyzing solution artifacts and build plan...")

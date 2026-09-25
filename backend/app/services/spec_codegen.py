@@ -1163,6 +1163,231 @@ def gen_frontend_pages(spec: AppSpec, fe: Path) -> None:
         written.add(route)
 
 
+# ── Next.js Fullstack Route Handlers & Data Store ────────────────────────
+
+_NEXT_DB_TS = """// In-memory data store for Next.js Route Handlers
+// State is preserved across requests via globalThis in development.
+
+type Row = Record<string, any>;
+
+class DataStore {
+  private tables: Map<string, Row[]> = new Map();
+  private nextIds: Map<string, number> = new Map();
+
+  list(table: string): Row[] {
+    return this.tables.get(table) || [];
+  }
+
+  getById(table: string, id: number): Row | null {
+    const rows = this.list(table);
+    return rows.find((r) => r.id === id) || null;
+  }
+
+  insert(table: string, data: Row): Row {
+    const rows = this.tables.get(table) || [];
+    const nextId = this.nextIds.get(table) || 1;
+    this.nextIds.set(table, nextId + 1);
+
+    const now = new Date().toISOString();
+    const record = {
+      id: nextId,
+      ...data,
+      created_at: now,
+      updated_at: now,
+    };
+    rows.push(record);
+    this.tables.set(table, rows);
+    return record;
+  }
+
+  update(table: string, id: number, patch: Partial<Row>): Row | null {
+    const rows = this.tables.get(table) || [];
+    const idx = rows.findIndex((r) => r.id === id);
+    if (idx === -1) return null;
+
+    rows[idx] = {
+      ...rows[idx],
+      ...patch,
+      id,
+      updated_at: new Date().toISOString(),
+    };
+    return rows[idx];
+  }
+
+  delete(table: string, id: number): boolean {
+    const rows = this.tables.get(table) || [];
+    const idx = rows.findIndex((r) => r.id === id);
+    if (idx === -1) return false;
+    rows.splice(idx, 1);
+    return true;
+  }
+}
+
+const globalForDb = globalThis as unknown as { __dataStore?: DataStore };
+export const db = globalForDb.__dataStore || new DataStore();
+if (process.env.NODE_ENV !== "production") globalForDb.__dataStore = db;
+
+export function getDb(): DataStore {
+  return db;
+}
+"""
+
+_NEXT_COLLECTION_ROUTE_TS = """import { NextRequest, NextResponse } from "next/server";
+import { getDb } from "@/lib/db";
+
+export async function GET() {
+  const db = getDb();
+  return NextResponse.json(db.list("@@PLURAL@@"));
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const db = getDb();
+    const created = db.insert("@@PLURAL@@", body);
+    return NextResponse.json(created, { status: 201 });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message || "Invalid payload" }, { status: 400 });
+  }
+}
+"""
+
+_NEXT_ITEM_ROUTE_TS = """import { NextRequest, NextResponse } from "next/server";
+import { getDb } from "@/lib/db";
+
+type RouteContext = { params: Promise<{ id: string }> | { id: string } };
+
+export async function GET(req: NextRequest, context: RouteContext) {
+  const params = await Promise.resolve(context.params);
+  const id = Number(params.id);
+  const db = getDb();
+  const item = db.getById("@@PLURAL@@", id);
+  if (!item) {
+    return NextResponse.json({ error: "Item not found" }, { status: 404 });
+  }
+  return NextResponse.json(item);
+}
+
+export async function PATCH(req: NextRequest, context: RouteContext) {
+  try {
+    const params = await Promise.resolve(context.params);
+    const id = Number(params.id);
+    const body = await req.json();
+    const db = getDb();
+    const updated = db.update("@@PLURAL@@", id, body);
+    if (!updated) {
+      return NextResponse.json({ error: "Item not found" }, { status: 404 });
+    }
+    return NextResponse.json(updated);
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message || "Invalid payload" }, { status: 400 });
+  }
+}
+
+export async function DELETE(req: NextRequest, context: RouteContext) {
+  const params = await Promise.resolve(context.params);
+  const id = Number(params.id);
+  const db = getDb();
+  const deleted = db.delete("@@PLURAL@@", id);
+  if (!deleted) {
+    return NextResponse.json({ error: "Item not found" }, { status: 404 });
+  }
+  return new NextResponse(null, { status: 204 });
+}
+"""
+
+_NEXT_HEALTH_ROUTE_TS = """import { NextResponse } from "next/server";
+
+export async function GET() {
+  return NextResponse.json({
+    status: "healthy",
+    service: "next-fullstack",
+    timestamp: new Date().toISOString(),
+  });
+}
+"""
+
+_NEXT_DOCKERFILE = """# Next.js Fullstack Image (Node.js runtime, single container)
+FROM node:20-alpine AS deps
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm install
+
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY frontend/ ./
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
+EXPOSE 3000
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=15s --retries=3 \\
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/v1/health || exit 1
+
+CMD ["npm", "start"]
+"""
+
+
+def gen_next_route_handlers(spec: AppSpec, fe: Path) -> None:
+    """Generate Next.js Route Handlers for fullstack operations without Python backend."""
+    api_dir = fe / "src" / "app" / "api" / "v1"
+    api_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. In-memory data store for Next.js Route Handlers
+    db_file = fe / "src" / "lib" / "db.ts"
+    if not db_file.exists():
+        db_file.write_text(_NEXT_DB_TS, encoding="utf-8")
+
+    # 2. Health check route: /api/v1/health
+    health_dir = api_dir / "health"
+    health_dir.mkdir(parents=True, exist_ok=True)
+    (health_dir / "route.ts").write_text(_NEXT_HEALTH_ROUTE_TS, encoding="utf-8")
+
+    # 3. Collection & item CRUD route handlers for each entity
+    for entity in spec.entities:
+        ent_dir = api_dir / entity.plural
+        ent_dir.mkdir(parents=True, exist_ok=True)
+        coll_code = _NEXT_COLLECTION_ROUTE_TS.replace("@@PLURAL@@", entity.plural)
+        (ent_dir / "route.ts").write_text(coll_code, encoding="utf-8")
+
+        item_dir = ent_dir / "[id]"
+        item_dir.mkdir(parents=True, exist_ok=True)
+        item_code = _NEXT_ITEM_ROUTE_TS.replace("@@PLURAL@@", entity.plural)
+        (item_dir / "route.ts").write_text(item_code, encoding="utf-8")
+
+    # 4. Action endpoints
+    for action in spec.actions:
+        action_name = _clean_ident(action.name)
+        act_dir = api_dir / "actions" / action_name
+        act_dir.mkdir(parents=True, exist_ok=True)
+        example_json = json.dumps(action.output_example or {"status": "success"})
+        act_code = f"""import {{ NextRequest, NextResponse }} from "next/server";
+
+export async function POST(req: NextRequest) {{
+  try {{
+    const body = await req.json().catch(() => ({{}}));
+    return NextResponse.json({{
+      action: "{action.name}",
+      status: "completed",
+      result: {example_json},
+    }});
+  }} catch (err: any) {{
+    return NextResponse.json({{ error: err?.message || "Action execution failed" }}, {{ status: 400 }});
+  }}
+}}
+"""
+        (act_dir / "route.ts").write_text(act_code, encoding="utf-8")
+
+
 # ── orchestration ───────────────────────────────────────────────────────
 
 
@@ -1191,6 +1416,12 @@ def write_generated(root: Path | str, spec: AppSpec) -> dict[str, str]:
         path.write_text(content, encoding="utf-8")
     if fe.exists():
         gen_frontend_pages(spec, fe)
+        gen_next_route_handlers(spec, fe)
+
+    # If architecture is next_fullstack, emit the pure Node.js Dockerfile
+    if getattr(spec, "architecture", "next_fullstack") == "next_fullstack":
+        (root / "Dockerfile").write_text(_NEXT_DOCKERFILE, encoding="utf-8")
+
     req = be / "requirements.txt"
     if req.exists() and "aiosqlite" not in req.read_text():
         req.write_text(req.read_text().rstrip() + "\naiosqlite==0.20.0\n")

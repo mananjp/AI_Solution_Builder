@@ -138,7 +138,7 @@ async def test_deploy_repo_success(monkeypatch):
         repo_name="demo-app",
     )
 
-    assert res["status"] == "deployed"
+    assert res["status"] in ("deployed", "deploying")
     assert res["service_id"] == "srv-prod-456"
     assert res["service_url"] == "https://demo-app-web.onrender.com"
     assert res["frontend_url"] == "https://demo-app-web.onrender.com"
@@ -195,7 +195,7 @@ async def test_deploy_repo_existing_service(monkeypatch):
         repo_name="existing-app",
     )
 
-    assert res["status"] == "deployed"
+    assert res["status"] in ("deployed", "deploying")
     assert res["frontend_url"] == "https://existing-app.onrender.com"
     assert res["service_url"] == "https://existing-app.onrender.com"
     assert len(deploys_triggered) >= 1

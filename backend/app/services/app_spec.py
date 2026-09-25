@@ -149,6 +149,64 @@ class AcceptanceTest(BaseModel):
         return re.sub(r"[^a-z0-9_]+", "_", str(v).lower()).strip("_")[:60] or "scenario"
 
 
+ML_KEYWORDS: dict[str, str] = {
+    "pytorch": "PyTorch",
+    "torch": "PyTorch",
+    "torchvision": "PyTorch",
+    "tensorflow": "TensorFlow",
+    "keras": "Keras",
+    "jax": "JAX",
+    "scikit-learn": "scikit-learn",
+    "sklearn": "scikit-learn",
+    "xgboost": "XGBoost",
+    "lightgbm": "LightGBM",
+    "catboost": "CatBoost",
+    "huggingface": "HuggingFace",
+    "transformers": "Transformers",
+    "opencv": "OpenCV",
+    "cv2": "OpenCV",
+    "spacy": "spaCy",
+    "nltk": "NLTK",
+    "yolo": "YOLO",
+    "machine learning": "Machine Learning",
+    "deep learning": "Deep Learning",
+    "neural network": "Neural Network",
+    "model training": "Model Training",
+    "train model": "Model Training",
+    "object detection": "Object Detection",
+    "image classification": "Image Classification",
+    "sentiment model": "Sentiment Model",
+    "recommendation engine": "Recommendation Engine",
+    "vector embeddings": "Vector Embeddings",
+    "random forest": "Random Forest",
+    "clustering": "Clustering",
+    "anomaly detection": "Anomaly Detection",
+    "pandas": "Pandas",
+    "scipy": "SciPy",
+}
+
+
+def detect_ml_requirements(data: Any) -> tuple[bool, list[str]]:
+    """Scan text, dictionary, or spec for machine learning and data science requirements."""
+    if isinstance(data, dict):
+        text = " ".join(str(v) for v in data.values())
+    elif isinstance(data, str):
+        text = data
+    elif hasattr(data, "model_dump"):
+        text = json.dumps(data.model_dump())
+    else:
+        text = str(data)
+
+    text_lower = text.lower()
+    found: list[str] = []
+    for kw, label in ML_KEYWORDS.items():
+        if re.search(r"\b" + re.escape(kw) + r"\b", text_lower):
+            if label not in found:
+                found.append(label)
+
+    return len(found) > 0, found
+
+
 class AppSpec(BaseModel):
     app_name: str
     one_liner: str
@@ -158,9 +216,18 @@ class AppSpec(BaseModel):
     actions: list[Action] = Field(default_factory=list, max_length=8)
     screens: list[Screen] = Field(min_length=1, max_length=6)
     acceptance_tests: list[AcceptanceTest] = Field(min_length=3, max_length=10)
+    architecture: Literal["next_fullstack", "unified_container"] = "next_fullstack"
+    has_ml_model: bool = False
+    ml_frameworks: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _cross_refs(self) -> AppSpec:
+        if not self.has_ml_model and not self.ml_frameworks:
+            has_ml, frameworks = detect_ml_requirements(self)
+            if has_ml:
+                self.has_ml_model = True
+                self.ml_frameworks = frameworks
+                self.architecture = "unified_container"
         names = {e.name for e in self.entities}
         plurals = {e.plural for e in self.entities}
         errors: list[str] = []

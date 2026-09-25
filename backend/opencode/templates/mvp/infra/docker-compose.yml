@@ -12,26 +12,19 @@ services:
       interval: 5s
       retries: 5
 
-  backend:
-    build: ./backend
+  app:
+    build: .
     restart: unless-stopped
-    ports: ["8000:8000"]
+    ports: ["3000:3000"]
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/app_db
       APP_NAME: __APP_NAME__
       APP_TITLE: __APP_TITLE__
       JWT_SECRET: __JWT_SECRET__
       APP_ENV: production
+      PORT: 3000
     depends_on:
       db: { condition: service_healthy }
-
-  frontend:
-    build: ./frontend
-    restart: unless-stopped
-    ports: ["3000:3000"]
-    environment:
-      NEXT_PUBLIC_API_URL: http://backend:8000/api/v1
-    depends_on: [backend]
 
 volumes:
   pgdata:
