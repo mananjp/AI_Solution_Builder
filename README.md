@@ -447,9 +447,20 @@ Recommended production topology:
 The repository includes ready-to-deploy root manifests:
 
 1. **Render (`render.yaml`)**:
-   - Streamlined 2-service production topology:
-     - `ai-solution-builder-app`: Public web service hosting Next.js frontend and FastAPI API server (`/ready` health check, connected to Neon & Upstash).
-     - `ai-solution-builder-builder`: Private internal worker service combining the background build consumer and OpenCode sidecar on a shared `/workspace`.
+   - 2-service production topology (Render containers can't reach each other's
+     `127.0.0.1`, so each service that builds **runs its own sidecar in-container**):
+     - `ai-solution-builder-app`: Public web service (FastAPI + `opencode serve`
+       at `127.0.0.1:4096`, `ENABLE_OPENCODE_SIDECAR=true`, `/ready` health check);
+       connects to Neon & Upstash.
+     - `ai-solution-builder-builder`: Background worker service running `app.worker`
+       plus its own `opencode serve` on the same localhost.
+   - Set `OPENCODE_ZEN_API_KEY` (secret) in **both** services — the sidecar fails fast
+     without it.
+   - `/workspace` is per-container **ephemeral disk** (wiped on redeploy). Generated
+     code is packaged and summarized immediately; set `STORAGE_BACKEND=cloudinary`
+     with credentials for durable ZIP/build-artifact retention.
+   - Free-tier instances sleep and can exceed build timeouts — use a paid plan for
+     always-on sidecar builds. `keep_alive` CI pings the app to reduce cold starts.
    - Continuous deployment triggered automatically or via Render Blueprint sync.
 
 2. **Container Registry (GHCR)**:

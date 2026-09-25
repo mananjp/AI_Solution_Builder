@@ -49,13 +49,19 @@ services:
       - key: CLOUDINARY_API_SECRET
         sync: false
       - key: ENABLE_OPENCODE_SIDECAR
-        value: "false"
+        value: "true"
       - key: OPENCODE_SERVER_URL
         value: http://127.0.0.1:4096
-- key: OPENCODE_SERVER_PASSWORD
+      - key: OPENCODE_SERVER_PASSWORD
+        sync: false
+      - key: OPENCODE_ZEN_API_KEY
         sync: false
       - key: OPENCODE_MODEL
         value: opencode/big-pickle
+      - key: OPENCODE_AGENT
+        value: mvp-builder
+      - key: WORKER_MODE
+        value: inline
       - key: MVP_BUILD_DIR
         value: /workspace
       - key: MVP_BUILD_TIMEOUT
