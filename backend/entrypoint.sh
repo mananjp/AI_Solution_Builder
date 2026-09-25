@@ -30,10 +30,10 @@ log() { echo "[entrypoint] $*"; }
 
 # Seed OpenCode Zen credentials so `opencode serve` (any role) can authenticate.
 # Non-fatal here: the app/worker roles keep running; the sidecar logs its own
-# failures loudly. The dedicated sidecar image (backend/opencode) fails fast.
+# failures loudly. Optional — the default model uses Groq (GROQ_API_KEY).
 seed_opencode_auth() {
   [ -n "${OPENCODE_ZEN_API_KEY:-}" ] || {
-    log "WARN: OPENCODE_ZEN_API_KEY not set; opencode LLM calls will fail auth."
+    log "OPENCODE_ZEN_API_KEY not set; using Groq provider (model groq/openai/gpt-oss-120b by default)."
     return 0
   }
   local dir="${HOME}/.local/share/opencode"
@@ -53,7 +53,8 @@ EOF
 
 wait_for_sidecar() {
   for i in $(seq 1 15); do
-    if curl -fsS http://127.0.0.1:4096/global/health >/dev/null 2>&1; then
+    if curl -fsS http://127.0.0.1:4096/api/info >/dev/null 2>&1 \
+      || curl -fsS http://127.0.0.1:4096/global/health >/dev/null 2>&1; then
       log "OpenCode sidecar is ready on :4096."
       return 0
     fi

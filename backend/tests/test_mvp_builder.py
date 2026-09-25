@@ -288,14 +288,8 @@ def test_cleanup_build_removes_workspace(tmp_path):
 # ── OpenCode sidecar networking (mocked) ─────────────
 
 
-def test_auth_headers_without_password():
+def test_auth_headers_have_no_auth():
     assert "Authorization" not in builder._auth_headers()
-
-
-def test_auth_headers_with_password(monkeypatch):
-    monkeypatch.setattr(settings, "OPENCODE_SERVER_PASSWORD", "secret123")
-    headers = builder._auth_headers()
-    assert headers["Authorization"].startswith("Basic ")
 
 
 @pytest.mark.asyncio

@@ -112,7 +112,7 @@ export default function DashboardPage() {
     try {
       const d = await opencodeApi.diagnose();
       setDiagnosis(d);
-      setEngineOnline(d.checks.find((c) => c.label === 'Live generation round-trip')?.status === 'ok' ?? false);
+      setEngineOnline(d.checks.find((c) => c.label === 'Live generation round-trip')?.status === 'ok');
     } catch {
       setDiagnosis({ ok: false, checks: [{ status: 'fail', label: 'Diagnose request failed', detail: 'The backend could not run diagnose().', fix: null }] });
     } finally {

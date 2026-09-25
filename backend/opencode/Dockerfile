@@ -1,8 +1,9 @@
 # AI Solution Builder — OpenCode Sidecar
 # Headless OpenCode server that generates MVP prototypes for the backend API.
 #
-# Provider: OpenCode Zen (opencode/big-pickle) via OPENCODE_ZEN_API_KEY.
-# See entrypoint.sh — the container fails fast if the key is missing.
+# Provider: Groq (groq/openai/gpt-oss-120b) via GROQ_API_KEY.
+# OPENCODE_ZEN_API_KEY is optional — only needed for opencode/* Zen models.
+# See entrypoint.sh — auth file is seeded only when the Zen key is provided.
 
 FROM node:20-slim AS runtime
 
@@ -60,7 +61,7 @@ VOLUME ["/workspace"]
 EXPOSE 4096
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=6 \
-  CMD node -e "fetch('http://localhost:4096/global/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))" || exit 1
+  CMD node -e "fetch('http://localhost:4096/api/info').then(r => { if (r.ok) process.exit(0); return fetch('http://localhost:4096/global/health') }).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))" || exit 1
 
 ENTRYPOINT ["/opt/opencode/entrypoint.sh"]
 CMD ["opencode", "serve", "--port", "4096", "--hostname", "0.0.0.0"]

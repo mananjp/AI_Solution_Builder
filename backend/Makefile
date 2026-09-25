@@ -28,7 +28,7 @@ help:
 	@echo "  docker-up       Start postgres + redis via docker compose"
 	@echo "  security        Run pip-audit against requirements"
 	@echo "  run             Start uvicorn on :8000"
-	@echo "OpenCode sidecar (requires OPENCODE_ZEN_API_KEY in .env):"
+	@echo "OpenCode sidecar (uses GROQ_API_KEY; OPENCODE_ZEN_API_KEY optional):"
 	@echo "  sidecar-build   Build the opencode sidecar image"
 	@echo "  sidecar-up      Start the opencode sidecar container (docker compose)"
 	@echo "  sidecar-logs    Tail the sidecar's [opencode] logs"
@@ -77,9 +77,10 @@ run:
 	uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 # ── OpenCode sidecar ─────────────────────────────────────────────────────
-# The sidecar container fails fast when OPENCODE_ZEN_API_KEY is missing
-# (see backend/opencode/entrypoint.sh). Fill it in root .env first:
+# Default model groq/openai/gpt-oss-120b uses GROQ_API_KEY (in root .env).
+# To switch to the free opencode/big-pickle Zen model add:
 #   OPENCODE_ZEN_API_KEY=<your-zen-key>
+#   OPENCODE_MODEL=opencode/big-pickle
 COMPOSE ?= docker compose -f ../docker-compose.yml
 
 sidecar-build:
@@ -87,10 +88,10 @@ sidecar-build:
 
 sidecar-up:
 	$(COMPOSE) up -d --build opencode
-	@echo "Sidecar health: http://localhost:4096/global/health (expect {\"healthy\":true})"
+	@echo "Sidecar health: http://localhost:4096/api/info (or /global/health on older builds)"
 
 sidecar-logs:
 	$(COMPOSE) logs -f opencode
 
 sidecar-health:
-	@curl -fsS http://localhost:4096/global/health && echo || echo "Sidecar not reachable on :4096"
+	@curl -fsS http://localhost:4096/api/info && echo || (curl -fsS http://localhost:4096/global/health && echo) || echo "Sidecar not reachable on :4096"

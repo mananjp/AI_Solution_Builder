@@ -18,7 +18,6 @@ chosen by this service and passed inside the generated prompt, so multiple
 builds never collide.
 """
 
-import base64
 import contextlib
 import io
 import json
@@ -82,13 +81,7 @@ def chat_workspace_dir(solution_id: UUID) -> Path:
 
 
 def _auth_headers() -> dict[str, str]:
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
-    if settings.OPENCODE_SERVER_PASSWORD:
-        creds = base64.b64encode(f"opencode:{settings.OPENCODE_SERVER_PASSWORD}".encode()).decode(
-            "ascii"
-        )
-        headers["Authorization"] = f"Basic {creds}"
-    return headers
+    return {"Content-Type": "application/json", "Accept": "application/json"}
 
 
 _working_opencode_url: str | None = None
@@ -98,8 +91,9 @@ def _auth_hint(status_code: int) -> str | None:
     """Return an actionable error message for auth-related sidecar failures."""
     if status_code in (401, 403):
         return (
-            "OpenCode sidecar rejected credentials (HTTP {status}). The OpenCode Zen key is "
-            "missing or invalid — set OPENCODE_ZEN_API_KEY in the opencode service env and restart it."
+            "LLM provider rejected the credentials (HTTP {status}). Make sure GROQ_API_KEY "
+            "(default model groq/openai/gpt-oss-120b) is set in the sidecar env — and "
+            "OPENCODE_ZEN_API_KEY if you switch OPENCODE_MODEL to an opencode/* Zen model."
         ).format(status=status_code)
     return None
 
@@ -135,6 +129,11 @@ def _client(base_url: str | None = None) -> httpx.AsyncClient:
     )
 
 
+def _probe_ok(resp: httpx.Response) -> bool:
+    """A 2xx from ANY sidecar endpoint proves the server is up."""
+    return 200 <= resp.status_code < 400
+
+
 async def health() -> bool:
     """Check the OpenCode sidecar is reachable and healthy across candidate URLs."""
     global _working_opencode_url
@@ -150,18 +149,17 @@ async def health() -> bool:
             except TypeError:
                 client_ctx = _client()
             async with client_ctx as client:
-                resp = await client.get("/global/health", timeout=3.0)
-                if resp.status_code == 200:
-                    body = resp.json()
-                    if body.get("healthy", False):
-                        if _working_opencode_url != url:
-                            logger.info(
-                                "OpenCode sidecar healthy at %s (version=%s)",
-                                url,
-                                body.get("version"),
-                            )
-                            _working_opencode_url = url
-                        return True
+                ok = False
+                for path in ("/global/health", "/api/info"):
+                    resp = await client.get(path, timeout=3.0)
+                    if resp.status_code not in (404, 405, 501):
+                        ok = 200 <= resp.status_code < 400 or resp.status_code == 401
+                        break
+                if ok:
+                    if _working_opencode_url != url:
+                        logger.info("OpenCode sidecar healthy at %s", url)
+                        _working_opencode_url = url
+                    return True
         except Exception as exc:
             logger.debug("OpenCode candidate %s unreachable: %s", url, exc)
 
@@ -188,26 +186,35 @@ async def health_info() -> dict[str, Any]:
         async with _client(base_url=url) as client:
             t0 = time.monotonic()
             resp = await client.get("/global/health", timeout=3.0)
+            if resp.status_code in (404, 501):
+                resp = await client.get("/api/info", timeout=3.0)
             elapsed_ms = round((time.monotonic() - t0) * 1000)
-            if resp.status_code != 200:
-                info["error"] = f"GET /global/health -> {resp.status_code}"
+            if not _probe_ok(resp):
+                info["error"] = f"{resp.request.url.path} -> {resp.status_code}"
                 return info
             body = resp.json()
-            info["sidecar_healthy"] = bool(body.get("healthy", False))
-            info["version"] = body.get("version")
+            if not isinstance(body, dict):
+                body = {}
+            info["sidecar_healthy"] = True
+            info["version"] = (
+                body.get("version")
+                or (body.get("data") or {}).get("version")
+                or (body.get("server") or {}).get("version")
+            )
             info["latency_ms"] = elapsed_ms
-            if not info["sidecar_healthy"]:
-                info["error"] = body.get("message") or "sidecar reported unhealthy"
-                return info
 
-            cfg = await client.get("/config", timeout=3.0)
-            if cfg.status_code == 200:
-                data = cfg.json()
-                model = data.get("model") or None
-                agent_cfg = data.get("agent")
-                if not model and isinstance(agent_cfg, dict):
-                    model = agent_cfg.get("model") or None
-                info["model"] = model
+            model = None
+            for cfg_path, parser in (
+                ("/config", lambda d: (d.get("model") or ((d.get("agent") or {}).get("model")) if isinstance(d, dict) else None)),
+                ("/api/model/default", lambda d: (d.get("model") or d.get("id")) if isinstance(d, dict) else None),
+                ("/api/config", lambda d: (d.get("model") or d.get("defaultModel")) if isinstance(d, dict) else None),
+            ):
+                cfg = await client.get(cfg_path, timeout=3.0)
+                if cfg.status_code == 200:
+                    model = parser(cfg.json()) or None
+                    if model:
+                        break
+            info["model"] = model
     except Exception as exc:
         logger.debug("health_info detail check failed: %s", exc)
         info["error"] = f"{type(exc).__name__}: {exc}"
@@ -218,8 +225,8 @@ async def round_trip_ping(timeout: int = 90) -> dict[str, Any]:
     """Prove the sidecar can *actually* generate: open a session and require an echo.
 
     Returns a verdict dict — never raises.  A bare ``OK`` reply from the
-    ``build`` agent is the strongest cheap proof that the Zen key, model, and
-    tooling are all working end-to-end.
+    ``build`` agent is the strongest cheap proof that the provider key, model,
+    and tooling are all working end-to-end.
     """
     start = time.monotonic()
     try:
@@ -255,7 +262,7 @@ def _fix_for_error(exc: Exception) -> str:
     text = str(exc)
     lowered = f"{type(exc).__name__}: {text}".lower()
     if "401" in lowered or "403" in lowered or "unauthorized" in lowered or "denied" in lowered:
-        return "OpenCode Zen rejected the key. Regenerate it and re-deploy:\n  OPENCODE_ZEN_API_KEY=<new-key>  (https://opencode.ai/zen)"
+        return "LLM provider rejected the key. Set GROQ_API_KEY in the sidecar env (model groq/openai/gpt-oss-120b). Only set OPENCODE_ZEN_API_KEY if OPENCODE_MODEL is an opencode/* Zen model."
     if "timed out" in lowered or "connecterror" in lowered or "connect" in lowered:
         return "Sidecar unreachable: is the opencode container running?\n  docker compose up -d opencode   (local)  ·  see README 'OpenCode sidecar' (Render/Fly)"
     if "404" in lowered or "not found" in lowered:
@@ -295,8 +302,8 @@ async def diagnose() -> dict[str, Any]:
                     f"{info.get('error') or 'unreachable'} (tried: {', '.join(_candidate_urls())})"
                 ),
                 "fix": (
-                    "Start the sidecar:\n  docker compose up -d opencode   (local, needs OPENCODE_ZEN_API_KEY in .env)\n"
-                    "Render: open an issue on the ai-solution-builder-builder service. Free tier sleeps and kills it — use a paid plan."
+                    "Start the sidecar:\n  docker compose up -d opencode   (local; needs GROQ_API_KEY in .env)\n"
+                    "Render: open an issue on the ai-solution-builder-app/builder service. Free tier sleeps and kills it — use a paid plan."
                 ),
             }
         )
@@ -316,12 +323,14 @@ async def diagnose() -> dict[str, Any]:
         )
 
     zen_key = (settings.OPENCODE_ZEN_API_KEY or "").strip()
+    groq_key = (settings.GROQ_API_KEY or "").strip()
+    llm_key = groq_key or zen_key
     checks.append(
         {
-            "status": "ok" if zen_key else "warn",
-            "label": "OPENCODE_ZEN_API_KEY set (backend)",
-            "detail": "present" if zen_key else "missing on backend container (the sidecar needs it to authenticate)",
-            "fix": None if zen_key else "Add OPENCODE_ZEN_API_KEY to the service that runs opencode (docker-compose opencode env, render builder service, or the sidecar image env).",
+            "status": "ok" if llm_key else "warn",
+            "label": "LLM API key for code generation (backend)",
+            "detail": "GROQ_API_KEY present" if groq_key else ("OPENCODE_ZEN_API_KEY present (model opencode/* required)" if zen_key else "neither GROQ_API_KEY nor OPENCODE_ZEN_API_KEY is set on the backend"),
+            "fix": None if llm_key else "Set GROQ_API_KEY (default model groq/openai/gpt-oss-120b) in the service that runs opencode.",
         }
     )
 
@@ -354,16 +363,24 @@ async def diagnose() -> dict[str, Any]:
 
 
 async def create_session(title: str) -> str:
-    """Create a new OpenCode session and return its id."""
+    """Create a new OpenCode session and return its id.
+
+    Classic 1.x API: ``POST /session``. Newer builds expose the same route under
+    ``POST /api/session`` — try both (fall back on 404).
+    """
     async with _client() as client:
-        resp = await client.post("/session", json={"title": title})
-        if resp.status_code not in (200, 201):
+        resp = None
+        for path in (f"/session", f"/api/session"):
+            resp = await client.post(path, json={"title": title})
+            if resp.status_code not in (404, 501):
+                break
+        if resp is None or resp.status_code not in (200, 201):
             raise MVPBuilderError(
-                _auth_hint(resp.status_code)
-                or f"Failed to create OpenCode session ({resp.status_code}): {resp.text[:300]}"
+                _auth_hint(resp.status_code if resp else 0)
+                or f"Failed to create OpenCode session ({resp.status_code if resp else 'n/a'}): {(resp.text[:300] if resp else 'no response')}"
             )
         body: dict[str, Any] = resp.json()
-        session_id = body.get("id")
+        session_id = body.get("id") or body.get("sessionID") or body.get("sessionId")
         if not isinstance(session_id, str) or not session_id:
             raise MVPBuilderError("OpenCode session response missing 'id'")
         logger.info("OpenCode session created: %s", session_id)
@@ -382,16 +399,24 @@ async def send_message(
         "agent": agent or settings.OPENCODE_AGENT,
         "parts": [{"type": "text", "text": text}],
     }
+    paths = (
+        f"/session/{session_id}/message",
+        f"/api/session/{session_id}/prompt",
+    )
     async with _client() as client:
-        resp = await client.post(
-            f"/session/{session_id}/message",
-            json=payload,
-            timeout=timeout or settings.MVP_BUILD_TIMEOUT,
-        )
-        if resp.status_code not in (200, 201):
+        resp = None
+        for path in paths:
+            resp = await client.post(
+                path,
+                json=payload,
+                timeout=timeout or settings.MVP_BUILD_TIMEOUT,
+            )
+            if resp.status_code not in (404, 501):
+                break
+        if resp is None or resp.status_code not in (200, 201):
             raise MVPBuilderError(
-                _auth_hint(resp.status_code)
-                or f"OpenCode message failed ({resp.status_code}): {resp.text[:500]}"
+                _auth_hint(resp.status_code if resp else 0)
+                or f"OpenCode message failed ({resp.status_code if resp else 'n/a'}): {(resp.text[:500] if resp else 'no response')}"
             )
         result: dict[str, Any] = resp.json()
         return result
@@ -406,7 +431,10 @@ async def abort_session(session_id: str) -> None:
     """Abort a running session (best-effort)."""
     try:
         async with _client() as client:
-            await client.post(f"/session/{session_id}/abort", timeout=10.0)
+            for path in (f"/session/{session_id}/abort", f"/api/session/{session_id}/interrupt"):
+                resp = await client.post(path, timeout=10.0)
+                if resp.status_code not in (404, 501):
+                    break
     except httpx.HTTPError as exc:
         logger.warning("Failed to abort OpenCode session %s: %s", session_id, exc)
 

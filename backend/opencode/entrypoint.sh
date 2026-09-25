@@ -2,10 +2,12 @@
 # AI Solution Builder — OpenCode sidecar entrypoint
 #
 # Responsibilities:
-#   1. Fail fast (non-zero exit) when OPENCODE_ZEN_API_KEY is missing, so the
-#      container never silently half-starts and crash-loops invisibly.
+#   1. Work out of the box with NO secret beyond GROQ_API_KEY: the default
+#      model is `groq/openai/gpt-oss-120b` (config.json). OPENCODE_ZEN_API_KEY
+#      is optional — it is only needed to run the `opencode/big-pickle` Zen
+#      model. Neither OPENCODE_SERVER_PASSWORD nor a Zen key is required.
 #   2. Seed the OpenCode Zen credential file (~/.local/share/opencode/auth.json)
-#      so every LLM call is authenticated out of the box.
+#      ONLY when OPENCODE_ZEN_API_KEY is set.
 #   3. Print a startup diagnostics banner for `docker logs`/`render logs`.
 #   4. serve `opencode` with stdout/stderr prefixed by `[opencode] ` so it
 #      is grep-able alongside the backend's own log stream.
@@ -14,22 +16,16 @@ set -euo pipefail
 
 log() { echo "[opencode] $*"; }
 
-# ── 1. Fail fast on missing Zen key ──────────────────────────────────────
-if [ -z "${OPENCODE_ZEN_API_KEY:-}" ]; then
-  echo "[opencode] FATAL: OPENCODE_ZEN_API_KEY is not set." >&2
-  echo "[opencode] FATAL: Set it, e.g.: export OPENCODE_ZEN_API_KEY=<your-zen-key>" >&2
-  # Exit non-zero so Docker/Render surface the failure instead of a half-start.
-  exit 1
-fi
-
-# ── 2. Seed Zen credentials ──────────────────────────────────────────────
+# ── 1. Optional Zen credentials ──────────────────────────────────────────
 # OpenCode reads provider credentials from ~/.local/share/opencode/auth.json.
-# The Zen provider id is "opencode" with an api-key secret.
+# The Zen provider id is "opencode" with an api-key secret. Skip when unset —
+# Groq (GROQ_API_KEY from config.json provider block) works without it.
 AUTH_DIR="${HOME}/.local/share/opencode"
 AUTH_FILE="${AUTH_DIR}/auth.json"
-mkdir -p "${AUTH_DIR}"
-umask 077
-cat > "${AUTH_FILE}" <<EOF
+if [ -n "${OPENCODE_ZEN_API_KEY:-}" ]; then
+  mkdir -p "${AUTH_DIR}"
+  umask 077
+  cat > "${AUTH_FILE}" <<EOF
 {
   "opencode": {
     "type": "api",
@@ -37,10 +33,14 @@ cat > "${AUTH_FILE}" <<EOF
   }
 }
 EOF
-chmod 600 "${AUTH_FILE}"
+  chmod 600 "${AUTH_FILE}"
+  log "diag: zen credentials seeded"
+else
+  log "diag: OPENCODE_ZEN_API_KEY unset — using Groq provider (model groq/openai/gpt-oss-120b)"
+fi
 
-# ── 3. Diagnostics banner ────────────────────────────────────────────────
-log "diag: starting opencode serve (model=${OPENCODE_MODEL:-opencode/big-pickle}, agent=${OPENCODE_AGENT:-mvp-builder})"
+# ── 2. Diagnostics banner ────────────────────────────────────────────────
+log "diag: starting opencode serve (model=${OPENCODE_MODEL:-groq/openai/gpt-oss-120b}, agent=${OPENCODE_AGENT:-mvp-builder})"
 log "diag: auth file present: $([ -f "${AUTH_FILE}" ] && echo yes || echo no)"
 log "diag: node: $(node --version 2>/dev/null || echo missing)"
 log "diag: python3: $(python3 --version 2>&1 || echo missing)"
