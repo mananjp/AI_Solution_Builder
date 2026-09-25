@@ -1158,6 +1158,8 @@ async def chat(
                             }
                         ),
                     }
+
+                    yield {
                         "event": "build_progress",
                         "data": json.dumps(
                             {
