@@ -19,6 +19,7 @@ import {
 import { mvpApi, solutionApi, sendOpenCodeChatStream } from '@/lib/api';
 import { MVPBuild, MVPTemplate, Solution } from '@/types';
 import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
+import { SandboxPreview } from '@/components/mvp/SandboxPreview';
 import ChatMessage from '@/components/ChatMessage';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
 
@@ -83,6 +84,7 @@ export default function MvpPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [deployTarget, setDeployTarget] = useState<MVPBuild | null>(null);
   const [configureTarget, setConfigureTarget] = useState<MVPBuild | null>(null);
+  const [sandboxTarget, setSandboxTarget] = useState<MVPBuild | null>(null);
 
   // Chat State
   const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
@@ -656,6 +658,7 @@ export default function MvpPage() {
                 onDownload={() => handleDownload(build)}
                 onDestroy={() => handleDestroy(build)}
                 onDestroyPreview={() => handleDestroyPreview(build)}
+                onSandbox={() => setSandboxTarget(build)}
               />
             ))
           )}
@@ -676,6 +679,10 @@ export default function MvpPage() {
           onClose={() => setConfigureTarget(null)}
           onConfigured={loadBuilds}
         />
+      )}
+
+      {sandboxTarget && (
+        <SandboxPreview build={sandboxTarget} onClose={() => setSandboxTarget(null)} />
       )}
 
       {/* Footer Navigation CTA */}

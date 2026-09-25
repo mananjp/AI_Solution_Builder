@@ -198,6 +198,30 @@ When in doubt, hit `/api/v1/opencode/diagnose` (authenticated) — it checks rea
 the LLM key, and runs a live generation round-trip, returning a copy-paste fix for
 each failing check. The dashboard's status chip shows the sidecar state + active model.
 
+**Parallel builds (multiple users/sessions at once).** Each build/session is
+deterministically hashed onto an `opencode` instance from the pool instead of
+serializing everything through one container. To run a pool:
+```bash
+# docker-compose: scale replicas; each becomes opencode-N on the internal network
+docker compose up --scale opencode=3 -d
+# Point the backend at the whole pool (comma-separated) — see .env.example
+# OPENCODE_POOL_URLS=http://opencode-1:4096,http://opencode-2:4096,http://opencode-3:4096
+```
+Sessions pin to whichever pool member they started on, so a conversation keeps
+its full context (files + chat) until it finishes. Keep `OPENCODE_POOL_URLS`
+unset to use the single `OPENCODE_SERVER_URL` instance.
+
+**Observable builds & deploys.** The Build Card shows a live 5-stage stepper
+(synthesize → scaffold → generate → verify → package) with per-stage status and
+an exact percentage, instead of a stuck placeholder; the chat streams the same
+milestones. `/api/v1/system/resources` (rendered on the dashboard and build
+cards) returns real CPU / memory / disk of the build host every few seconds.
+Deploys are staged — backend first, then frontend with `NEXT_PUBLIC_API_URL`
+auto-injected — and `/api/v1/mvp/builds/{id}/deploy/status` polls Render's
+actual deploy objects, so the UI only ever says "live" when the deployment is
+actually live. Required env vars are surfaced in the Deploy modal with an
+"auto-injected" tag for service-to-service URLs the agent already knows.
+
 ---
 
 ## 🔄 End-to-End Workflow
@@ -276,10 +300,15 @@ Prometheus metrics (`/metrics`), health/ready probes, audit logs, and credit met
 | `GET` | `/api/v1/mvp/templates` | List deployable starter templates |
 | `POST` | `/api/v1/mvp/{solution_id}/build` | Start an async build (template or custom) |
 | `GET` | `/api/v1/mvp/{solution_id}/builds` | List builds for a solution |
-| `GET` | `/api/v1/mvp/builds/{id}/status` | Status + generated file tree |
+| `GET` | `/api/v1/mvp/builds/{id}/status` | Status + generated file tree (live stepper progress) |
 | `GET` | `/api/v1/mvp/builds/{id}/download` | Download the project as ZIP |
-| `POST` | `/api/v1/mvp/builds/{id}/deploy` | Push to a fresh GitHub repo (Render-ready) |
+| `POST` | `/api/v1/mvp/builds/{id}/deploy` | Staged backend→frontend Render deploy (env-aware) |
+| `GET` | `/api/v1/mvp/builds/{id}/deploy/status` | Poll real Render deploy objects (queued/building/live/failed) |
+| `GET` | `/api/v1/mvp/builds/{id}/env-plan` | Required/optional env vars detected in the code |
+| `POST` | `/api/v1/mvp/builds/{id}/sandbox/chat` | SSE live Q&A agent for the deployed preview |
 | `POST` | `/api/v1/mvp/builds/{id}/configure` | Apply env/app-name config overlay |
+| `POST` | `/api/v1/mvp/builds/{id}/preview/destroy` | Tear down Render preview services |
+| `GET` | `/api/v1/system/resources` | Live CPU / memory / disk of the build host |
 | `DELETE` | `/api/v1/mvp/builds/{id}` | Cancel / destroy a build |
 | `PATCH` | `/api/v1/auth/me/settings` | Save GitHub token / Render API key |
 

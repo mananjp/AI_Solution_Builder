@@ -269,6 +269,47 @@ class MVPDeployRequest(BaseModel):
     description: str = ""
     private: bool = False
     force: bool = False
+    # Environment values the user confirmed before deploy. NEXT_PUBLIC_* keys go
+    # to the frontend service; everything else goes to the backend service.
+    env: dict[str, Any] = Field(default_factory=dict)
+
+
+class MVPDeployStatusResponse(BaseModel):
+    """Live deploy state for a build — polled by the UI every few seconds.
+
+    Never claims the app is live based on the trigger itself; every status
+    comes from the Render deploy objects.
+    """
+
+    overall: str = "building"  # queued | building | live | failed
+    repo_url: str | None = None
+    backend_url: str | None = None
+    frontend_url: str | None = None
+    deploy_url: str | None = None
+    injected_env: dict[str, str] = Field(default_factory=dict)
+    services: dict[str, Any] = Field(default_factory=dict)
+
+
+class MVPEnvVarSpec(BaseModel):
+    """A single environment variable the generated app needs (or may need)."""
+
+    key: str
+    required: bool = True  # True = must be provided before production deploy
+    kind: str = "runtime"  # "build" (NEXT_PUBLIC_*) | "runtime" (server secret)
+    description: str = ""
+    default: str | None = None
+    current: str | None = None  # value already known (saved env or auto-injected)
+    auto_injected: bool = False  # set automatically (e.g. backend URL → frontend)
+    occurrences: int = 0
+
+
+class MVPEnvPlanResponse(BaseModel):
+    """Env vars required/optional by a finished build, plus auto-injections."""
+
+    env: list[MVPEnvVarSpec] = Field(default_factory=list)
+    app_name: str | None = None
+    # Service-to-service URLs the agent already knows (auto-injected on deploy).
+    injected: dict[str, str] = Field(default_factory=dict)
 
 
 class MVPFileEntry(BaseModel):
@@ -294,6 +335,7 @@ class MVPBuildResponse(BaseModel):
     render_dashboard_url: str | None = None
     render_deploy_url: str | None = None
     render_deploy_status: str | None = None
+    deploy_state: dict[str, Any] | None = None
     progress: dict[str, Any] | None = None
     files: list[MVPFileEntry] = []
 

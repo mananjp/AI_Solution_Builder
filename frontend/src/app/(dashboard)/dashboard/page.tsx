@@ -9,6 +9,8 @@ import {
 import { workspaceApi, solutionApi, mvpApi, opencodeApi } from '@/lib/api';
 import type { OpenCodeDiagnosis } from '@/lib/api';
 import { Solution, Workspace, MVPBuild, MVPTemplate, MVPDeployResult } from '@/types';
+import { Activity } from 'lucide-react';
+import { ResourceGauges } from '@/components/mvp/ResourceGauges';
 import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
 
 const FALLBACK_TEMPLATES: MVPTemplate[] = [
@@ -224,6 +226,20 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
+      {/* Live runtime resources (build host observability) */}
+      {engineOnline !== null && (
+        <div className="sutra-card p-5 animate-fade-up border-[var(--border)]">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-[11px] font-bold uppercase tracking-widest text-[var(--sutra-charcoal)] flex items-center gap-2">
+              <Activity className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
+              <span>Live Runtime Resources</span>
+            </h2>
+            <span className="text-[10px] font-mono text-[var(--text-3)]">CPU · Disk · Memory</span>
+          </div>
+          <ResourceGauges engineOnline className="max-w-2xl" />
+        </div>
+      )}
 
       {/* Sidecar diagnostic report (lightweight observability) */}
       {diagOpen && (

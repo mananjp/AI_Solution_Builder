@@ -225,6 +225,12 @@ export type MVPBuildStatus =
   | 'failed'
   | 'cancelled';
 
+export interface BuildStep {
+  key: string;
+  label: string;
+  status: 'pending' | 'active' | 'completed';
+}
+
 export interface OpenCodeBuildProgress {
   phase: string;
   step: number;
@@ -235,6 +241,63 @@ export interface OpenCodeBuildProgress {
   session_id?: string;
   build_id?: string;
   file_count?: number;
+  steps?: BuildStep[];
+}
+
+export interface MVPDeployService {
+  name?: string;
+  service_id?: string;
+  deploy_id?: string;
+  url?: string | null;
+  dashboard_url?: string | null;
+  deploy_url?: string | null;
+  status?: string;
+  error?: string | null;
+}
+
+export interface MVPDeployState {
+  status?: string;
+  services?: Record<string, MVPDeployService>;
+  injected_env?: Record<string, string>;
+}
+
+/** Live deploy status polled from /deploy/status (never a fake success). */
+export interface MVPDeployStatus {
+  overall: 'queued' | 'building' | 'live' | 'failed';
+  repo_url?: string | null;
+  backend_url?: string | null;
+  frontend_url?: string | null;
+  deploy_url?: string | null;
+  injected_env?: Record<string, string>;
+  services?: Record<string, MVPDeployService>;
+}
+
+export interface MVPEnvVarSpec {
+  key: string;
+  required: boolean;
+  kind: string;
+  description?: string;
+  default?: string | null;
+  current?: string | null;
+  auto_injected?: boolean;
+  occurrences?: number;
+}
+
+export interface MVPEnvPlan {
+  env: MVPEnvVarSpec[];
+  app_name?: string | null;
+  injected?: Record<string, string>;
+}
+
+export interface SystemResources {
+  cpu_percent?: number | null;
+  cpu_count?: number;
+  memory?: { used_mb: number; total_mb: number; percent: number } | null;
+  disk_total_bytes?: number | null;
+  disk_free_bytes?: number | null;
+  disk_percent?: number | null;
+  sample_ts?: number;
+  psutil_available?: boolean;
 }
 
 export interface MVPBuild {
@@ -251,13 +314,15 @@ export interface MVPBuild {
   backend_url?: string | null;
   render_dashboard_url?: string | null;
   render_deploy_url?: string | null;
-  render_deploy_status?: 'building' | 'live' | 'failed' | null;
+  render_deploy_status?: 'queued' | 'building' | 'live' | 'failed' | null;
+  deploy_state?: MVPDeployState | null;
   progress?: {
     stage?: string;
     step?: number;
     total_steps?: number;
     percentage?: number;
     message?: string;
+    steps?: BuildStep[];
   } | null;
   files?: MVPFileEntry[];
   app_config?: {
@@ -284,6 +349,7 @@ export interface MVPDeployPayload {
   description?: string;
   private?: boolean;
   force?: boolean;
+  env?: Record<string, unknown>;
 }
 
 export interface MVPDeployResult {
@@ -298,7 +364,8 @@ export interface MVPDeployResult {
   backend_url?: string | null;
   render_dashboard_url?: string | null;
   render_deploy_url?: string | null;
-  render_deploy_status?: 'building' | 'live' | 'failed' | null;
+  render_deploy_status?: 'queued' | 'building' | 'live' | 'failed' | null;
+  deploy_state?: MVPDeployState | null;
 }
 
 export interface SocialProvidersResponse {

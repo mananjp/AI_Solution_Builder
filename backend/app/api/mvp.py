@@ -16,6 +16,7 @@ artifacts via the OpenCode sidecar:
 
 import asyncio
 import io
+import json
 import logging
 import tempfile
 import zipfile
@@ -26,14 +27,17 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
+from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sse_starlette.sse import EventSourceResponse
 
 from app.core.build_locks import allocate_build_number
 from app.core.config import settings
 from app.core.credits import action_cost, refund_credit, require_and_deduct_credit
 from app.core.database import async_session_factory, get_db
+from app.core.llm import get_llm
 from app.core.secrets import decrypt_secret
 from app.core.security import get_current_user
 from app.models.build_job import BuildJob
@@ -46,6 +50,8 @@ from app.schemas import (
     MVPBuildResponse,
     MVPConfigUpdate,
     MVPDeployRequest,
+    MVPDeployStatusResponse,
+    MVPEnvPlanResponse,
     MVPFileEntry,
     MVPQuickBuildRequest,
     MVPTemplateResponse,
@@ -60,6 +66,40 @@ from app.services.render_deployer import (
 from app.services.storage import get_storage
 
 _ORIG_RUN_BUILD = builder.run_build
+
+# Ordered steps shown in the BuildCard / chat progress stepper. Keys match the
+# ``phase`` field emitted by the chat SSE stream so both surfaces stay in sync.
+BUILD_STEPS: list[dict[str, str]] = [
+    {"key": "analyzing", "label": "Synthesizing architecture & specs"},
+    {"key": "scaffolding", "label": "Scaffolding full-stack codebase"},
+    {"key": "coding", "label": "Generating models, APIs & UI"},
+    {"key": "verifying", "label": "Verifying & repairing code"},
+    {"key": "packaging", "label": "Packaging artifact"},
+]
+
+STEP_INDEX = {s["key"]: i for i, s in enumerate(BUILD_STEPS)}
+
+
+def progress_payload(
+    active_idx: int,
+    message: str,
+    *,
+    percentage: int,
+) -> dict[str, Any]:
+    """Build a progress dict with an ordered, per-step status list for the UI."""
+    steps = []
+    active_idx = max(0, min(active_idx, len(BUILD_STEPS) - 1))
+    for i, step in enumerate(BUILD_STEPS):
+        status = "completed" if i < active_idx else ("active" if i == active_idx else "pending")
+        steps.append({**step, "status": status})
+    return {
+        "stage": BUILD_STEPS[active_idx]["key"],
+        "step": active_idx + 1,
+        "total_steps": len(BUILD_STEPS),
+        "percentage": percentage,
+        "message": message,
+        "steps": steps,
+    }
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +183,7 @@ async def _build_response(build: MVPBuild, include_files: bool = False) -> MVPBu
         render_dashboard_url=app_config.get("render_dashboard_url"),
         render_deploy_url=render_deploy_url,
         render_deploy_status=app_config.get("render_deploy_status"),
+        deploy_state=app_config.get("deploy_state"),
         progress=app_config.get("progress"),
         files=files,
     )
@@ -170,16 +211,22 @@ async def execute_build_job(build_id: UUID) -> None:
             # Mark build as building with initial progress
             build.status = "building"
             cfg = dict(build.app_config or {})
-            cfg["progress"] = {
-                "stage": "building",
-                "step": 1,
-                "total_steps": 3,
-                "percentage": 30,
-                "message": "Synthesizing and verifying codebase scaffold...",
-            }
+            cfg["progress"] = progress_payload(
+                0, "Synthesizing architecture and validating the blueprint...", percentage=10
+            )
             build.app_config = cfg
             await db.commit()
             await db.refresh(build)
+
+            async def save_progress(active_idx: int, percentage: int, message: str) -> None:
+                """Write-through progress so the UI stepper never looks stuck."""
+                local_cfg = dict(build.app_config or {})
+                local_cfg["progress"] = progress_payload(
+                    active_idx, message, percentage=percentage
+                )
+                build.app_config = local_cfg
+                await db.commit()
+                await db.refresh(build)
 
             title = (build.app_config or {}).get("app_name") or solution.title
 
@@ -229,6 +276,7 @@ async def execute_build_job(build_id: UUID) -> None:
                     user_prompt=user_msg,
                     check_npm=settings.MVP_VERIFY_NPM,
                     allow_offline=True,
+                    progress_cb=save_progress,
                 )
 
             # Re-fetch under row lock to guard against concurrent cancellation
@@ -249,6 +297,13 @@ async def execute_build_job(build_id: UUID) -> None:
             build.file_count = result["file_count"]
             build.file_list = result["files"]
             build.error_message = None
+            if result.get("sidecar_url"):
+                # Remember which pool container hosted this session so aborts
+                # still reach it even if this process restarted mid-build.
+                build.app_config = {
+                    **(build.app_config or {}),
+                    "opencode_server_url": result["sidecar_url"],
+                }
             if result.get("app_spec"):
                 solution.ai_state = {**(solution.ai_state or {}), "app_spec": result["app_spec"]}
             if result.get("quality"):
@@ -292,11 +347,12 @@ async def execute_build_job(build_id: UUID) -> None:
             build.storage_key = storage_key
             cfg = dict(build.app_config or {})
             cfg["progress"] = {
+                **progress_payload(
+                    4,
+                    f"Build complete — {result['file_count']} files generated.",
+                    percentage=100,
+                ),
                 "stage": "complete",
-                "step": 3,
-                "total_steps": 3,
-                "percentage": 100,
-                "message": f"Build complete — {result['file_count']} files generated.",
             }
             build.app_config = cfg
             logger.info(
@@ -788,6 +844,16 @@ async def deploy_build(
     except DeployError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+    # Split user-confirmed env by role: build-time frontend values (NEXT_PUBLIC_*)
+    # go to the frontend service; runtime secrets go to the backend service.
+    user_env = dict(payload.env or {})
+    backend_env_vars = [
+        {"key": k, "value": str(v)} for k, v in user_env.items() if not k.startswith("NEXT_PUBLIC_")
+    ]
+    frontend_env_vars = [
+        {"key": k, "value": str(v)} for k, v in user_env.items() if k.startswith("NEXT_PUBLIC_")
+    ]
+
     # Check if user has saved a Render API key, or fallback to server environment
     raw_render_token = str((current_user.settings or {}).get("render_api_key", ""))
     render_token = decrypt_secret(raw_render_token) if raw_render_token else ""
@@ -801,26 +867,49 @@ async def deploy_build(
     backend_url = None
     render_dashboard_url = None
     render_deploy_status = None
+    deploy_state: dict[str, Any] = {"status": "building", "services": {}, "injected_env": {}}
     render_msg = "Connected on Render via render.yaml in repo root"
 
     if render_token:
         try:
             r_client = RenderDeployer(render_token)
+            # Staged deploy: backend provisions first, then the frontend gets
+            # NEXT_PUBLIC_API_URL pointing at the freshly deployed backend.
             r_res = await r_client.deploy_repo(
                 repo_url=result["url"],
                 repo_name=payload.repo_name,
                 branch=result.get("branch", "main"),
+                backend_env_vars=backend_env_vars,
+                frontend_env_vars=frontend_env_vars,
             )
+            services = r_res.get("services") or {}
+            deploy_state = {
+                "status": "building",
+                "services": services,
+                "injected_env": {},
+            }
+            backend_svc = services.get("backend") or {}
+            frontend_svc = services.get("frontend") or {}
             render_service_id = r_res.get("service_id")
-            frontend_url = r_res.get("frontend_url") or r_res.get("service_url")
-            backend_url = r_res.get("backend_url")
+            frontend_url = (
+                r_res.get("frontend_url")
+                or r_res.get("service_url")
+                or frontend_svc.get("url")
+            )
+            backend_url = r_res.get("backend_url") or backend_svc.get("url")
             render_service_url = frontend_url
-            render_dashboard_url = r_res.get("dashboard_url")
+            render_dashboard_url = r_res.get("dashboard_url") or frontend_svc.get(
+                "dashboard_url"
+            )
             render_deploy_status = r_res.get("render_deploy_status", "building")
             if r_res.get("deploy_url"):
                 render_deploy_url = r_res["deploy_url"]
             if r_res.get("message"):
                 render_msg = r_res["message"]
+            if backend_url:
+                # Auto-injected for the frontend: this is the only env var the
+                # agent already knows at deploy time (service-to-service URL).
+                deploy_state["injected_env"]["NEXT_PUBLIC_API_URL"] = backend_url
         except Exception as r_err:
             logger.warning("Render deployment trigger failed: %s", r_err)
             render_msg = f"Render deploy trigger skipped: {r_err}"
@@ -836,6 +925,8 @@ async def deploy_build(
         "render_dashboard_url": render_dashboard_url,
         "render_deploy_url": render_deploy_url,
         "render_deploy_status": render_deploy_status,
+        "deploy_state": deploy_state,
+        "env": {**(build.app_config or {}).get("env", {}), **user_env},
     }
     await db.commit()
     return {
@@ -851,7 +942,324 @@ async def deploy_build(
         "render_dashboard_url": render_dashboard_url,
         "render_deploy_url": render_deploy_url,
         "render_deploy_status": render_deploy_status,
+        "deploy_state": deploy_state,
     }
+
+
+@router.get("/builds/{build_id}/deploy/status", response_model=MVPDeployStatusResponse)
+async def deploy_status(
+    build_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MVPDeployStatusResponse:
+    """Live deploy state for a build.
+
+    Polls the actual Render deploy objects for each provisioned service so the
+    UI shows a real Provisioning → Building → Live / Failed transition instead
+    of claiming success at trigger time. Never raises on Render hiccups — it
+    returns the last known state.
+    """
+    build = await _get_build_for_user(db, build_id, current_user)
+    app_config = dict(build.app_config or {})
+    deploy_state = app_config.get("deploy_state") or {}
+    services = dict(deploy_state.get("services") or {})
+
+    raw_render_token = str((current_user.settings or {}).get("render_api_key", ""))
+    render_token = decrypt_secret(raw_render_token) if raw_render_token else ""
+    if not render_token and settings.RENDER_API_KEY:
+        render_token = settings.RENDER_API_KEY
+
+    if render_token and services:
+        r_client = RenderDeployer(render_token)
+        for name, svc in list(services.items()):
+            if not isinstance(svc, dict):
+                continue
+            service_id = svc.get("service_id")
+            deploy_id = svc.get("deploy_id")
+            if service_id and deploy_id:
+                try:
+                    raw = await r_client.get_deploy_status(service_id, deploy_id)
+                    if isinstance(raw, dict) and raw.get("status"):
+                        svc["status"] = r_client._classify_render_status(raw.get("status", ""))  # noqa: SLF001
+                    elif not svc.get("url"):
+                        existing = await r_client.get_service_by_name(svc.get("name", ""))
+                        if existing:
+                            svc["url"] = existing.get("serviceDetails", {}).get("url")
+                            svc["dashboard_url"] = existing.get("dashboardUrl")
+                except Exception as poll_err:  # noqa: BLE001
+                    logger.info("Deploy status poll failed for %s: %s", name, poll_err)
+
+    statuses = [s.get("status", "building") for s in services.values() if isinstance(s, dict)]
+    overall = "building"
+    if statuses:
+        if any(st == "failed" for st in statuses):
+            overall = "failed"
+        elif all(st == "live" for st in statuses):
+            overall = "live"
+
+    deploy_state["status"] = overall
+    deploy_state["services"] = services
+    build.app_config = {**app_config, "deploy_state": deploy_state, "render_deploy_status": overall}
+    await db.commit()
+
+    return MVPDeployStatusResponse(
+        overall=overall,
+        repo_url=app_config.get("repo_url") or build.repo_url,
+        backend_url=app_config.get("backend_url") or (services.get("backend") or {}).get("url"),
+        frontend_url=app_config.get("frontend_url") or (services.get("frontend") or {}).get("url"),
+        deploy_url=app_config.get("render_deploy_url"),
+        injected_env=deploy_state.get("injected_env") or {},
+        services=services,
+    )
+
+
+@router.get("/builds/{build_id}/env-plan", response_model=MVPEnvPlanResponse)
+async def env_plan(
+    build_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MVPEnvPlanResponse:
+    """Environment variables the finished build needs (required first).
+
+    Scans the generated code for every ``os.environ`` / ``process.env``
+    reference, classifies it required/optional + build/runtime, and merges in
+    values already saved via configure plus any known deployed URLs (e.g. the
+    backend URL auto-injected into ``NEXT_PUBLIC_API_URL``).
+    """
+    build = await _get_build_for_user(db, build_id, current_user)
+    app_config = dict(build.app_config or {})
+    local_dir = builder.build_workspace_dir(build.solution_id, build.build_number)
+    plan: list[dict[str, Any]] = []
+    if local_dir.exists():
+        plan = builder.scan_env_plan(local_dir)
+    else:
+        build_key = build.storage_key or _storage_key(build)
+        if build_key:
+            try:
+                storage = get_storage()
+                zip_data = await storage.download_raw(build_key)
+                with tempfile.TemporaryDirectory(prefix="mvp-envplan-") as tmp:
+                    zip_path = Path(tmp) / "artifact.zip"
+                    zip_path.write_bytes(zip_data)
+                    with zipfile.ZipFile(zip_path, "r") as zf:
+                        zf.extractall(tmp)
+                    plan = builder.scan_env_plan(tmp)
+            except Exception as scan_err:  # noqa: BLE001
+                logger.warning("Env-plan scan failed for build %s: %s", build_id, scan_err)
+
+    backend_url = app_config.get("backend_url")
+    frontend_url = app_config.get("frontend_url")
+    seeded = builder.env_plan_with_current(
+        plan,
+        app_config.get("env") or {},
+        backend_url=backend_url,
+        frontend_url=frontend_url,
+    )
+    injected: dict[str, str] = {}
+    if backend_url and isinstance(backend_url, str):
+        injected["NEXT_PUBLIC_API_URL"] = backend_url
+    return MVPEnvPlanResponse(
+        env=seeded,
+        app_name=app_config.get("app_name"),
+        injected=injected,
+    )
+
+
+class SandboxChatMessage(BaseModel):
+    role: str = "user"
+    content: str = ""
+
+
+class SandboxChatRequest(BaseModel):
+    message: str
+    history: list[SandboxChatMessage] = []
+
+
+_SANDBOX_CONTEXT_LIMIT = 6000
+
+
+def _sandbox_context(build: MVPBuild, solution: Solution, ai_state: dict[str, Any]) -> str:
+    """Grounding snippet the sandbox agent answers from: what this build IS."""
+    parts: list[str] = [f"Application Title: {solution.title}"]
+    if solution.description:
+        parts.append(f"Description: {solution.description}")
+
+    app_config = dict(build.app_config or {})
+    spec = ai_state.get("app_spec") or {}
+    if isinstance(spec, dict) and spec.get("app_name"):
+        parts.append(f"App Name: {spec['app_name']}")
+
+    entities = spec.get("entities") or ai_state.get("entities") or []
+    if isinstance(entities, list) and entities:
+        names = []
+        for e in entities[:40]:
+            if isinstance(e, dict):
+                f_names = [
+                    f.get("name") for f in e.get("fields", []) if isinstance(f, dict)
+                ]
+                names.append(
+                    f"{e.get('name')}({', '.join(n for n in f_names if isinstance(n, str))})"
+                )
+        if names:
+            parts.append("Entities: " + "; ".join(names))
+
+    endpoints = (
+        (ai_state.get("api_spec") or {}).get("content", {}).get("endpoints")
+        or ai_state.get("endpoints")
+        or []
+    )
+    if isinstance(endpoints, list) and endpoints:
+        ep = [
+            f"{e.get('method', 'GET')} {e.get('path', '')}"
+            for e in endpoints[:20]
+            if isinstance(e, dict)
+        ]
+        if ep:
+            parts.append("API: " + ", ".join(ep))
+
+    urls = []
+    if app_config.get("frontend_url"):
+        urls.append(f"Frontend: {app_config['frontend_url']}")
+    if app_config.get("backend_url"):
+        urls.append(f"Backend: {app_config['backend_url']}")
+    if urls:
+        parts.append("Live URLs: " + " | ".join(urls))
+
+    files = build.file_list or []
+    if files:
+        lines = []
+        for f in files[:250]:
+            if isinstance(f, str):
+                lines.append(f)
+            elif isinstance(f, dict):
+                lines.append(str(f.get("path") or f.get("name") or f))
+        if lines:
+            parts.append("Project files:\n" + "\n".join(lines))
+
+    return "\n".join(parts)[:_SANDBOX_CONTEXT_LIMIT]
+
+
+_SANDBOX_SYSTEM = (
+    "You are the sandbox assistant embedded inside the live preview of the app "
+    "just built with AI Solution Builder. You know exactly what this app does, "
+    "how it is structured, its data model, its API, and how it is configured "
+    "and deployed.\n\n"
+    "Ground truth for THIS app:\n{context}\n\n"
+    "Rules:\n"
+    "- Answer ONLY about this app and its code — never a generic script.\n"
+    "- Refer to concrete files, entities, and endpoints from the ground truth.\n"
+    "- Address the end user of this app directly; keep replies concise and useful.\n"
+    "- If the question is unrelated to this app, say so and steer back to it.\n"
+)
+
+
+def _extract_sandbox_answer(raw: object) -> str:
+    if raw is None:
+        return ""
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, dict):
+        for key in ("message", "content", "text"):
+            if isinstance(raw.get(key), str):
+                return raw[key]
+    return str(raw)
+
+
+async def _run_sandbox_agent(
+    build: MVPBuild,
+    solution: Solution,
+    session_id: str | None,
+    message: str,
+    history: list[SandboxChatMessage],
+) -> str:
+    """Answer a sandbox question, sidecar-first with a grounded LLM fallback."""
+    ai_state = solution.ai_state or {}
+    sys_prompt = _SANDBOX_SYSTEM.format(context=_sandbox_context(build, solution, ai_state))
+
+    if session_id:
+        try:
+            transcript = "\n".join(
+                f"{'User' if h.role in ('user', 'human') else 'Assistant'}: {h.content[:2000]}"
+                for h in history[-8:]
+            )
+            instruction = (
+                f"{sys_prompt}\n\nConversation so far:\n{transcript}\n\nUser: {message}"
+            )
+            raw = await builder.send_message(session_id, instruction, seed=str(build.solution_id), timeout=60)
+            answer = _extract_sandbox_answer(raw)
+            if answer and answer != "Mock response":
+                return answer[:8000]
+        except Exception as sidecar_err:  # noqa: BLE001
+            logger.info("Sandbox sidecar chat failed (%s); using planner fallback", sidecar_err)
+
+    llm = get_llm()
+    msgs: list[Any] = [SystemMessage(content=sys_prompt)]
+    for h in history[-8:]:
+        if h.role in ("user", "human"):
+            msgs.append(HumanMessage(content=h.content[:2000]))
+        else:
+            msgs.append(SystemMessage(content=f"Previous assistant reply: {h.content[:2000]}"))
+    msgs.append(HumanMessage(content=message))
+
+    answer = ""
+    resp = await llm.ainvoke(msgs)
+    if resp and resp.content:
+        try:
+            parsed = json.loads(resp.content)
+            if isinstance(parsed, dict) and isinstance(parsed.get("content"), str):
+                answer = parsed["content"]
+            elif isinstance(parsed, dict) and isinstance(parsed.get("message"), str):
+                answer = parsed["message"]
+            else:
+                answer = str(resp.content)
+        except (json.JSONDecodeError, TypeError):
+            answer = str(resp.content)
+    if not answer or answer == "Mock response":
+        return (
+            "I'm running live inside your preview. This app is **{title}**. "
+            "Ask me anything about what it does, its data model, its API, or how "
+            "the backend and frontend connect and deploy."
+        ).format(title=solution.title)
+    return answer[:8000]
+
+
+@router.post("/builds/{build_id}/sandbox/chat")
+async def sandbox_chat(
+    build_id: UUID,
+    payload: SandboxChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Live Q&A agent for the sandbox preview of a finished build (SSE)."""
+    build = await _get_build_for_user(db, build_id, current_user)
+    solution = await _get_solution_for_user(db, build.solution_id, current_user)
+
+    app_config = dict(build.app_config or {})
+    session_id: str | None = app_config.get("sandbox_session_id")
+    if not session_id:
+        try:
+            session_id = await builder.create_session(
+                f"Sandbox Q&A — {solution.title}", seed=str(build.solution_id)
+            )
+            app_config["sandbox_session_id"] = session_id
+            build.app_config = app_config
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001
+            logger.info("Sandbox session create failed (%s); fallback to planner", exc)
+            session_id = None
+
+    async def event_stream() -> Any:
+        try:
+            answer = await _run_sandbox_agent(
+                build, solution, session_id, payload.message, payload.history
+            )
+            yield {"event": "message", "data": json.dumps({"role": "assistant", "content": answer})}
+            yield {"event": "complete", "data": json.dumps({"done": True})}
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Sandbox chat stream failed for build %s", build_id)
+            yield {"event": "error", "data": json.dumps({"message": f"Sandbox agent error: {exc}"})}
+
+    return EventSourceResponse(event_stream())  # type: ignore[arg-type]
 
 
 @router.post("/builds/{build_id}/preview/destroy", response_model=dict[str, Any])
@@ -880,6 +1288,7 @@ async def destroy_preview(
         app_config.pop("frontend_url", None)
         app_config.pop("backend_url", None)
         app_config.pop("render_dashboard_url", None)
+        app_config["deploy_state"] = {"status": "building", "services": {}}
         build.app_config = app_config
         await db.commit()
 
@@ -928,6 +1337,7 @@ async def configure_build(
         await storage.upload_bytes(updated, build_key)
 
     merged = {**(build.app_config or {}), **overlay}
+    merged["env"] = {**(build.app_config or {}).get("env", {}), **dict(payload.env or {})}
     build.app_config = merged
     build.storage_key = build_key
 
@@ -945,7 +1355,11 @@ async def destroy_build(
     build = await _get_build_for_user(db, build_id, current_user)
     if build.status == "building" and build.opencode_session_id:
         try:
-            await builder.abort_session(build.opencode_session_id)
+            stored_url = (build.app_config or {}).get("opencode_server_url")
+            await builder.abort_session(
+                build.opencode_session_id,
+                base_url=str(stored_url) if isinstance(stored_url, str) and stored_url else None,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Abort session %s failed: %s", build.opencode_session_id, exc)
 

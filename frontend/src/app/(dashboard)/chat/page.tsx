@@ -21,7 +21,7 @@ import {
 import ChatMessage from '@/components/ChatMessage';
 import FileUploader from '@/components/FileUploader';
 import { opencodeApi, sendOpenCodeChatStream, mvpApi } from '@/lib/api';
-import { MVPBuild, MVPDeployResult, OpenCodeChatComplete, OpenCodeBuildProgress } from '@/types';
+import { BuildStep, MVPBuild, MVPDeployResult, OpenCodeChatComplete, OpenCodeBuildProgress } from '@/types';
 import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
 
 type Msg = { role: 'user' | 'assistant' | 'system'; content: string; agent?: string };
@@ -34,6 +34,7 @@ interface BuildProgressState {
   message: string;
   logs: string[];
   startedAt: number;
+  steps?: BuildStep[];
 }
 
 interface BuildCapability {
@@ -186,6 +187,7 @@ function ChatContent() {
                   total_steps: p.total_steps || 7,
                   percentage: inferred,
                   message: p.message || 'Building application...',
+                  steps: Array.isArray(p.steps) && p.steps.length > 0 ? p.steps : prev?.steps,
                   logs: [...prevLogs, `[${sec}s] ${p.message}`],
                   startedAt,
                 };
@@ -516,8 +518,11 @@ function ChatContent() {
                   <div className="space-y-2">
                     {BUILD_MILESTONES.map((m) => {
                       const currentStep = buildProgress?.step || 1;
-                      const isComplete = currentStep > m.step;
-                      const isCurrent = currentStep === m.step;
+                      const stepStatus = buildProgress?.steps?.find((s) => s.key === m.phase)?.status;
+                      const isComplete = stepStatus
+                        ? stepStatus === 'completed'
+                        : currentStep > m.step;
+                      const isCurrent = stepStatus ? stepStatus === 'active' : currentStep === m.step;
                       return (
                         <div key={m.step} className="flex items-center gap-2.5 text-[11px]">
                           {isComplete ? (

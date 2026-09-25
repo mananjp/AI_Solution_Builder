@@ -326,21 +326,27 @@ class RenderDeployer:
         branch: str = "main",
         dockerfile_path: str = "./frontend/Dockerfile",
         docker_context: str = "./frontend",
+        backend_env_vars: list[dict[str, str]] | None = None,
+        frontend_env_vars: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         """Create or update Web Services on Render for the specified repository.
 
-        Provisions both backend (-api) and frontend services on Render's free tier
-        and always returns the live frontend application URL.
+        Deploys in dependency order so auto-injected environment variables are
+        correct from the start:
+          1. Backend service (:8000) — accepts ``backend_env_vars`` secrets.
+          2. Frontend service (:3000) — receives ``NEXT_PUBLIC_API_URL`` set to
+             the freshly provisioned backend URL, plus any ``frontend_env_vars``
+             (NEXT_PUBLIC_* build-time values the user supplied).
+
+        Returns per-service state (service ids, deploy ids, urls, dashboard
+        links) under ``services`` so callers can poll real deploy status — this
+        result NEVER claims the app is live; ``check_deploy_status`` does that.
 
         Returns a dictionary with:
-          - service_id: str | None (frontend service id)
-          - service_url: str | None (live frontend URL, e.g. https://xxx.onrender.com)
-          - frontend_url: str | None
-          - backend_url: str | None (live backend API URL, e.g. https://xxx-api.onrender.com)
-          - dashboard_url: str | None
-          - deploy_url: str (1-click blueprint portal fallback/complement)
-          - status: 'deployed' | 'pending_connection'
-          - render_deploy_status: 'building' | 'live' | 'failed'
+          - services: {backend: {...}, frontend: {...}} each with
+            name, service_id, deploy_id, url, dashboard_url, status
+          - service_id / service_url / frontend_url / backend_url (legacy)
+          - dashboard_url / deploy_url / status / render_deploy_status
           - message: str
         """
         deploy_portal_url = get_1click_deploy_url(repo_url)
@@ -358,6 +364,7 @@ class RenderDeployer:
                 "deploy_url": deploy_portal_url,
                 "status": "pending_connection",
                 "render_deploy_status": "failed",
+                "services": {},
                 "message": str(err),
             }
 
@@ -365,7 +372,15 @@ class RenderDeployer:
         api_service_name = f"{base_name}-api"
         fe_service_name = base_name
 
-        # 1. Deploy / update backend service on port 8000
+        unknown: dict[str, Any] = {
+            "service_id": None,
+            "deploy_id": None,
+            "url": None,
+            "dashboard_url": None,
+            "status": "failed",
+        }
+
+        # 1. Deploy / update backend service on port 8000 (env first, then FE)
         backend_info = await self.create_or_update_service(
             name=api_service_name,
             owner_id=owner_id,
@@ -376,14 +391,32 @@ class RenderDeployer:
             env_vars=[
                 {"key": "PORT", "value": "8000"},
                 {"key": "CORS_ORIGINS", "value": "*"},
+                *(backend_env_vars or []),
             ],
         )
         backend_url = backend_info.get("url") if backend_info else None
+        backend_services: dict[str, Any] = {
+            **unknown,
+            "name": api_service_name,
+        }
+        if backend_info:
+            backend_services.update(
+                {
+                    "service_id": backend_info.get("id"),
+                    "deploy_id": backend_info.get("deploy_id"),
+                    "url": backend_url,
+                    "dashboard_url": backend_info.get("dashboard_url"),
+                    "status": "building",
+                }
+            )
 
-        # 2. Deploy / update frontend service on port 3000
+        # 2. Deploy / update frontend service on port 3000, wiring the backend URL
         fe_env_vars = [{"key": "PORT", "value": "3000"}]
         if backend_url:
             fe_env_vars.append({"key": "NEXT_PUBLIC_API_URL", "value": backend_url})
+        for ev in frontend_env_vars or []:
+            if ev not in fe_env_vars:
+                fe_env_vars.append(ev)
 
         frontend_info = await self.create_or_update_service(
             name=fe_service_name,
@@ -394,48 +427,50 @@ class RenderDeployer:
             docker_context=docker_context,
             env_vars=fe_env_vars,
         )
-
         frontend_url = frontend_info.get("url") if frontend_info else None
-        frontend_id = frontend_info.get("id") if frontend_info else None
-        dashboard_url = frontend_info.get("dashboard_url") if frontend_info else None
+        frontend_services: dict[str, Any] = {
+            **unknown,
+            "name": fe_service_name,
+        }
+        if frontend_info:
+            frontend_services.update(
+                {
+                    "service_id": frontend_info.get("id"),
+                    "deploy_id": frontend_info.get("deploy_id"),
+                    "url": frontend_url,
+                    "dashboard_url": frontend_info.get("dashboard_url"),
+                    "status": "building",
+                }
+            )
 
-        # The user's primary application link is the frontend URL
+        services = {"backend": backend_services, "frontend": frontend_services}
         service_url = frontend_url or backend_url
-        service_id = frontend_id or (backend_info.get("id") if backend_info else None)
-        if not dashboard_url and backend_info:
-            dashboard_url = backend_info.get("dashboard_url")
+        service_id = frontend_services.get("service_id") or backend_services.get("service_id")
+        dashboard_url = (
+            frontend_services.get("dashboard_url")
+            or backend_services.get("dashboard_url")
+        )
 
-        # 3. Single-shot deploy status check (fire-and-forget; frontend polls)
-        render_deploy_status = "building"  # default: assume still building
-        fe_deploy_id = frontend_info.get("deploy_id") if frontend_info else None
-        if service_id and fe_deploy_id:
-            try:
-                render_deploy_status = await self.check_deploy_status(
-                    service_id,
-                    fe_deploy_id,
-                )
-            except Exception as poll_err:
-                logger.warning("Deploy status check failed: %s", poll_err)
-
-        if service_url:
+        if service_url or (frontend_info or backend_info):
             return {
+                "services": services,
                 "service_id": service_id,
                 "service_url": service_url,
                 "frontend_url": frontend_url or service_url,
                 "backend_url": backend_url,
                 "dashboard_url": dashboard_url,
                 "deploy_url": deploy_portal_url,
-                "status": "deployed",
-                "render_deploy_status": render_deploy_status,
-                "message": f"Service provisioned on Render. Frontend: {service_url}"
-                + (
-                    " (still building — may take a few minutes)"
-                    if render_deploy_status == "building"
-                    else ""
+                "status": "deploying",
+                "render_deploy_status": "building",
+                "message": (
+                    "Deployments are being provisioned on Render. Backend is deployed "
+                    "first so the frontend picks up its URL automatically; live status "
+                    "is streamed by the deploy status endpoint."
                 ),
             }
 
         return {
+            "services": services,
             "service_id": None,
             "service_url": None,
             "frontend_url": None,

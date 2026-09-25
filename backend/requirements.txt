@@ -58,6 +58,7 @@ pydantic==2.13.5
 pydantic-settings==2.15.0
 python-dotenv==1.2.2
 httpx==0.28.1
+psutil==7.1.1  # optional — live CPU/memory sampling (/api/v1/system/resources)
 
 # MVP Verifier Test Runtime (invoked by mvp_verifier in production worker)
 pytest>=8.3.4

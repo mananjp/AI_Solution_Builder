@@ -19,6 +19,7 @@ builds never collide.
 """
 
 import contextlib
+import hashlib
 import io
 import json
 import logging
@@ -29,6 +30,7 @@ import time
 import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from collections.abc import Awaitable, Callable
 
 if TYPE_CHECKING:
     from app.services.app_spec import AppSpec
@@ -41,6 +43,146 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 _IGNORED = {".git", "node_modules", "__pycache__", ".next", ".venv", "venv", "dist", "build"}
+
+_TEXT_SUFFIXES = {
+    ".py", ".ts", ".tsx", ".js", ".jsx", ".env", ".yml", ".yaml", ".toml",
+    ".json", ".sh", ".md", ".prisma",
+}
+
+# Human descriptions for well-known environment variables so the env-required UI
+# can show *why* each variable is needed instead of a bare key.
+_ENV_DESCRIPTIONS = {
+    "DATABASE_URL": "PostgreSQL connection string (Neon/Supabase) for the backend",
+    "JWT_SECRET_KEY": "Long random secret used to sign auth sessions (32+ chars)",
+    "REDIS_URL": "Upstash/Redis endpoint for caching and queues",
+    "NEXT_PUBLIC_API_URL": "Deployed backend API URL — auto-injected from the backend service",
+    "PORT": "Port the web service listens on (set automatically by Render)",
+    "CORS_ORIGINS": "Comma-separated origins allowed to call the backend",
+    "OPENAI_API_KEY": "OpenAI API key used by backend features",
+    "ANTHROPIC_API_KEY": "Anthropic API key used by backend features",
+    "CLOUDINARY_CLOUD_NAME": "Cloudinary cloud name for artifact storage",
+    "CLOUDINARY_API_KEY": "Cloudinary API key for artifact storage",
+    "CLOUDINARY_API_SECRET": "Cloudinary API secret for artifact storage",
+}
+
+# Keys the deployment platform injects itself — never prompt the user for them.
+_AUTO_SET_ENV = {"PORT", "CORS_ORIGINS", "NEXT_PUBLIC_API_URL"}
+
+
+def scan_env_plan(build_dir: str | Path) -> list[dict[str, Any]]:
+    """Scan generated code for every referenced environment variable.
+
+    Returns a deduped list, required-first:
+        {key, required, kind, description, default, occurrences}
+    ``kind`` is ``"build"`` for NEXT_PUBLIC_* (inlined at build time) and
+    ``"runtime"`` otherwise. Variables with a code fallback (``|| '...'``,
+    ``os.getenv(key, default)``, ``os.environ.get``) or that are auto-set by the
+    platform are marked optional. This is what drives the "env required" UI in
+    the Configure/Deploy modals.
+    """
+    root = Path(build_dir)
+    found: dict[str, dict[str, Any]] = {}
+
+    required_pats = [
+        re.compile(r"(?<![\w.])process\.env\.([A-Z0-9_]+)"),
+        re.compile(r"process\.env\[\s*['\"]([A-Z0-9_]+)['\"]\s*\]"),
+        re.compile(r"os\.environ\[\s*['\"]([A-Z0-9_]+)['\"]\s*\]"),
+        re.compile(r"os\.getenv\s*\(\s*['\"]([A-Z0-9_]+)['\"](?!\s*,)"),
+    ]
+    optional_pats = [
+        re.compile(r"os\.environ\.get\s*\(\s*['\"]([A-Z0-9_]+)['\"]"),
+        re.compile(r"os\.getenv\s*\(\s*['\"]([A-Z0-9_]+)['\"]\s*,"),
+    ]
+
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.name.startswith("."):
+            continue
+        if any(seg in _IGNORED for seg in path.parts):
+            continue
+        if path.suffix not in _TEXT_SUFFIXES:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if len(text) > 4_000_000:  # skip vendored bundles/locks
+            continue
+
+        for pat in required_pats:
+            for m in pat.finditer(text):
+                key = m.group(1)
+                entry = found.setdefault(
+                    key,
+                    {
+                        "key": key,
+                        "required": True,
+                        "kind": "build" if key.startswith("NEXT_PUBLIC_") else "runtime",
+                        "description": _ENV_DESCRIPTIONS.get(key, ""),
+                        "default": None,
+                        "occurrences": 0,
+                    },
+                )
+                entry["occurrences"] += 1
+                # Inline JS fallback: process.env.X || 'default' → optional.
+                tail = text[m.start() : m.start() + 80].splitlines()[0]
+                if "||" in tail:
+                    entry["required"] = False
+
+        for pat in optional_pats:
+            for m in pat.finditer(text):
+                key = m.group(1)
+                entry = found.setdefault(
+                    key,
+                    {
+                        "key": key,
+                        "required": False,
+                        "kind": "build" if key.startswith("NEXT_PUBLIC_") else "runtime",
+                        "description": _ENV_DESCRIPTIONS.get(key, ""),
+                        "default": None,
+                        "occurrences": 0,
+                    },
+                )
+                entry["occurrences"] += 1
+                entry["optional"] = True
+                entry["required"] = False
+
+    plan = list(found.values())
+    for entry in plan:
+        if entry["key"] in _AUTO_SET_ENV:
+            entry["required"] = False
+            entry["description"] = entry["description"] or (
+                "Set automatically by the deployment platform"
+            )
+        entry["description"] = entry["description"] or (
+            "Referenced by the generated app (no default provided)"
+        )
+        entry.setdefault("optional", not entry["required"])
+
+    def sort_key(entry: dict[str, Any]) -> tuple[int, str]:
+        return (0 if entry["required"] else 1, entry["key"])
+
+    return sorted(plan, key=sort_key)
+
+
+def env_plan_with_current(
+    plan: list[dict[str, Any]],
+    saved_env: dict[str, Any] | None,
+    *,
+    backend_url: str | None = None,
+    frontend_url: str | None = None,
+) -> list[dict[str, Any]]:
+    """Merge previously saved env values + known deployed URLs into a plan."""
+    saved = dict(saved_env or {})
+    injected = (
+        {"NEXT_PUBLIC_API_URL": backend_url} if backend_url else {}
+    )
+    for entry in plan:
+        key = entry["key"]
+        entry["current"] = saved.get(key) or injected.get(key)
+        entry["auto_injected"] = key in injected
+        if key == "NEXT_PUBLIC_API_URL" and frontend_url:
+            entry.setdefault("description", entry.get("description") or "")
+    return plan
 
 
 class MVPBuilderError(RuntimeError):
@@ -98,18 +240,63 @@ def _auth_hint(status_code: int) -> str | None:
     return None
 
 
+def _pool_urls() -> list[str]:
+    """Sidecar pool members from OPENCODE_POOL_URLS (comma-separated)."""
+    pooled: list[str] = []
+    for raw in (settings.OPENCODE_POOL_URLS or "").split(","):
+        url = raw.strip().rstrip("/")
+        if not url or "ai-solution-builder-builder" in url:
+            continue
+        if url not in pooled:
+            pooled.append(url)
+    return pooled
+
+
 def _candidate_urls() -> list[str]:
     candidates: list[str] = []
     configured = (settings.OPENCODE_SERVER_URL or "").strip().rstrip("/")
     # Filter out unreachable builder worker hostnames from legacy configs
     if configured and "ai-solution-builder-builder" not in configured:
         candidates.append(configured)
+    for pooled in _pool_urls():
+        if pooled not in candidates:
+            candidates.append(pooled)
     for fallback in ("http://127.0.0.1:4096", "http://localhost:4096"):
         if fallback not in candidates:
             candidates.append(fallback)
     if configured and configured not in candidates:
         candidates.append(configured)
     return candidates
+
+
+# Maps a session id -> the exact sidecar container it was created on, so every
+# message/abort for that session always lands on the same container even across
+# concurrent parallel builds (pool mode). Process-local; rebuilt on demand.
+_sidecar_base_by_session: dict[str, str] = {}
+
+
+def _pick_base_url(seed: str = "", session_id: str = "") -> str:
+    """Choose the sidecar container for a build/session.
+
+    - ``session_id`` known → returns the container it was pinned to (affinity).
+    - A pool is configured and a ``seed`` (e.g. solution_id) is given → picks a
+      member deterministically so different solutions spread across containers
+      while the same solution always reuses its container.
+    - Otherwise → current single-sidecar behavior (working url, then candidates).
+    """
+    if session_id and session_id in _sidecar_base_by_session:
+        return _sidecar_base_by_session[session_id]
+
+    pool = _pool_urls()
+    if pool:
+        key = session_id or seed
+        if key:
+            idx = int(hashlib.md5(key.encode("utf-8")).hexdigest(), 16) % len(pool)
+            target = pool[idx]
+            if session_id:
+                _sidecar_base_by_session[session_id] = target
+            return target
+    return _get_base_url()
 
 
 def _get_base_url() -> str:
@@ -362,13 +549,16 @@ async def diagnose() -> dict[str, Any]:
     }
 
 
-async def create_session(title: str) -> str:
+async def create_session(title: str, seed: str = "") -> str:
     """Create a new OpenCode session and return its id.
 
     Classic 1.x API: ``POST /session``. Newer builds expose the same route under
-    ``POST /api/session`` — try both (fall back on 404).
+    ``POST /api/session`` — try both (fall back on 404).  In pool mode the
+    session is pinned to a deterministically chosen container so it and the
+    container stay there for the lifetime of the session.
     """
-    async with _client() as client:
+    base_url = _pick_base_url(seed=seed)
+    async with _client(base_url=base_url) as client:
         resp = None
         for path in (f"/session", f"/api/session"):
             resp = await client.post(path, json={"title": title})
@@ -383,7 +573,13 @@ async def create_session(title: str) -> str:
         session_id = body.get("id") or body.get("sessionID") or body.get("sessionId")
         if not isinstance(session_id, str) or not session_id:
             raise MVPBuilderError("OpenCode session response missing 'id'")
-        logger.info("OpenCode session created: %s", session_id)
+        _sidecar_base_by_session[session_id] = base_url
+        logger.info(
+            "OpenCode session created: %s (sidecar=%s, pool=%d members)",
+            session_id,
+            base_url,
+            len(_pool_urls()),
+        )
         return session_id
 
 
@@ -393,6 +589,7 @@ async def send_message(
     *,
     agent: str | None = None,
     timeout: int | None = None,
+    seed: str = "",
 ) -> dict[str, Any]:
     """Send a message to an OpenCode session and wait for the full response."""
     payload: dict[str, Any] = {
@@ -403,7 +600,8 @@ async def send_message(
         f"/session/{session_id}/message",
         f"/api/session/{session_id}/prompt",
     )
-    async with _client() as client:
+    base_url = _pick_base_url(seed=seed, session_id=session_id)
+    async with _client(base_url=base_url) as client:
         resp = None
         for path in paths:
             resp = await client.post(
@@ -422,15 +620,20 @@ async def send_message(
         return result
 
 
-async def send_build_prompt(session_id: str, prompt: str) -> dict[str, Any]:
+async def send_build_prompt(
+    session_id: str, prompt: str, *, seed: str = ""
+) -> dict[str, Any]:
     """Send the MVP build prompt and wait for the full assistant response."""
-    return await send_message(session_id, prompt)
+    return await send_message(session_id, prompt, seed=seed)
 
 
-async def abort_session(session_id: str) -> None:
+async def abort_session(
+    session_id: str, *, seed: str = "", base_url: str | None = None
+) -> None:
     """Abort a running session (best-effort)."""
     try:
-        async with _client() as client:
+        resolved = base_url or _pick_base_url(seed=seed, session_id=session_id)
+        async with _client(base_url=resolved) as client:
             for path in (f"/session/{session_id}/abort", f"/api/session/{session_id}/interrupt"):
                 resp = await client.post(path, timeout=10.0)
                 if resp.status_code not in (404, 501):
@@ -2543,12 +2746,22 @@ async def run_build(
     user_prompt: str = "",
     check_npm: bool = False,
     allow_offline: bool = False,
+    progress_cb: Callable[[int, int, str], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
-    """Run an OpenCode MVP build synchronously. Returns build result metadata."""
+    """Run an OpenCode MVP build synchronously. Returns build result metadata.
+
+    ``progress_cb(idx, percentage, message)`` is awaited at each pipeline stage
+    (analyzing → scaffolding → coding → verifying → packaging) so callers can
+    persist live progress for the UI.
+    """
     if not allow_offline and not await health():
         raise MVPBuilderError(
             "OpenCode sidecar is unreachable. Ensure the opencode service is running."
         )
+
+    async def _notify(step_idx: int, percentage: int, message: str) -> None:
+        if progress_cb is not None:
+            await progress_cb(step_idx, percentage, message)
 
     from app.services.app_spec import AppSpec, generate_app_spec
 
@@ -2585,17 +2798,30 @@ async def run_build(
         ai_state=ai_state,
         spec=spec,
     )
+    await _notify(1, 40, "Scaffolded full-stack codebase (FastAPI + Next.js)...")
 
     prompt = build_mvp_prompt(spec if spec else ai_state, target_dir, app_title=title)
+    await _notify(0, 10, "Analyzing solution artifacts and build plan...")
 
     session_id: str = "auto-synthesized"
+    sidecar_seed = str(solution_id)
     sidecar_ok = await health()
     quality: dict[str, Any] | None = None
+    sidecar_url: str | None = None
+    await _notify(2, 60, "Synthesizing domain models, APIs, and UI...")
     if sidecar_ok:
         try:
-            session_id = await create_session(f"MVP Build - {title or solution_id}")
-            logger.info("Starting MVP build for solution=%s (session=%s)", solution_id, session_id)
-            response = await send_build_prompt(session_id, prompt)
+            session_id = await create_session(
+                f"MVP Build - {title or solution_id}", seed=sidecar_seed
+            )
+            sidecar_url = _sidecar_base_by_session.get(session_id)
+            logger.info(
+                "Starting MVP build for solution=%s (session=%s, sidecar=%s)",
+                solution_id,
+                session_id,
+                sidecar_url,
+            )
+            response = await send_build_prompt(session_id, prompt, seed=sidecar_seed)
             logger.info(
                 "MVP build finished for solution=%s (session=%s, %s)",
                 solution_id,
@@ -2604,13 +2830,14 @@ async def run_build(
             )
 
             # Verification Checkpoint & Bounded Repair Turn
+            await _notify(3, 85, "Verifying generated code & repairing issues...")
             from app.services.mvp_verifier import verify_and_repair
 
             verification = await verify_and_repair(
                 local_dir,
                 session_id=session_id,
                 target_dir=target_dir,
-                send_prompt_fn=send_build_prompt,
+                send_prompt_fn=lambda s, t: send_build_prompt(s, t, seed=sidecar_seed),
                 check_npm=check_npm,
             )
             if spec:
@@ -2640,7 +2867,7 @@ async def run_build(
             )
             if session_id and session_id != "auto-synthesized":
                 with contextlib.suppress(Exception):
-                    await abort_session(session_id)
+                    await abort_session(session_id, seed=sidecar_seed)
 
             if spec and any(spec.actions):
                 raise MVPBuilderError(
@@ -2663,6 +2890,7 @@ async def run_build(
         )
         # Even in offline mode, verify the synthesized output so broken
         # scaffolds are never silently shipped as "complete".
+        await _notify(3, 85, "Verifying generated code offline...")
         from app.services.mvp_verifier import verify_workspace
 
         errors = verify_workspace(local_dir, check_npm=False)
@@ -2672,9 +2900,11 @@ async def run_build(
                 f"Synthesized build failed verification ({len(errors)} error(s)): {error_summary}"
             )
 
+    await _notify(4, 95, "Packaging artifact...")
     files = list_build_files(local_dir)
     res: dict[str, Any] = {
         "session_id": session_id,
+        "sidecar_url": sidecar_url,
         "local_dir": str(local_dir),
         "file_count": len(files),
         "files": relative_paths(local_dir),
