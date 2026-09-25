@@ -22,7 +22,7 @@ from app.api.export import router as export_router
 from app.api.mvp import router as mvp_router
 from app.api.opencode_chat import router as opencode_router
 from app.api.solutions import router as solutions_router
-from app.api.system import router as system_router
+from app.api.system import resources_router, router as system_router
 from app.api.upload import router as upload_router
 from app.api.workable import router as workable_router
 from app.api.workspaces import router as workspaces_router
@@ -202,6 +202,7 @@ register_exception_handlers(app)
 
 # ── Register Routes ──────────────────────────────
 app.include_router(system_router)
+app.include_router(resources_router)
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(workspaces_router, prefix="/api/v1")
 app.include_router(solutions_router, prefix="/api/v1")

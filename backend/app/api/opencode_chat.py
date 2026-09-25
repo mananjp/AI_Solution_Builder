@@ -720,7 +720,7 @@ async def chat(
                         return
                     if not session_id:
                         session_id = await builder.create_session(
-                            f"Custom Build - {solution.title}"
+                            f"Custom Build - {solution.title}", seed=str(solution.id)
                         )
                         ai_state["opencode_session_id"] = session_id
                     agent_name = "opencode"
@@ -799,6 +799,7 @@ async def chat(
                                 instruction,
                                 agent=settings.OPENCODE_AGENT,
                                 timeout=25,
+                                seed=str(solution.id),
                             ),
                             timeout=30.0,
                         )
@@ -1116,7 +1117,7 @@ async def chat(
                                     session_id=session_id,
                                     target_dir=target_dir,
                                     send_prompt_fn=lambda s, t: builder.send_message(
-                                        s, t, timeout=settings.MVP_BUILD_TIMEOUT
+                                        s, t, timeout=settings.MVP_BUILD_TIMEOUT, seed=str(solution.id)
                                     ),
                                     check_npm=False,
                                     max_repair_turns=settings.MVP_MAX_REPAIR_TURNS,

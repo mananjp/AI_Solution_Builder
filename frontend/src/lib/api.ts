@@ -19,7 +19,10 @@ import {
   MVPQuickBuildPayload,
   MVPDeployPayload,
   MVPDeployResult,
+  MVPDeployStatus,
+  MVPEnvPlan,
   OpenCodeChatPayload,
+  SystemResources,
   SocialProvidersResponse,
   AnonymousAuthResponse,
   UpgradeAnonymousPayload,
@@ -521,6 +524,16 @@ export const mvpApi = {
     });
   },
 
+  /** Required/optional env vars the finished build needs (UI-driven deploy prep). */
+  async envPlan(buildId: string): Promise<MVPEnvPlan> {
+    return request<MVPEnvPlan>(`/mvp/builds/${buildId}/env-plan`);
+  },
+
+  /** Poll actual Render deploy state (never a fake "deployed"). */
+  async deployStatus(buildId: string): Promise<MVPDeployStatus> {
+    return request<MVPDeployStatus>(`/mvp/builds/${buildId}/deploy/status`);
+  },
+
   async destroy(buildId: string) {
     return request<void>(`/mvp/builds/${buildId}`, {
       method: 'DELETE',
@@ -905,3 +918,23 @@ export async function sendOpenCodeChatStream(
 ) {
   await streamSSE('/opencode/chat', payload, handlers);
 }
+
+export interface SandboxChatMessage {
+  role: string;
+  content: string;
+}
+
+export async function sendSandboxChatStream(
+  buildId: string,
+  payload: { message: string; history?: SandboxChatMessage[] },
+  handlers: StreamHandlers
+) {
+  await streamSSE(`/mvp/builds/${buildId}/sandbox/chat`, payload, handlers);
+}
+
+// ── System Resources (live CPU / memory / disk observability) ──────
+export const systemApi = {
+  async resources(): Promise<SystemResources> {
+    return request<SystemResources>('/system/resources');
+  },
+};

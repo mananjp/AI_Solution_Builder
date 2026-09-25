@@ -16,10 +16,14 @@ from app.core.config import settings
 from app.core.database import engine
 from app.core.metrics import metrics_response, set_db_health, set_redis_health
 from app.core.redis import ping_redis
+from app.services.resources import system_resources
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["System"])
+# Mounted separately so it lives under /api/v1/system/ for the frontend while
+# the infra probes (/health, /ready) stay at the route root.
+resources_router = APIRouter(prefix="/api/v1/system", tags=["System Resources"])
 
 
 @router.get("/health")
@@ -64,3 +68,9 @@ async def readiness_check() -> dict[str, Any]:
 async def metrics() -> Response:
     """Prometheus metrics in OpenMetrics text format."""
     return metrics_response()
+
+
+@resources_router.get("/resources")
+async def resources() -> dict[str, Any]:
+    """Live CPU, memory, and disk sampling for observability."""
+    return await system_resources()

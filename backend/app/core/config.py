@@ -108,6 +108,10 @@ class Settings(BaseSettings):
 
     # ── OpenCode MVP Builder (sidecar) ────────────
     OPENCODE_SERVER_URL: str = "http://127.0.0.1:4096"
+    # Comma-separated sidecar endpoints (e.g. "http://opencode-1:4096,http://opencode-2:4096").
+    # When set, concurrent builds are spread across containers and each session is
+    # deterministically pinned to one member of the pool (parallel multi-user builds).
+    OPENCODE_POOL_URLS: str = ""
     OPENCODE_ZEN_API_KEY: str = ""  # Optional — only needed for opencode/* Zen models
     OPENCODE_MODEL: str = "opencode/big-pickle"
     OPENCODE_AGENT: str = "mvp-builder"
