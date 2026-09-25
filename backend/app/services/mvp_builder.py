@@ -2312,24 +2312,35 @@ def scaffold_build(
             write_generated(root, extracted_spec)
             logger.info("Scaffolded build %s from AppSpec (spec-first path)", root)
         else:
-            # Deterministic fallback AppSpec from ai_state heuristics
-            logger.info(
-                "No validated AppSpec in ai_state for %s; generating deterministic fallback AppSpec",
-                app_title,
-            )
+            # Synthesize domain application shell, models, schemas, and routers from ai_state
+            try:
+                _auto_synthesize_slots(root, ai_state, app_title)
+                logger.info("Scaffolded build %s using auto slot synthesis", root)
+            except Exception as exc2:
+                logger.warning("Auto slot synthesis failed: %s", exc2)
+
+            # Generate spec.json and acceptance test harness for verification
             try:
                 from app.services.app_spec import fallback_app_spec
-                from app.services.spec_codegen import write_generated
+                from app.services.spec_codegen import CONFTEST, gen_acceptance_tests, gen_actions_stub
 
                 fallback_spec = fallback_app_spec(ai_state, app_title)
-                write_generated(root, fallback_spec)
-                logger.info("Scaffolded build %s using fallback AppSpec", root)
+                be = root / "backend"
+                (be / "tests").mkdir(parents=True, exist_ok=True)
+                actions_file = be / "actions.py"
+                if not actions_file.exists():
+                    actions_file.write_text(gen_actions_stub(fallback_spec), encoding="utf-8")
+                conftest_file = be / "tests" / "conftest.py"
+                if not conftest_file.exists():
+                    conftest_file.write_text(CONFTEST, encoding="utf-8")
+                test_acc_file = be / "tests" / "test_acceptance.py"
+                if not test_acc_file.exists():
+                    test_acc_file.write_text(gen_acceptance_tests(fallback_spec), encoding="utf-8")
+                spec_file = root / "spec.json"
+                if not spec_file.exists():
+                    spec_file.write_text(fallback_spec.model_dump_json(indent=2), encoding="utf-8")
             except Exception as exc:
-                logger.warning("Fallback AppSpec generation failed: %s; using auto-slots", exc)
-                try:
-                    _auto_synthesize_slots(root, ai_state, app_title)
-                except Exception as exc2:
-                    logger.warning("Auto slot synthesis skipped: %s", exc2)
+                logger.warning("Fallback test harness generation skipped: %s", exc)
     else:
         try:
             from app.services.app_spec import fallback_app_spec
@@ -2438,10 +2449,19 @@ CRUD: `GET/POST /api/v1/{{plural}}`, `GET/PATCH/DELETE /api/v1/{{plural}}/{{id}}
    function names and signatures. Return plain JSON-serialisable dicts.
 {actions}
 
-2. **frontend** (Next.js App Router, Tailwind, `src/lib/api.ts` client, types from `src/lib/types.ts`):
+2. **frontend** (Next.js App Router, Tailwind CSS, Framer Motion, Skiper UI):
    create one `page.tsx` per screen at `frontend/src/app/<route>/page.tsx` ("use client").
-   Each page loads and mutates REAL data through the API — no hardcoded sample arrays.
-   Replace `{{/* __MODULE_LINKS__ */}}` in `src/app/page.tsx` with navigation to the screens.
+   Each page loads and mutates REAL data through the API (`@/lib/api`) and types (`@/lib/types`).
+   QUALITY & MOTION: Web applications must have polished visual animations and feel alive.
+   - Use Framer Motion (`framer-motion`) and Skiper UI (`@skiper-ui` / `skipper-ui.com`).
+   - Import pre-bundled components from `@/components/ui/skiper-ui`:
+     `Link000`, `Link001` (animated hover underline & arrow), `SkiperCard` (spotlight hover & lift),
+     `SkiperButton` (motion press & glow), `SkiperBadge` (radar ping pulse), `SkiperCounter`,
+     and motion wrappers (`FadeIn`, `SlideUp`, `StaggerContainer`).
+   - You can also add additional components with `npx shadcn add @skiper-ui/<component>`.
+   - Add micro-animations: staggered card entrances (`motion.div`), hover elevation, slide-over
+     drawers with backdrop blur for modals/forms, dynamic status pill pulses, and smooth transitions.
+   Replace `{{/* __MODULE_LINKS__ */}}` in `src/app/page.tsx` with animated navigation to the screens.
 {screens}
 
 ## Acceptance tests you must make pass
@@ -2452,6 +2472,7 @@ Run them yourself if bash is available: `cd backend && python -m pytest -q`.
 - Implement rules generally; never special-case test inputs.
 - Validation errors → HTTPException(400); missing rows → 404; conflicts → 409.
 - No new dependencies. No secrets. Do not start servers.
+- Use Framer Motion and Skiper UI for animation and visual excellence.
 - Finish with: files changed + which tests you expect to pass.
 """
 
@@ -2536,11 +2557,10 @@ Run them yourself if bash is available: `cd backend && python -m pytest -q`.
             "`__ROUTER_INSERTION_POINT__`) and register it in `main.py`.",
             "4. **demo auth** — keep the provided JWT helper; add a simple `auth/login` + "
             "`auth/register` endpoint if the API spec includes one.",
-            "5. **frontend** — craft an authentic, production-grade domain application in `src/app/page.tsx`: "
-            "include an interactive catalog/showcase with search and category filters, a slide-over action/cart drawer "
-            "with real-time total calculations, and an operations/admin tracking board with live workflow status progression "
-            "and telemetry metrics. Under `src/app/{module_slug}/`, provide full-featured domain studio pages. "
-            "CRITICAL: Do NOT generate a barebones todo list or generic CRUD table with placeholder labels.",
+            "5. **frontend** — build a high-quality, animated domain app in `src/app/page.tsx` "
+            "and `src/app/{module_slug}/`. Use Framer Motion and Skiper UI (`@skiper-ui` in `@/components/ui/skiper-ui` "
+            "or `npx shadcn add @skiper-ui/<name>`): staggered entrances, hover glow, slide-over drawers with blur, "
+            "pulsing radar badges, and animated counters. No barebones todo or plain tables.",
             "6. **Alembic** — one initial migration for the full schema.",
             "",
             "## Architecture context",
@@ -2707,23 +2727,16 @@ async def run_build(
         except Exception as exc:
             # Let verification failures propagate so the build is marked failed
             # honestly rather than shipping broken code as "complete".
+            if session_id and session_id != "auto-synthesized":
+                with contextlib.suppress(Exception):
+                    await abort_session(session_id)
+
             from app.services.mvp_verifier import VerificationError
 
             if isinstance(exc, VerificationError):
                 raise MVPBuilderError(f"Build verification failed: {exc}") from exc
-
-            # Any sidecar failure (timeout, session loss, HTTP error) must NOT be
-            # papered over: an app with business actions can never be shipped as
-            # a scaffolded CRUD shell. Fail honestly for action-bearing specs and
-            # strictly verify the fallback for pure-CRUD/legacy specs.
-            logger.warning(
-                "OpenCode refinement failed or timed out (%s); solution=%s",
-                exc,
-                solution_id,
-            )
-            if session_id and session_id != "auto-synthesized":
-                with contextlib.suppress(Exception):
-                    await abort_session(session_id)
+            if isinstance(exc, MVPBuilderError):
+                raise exc
 
             if spec and any(spec.actions):
                 logger.info(

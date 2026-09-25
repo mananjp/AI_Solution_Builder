@@ -573,12 +573,18 @@ _DASHBOARD_TSX = """\
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { motion } from "framer-motion";
 import { api } from "@/lib/api";
+import { SkiperBadge } from "@/components/ui/skiper-ui/skiper-badge";
+import { SkiperCard } from "@/components/ui/skiper-ui/skiper-card";
+import { Link001 } from "@/components/ui/skiper-ui/skiper40";
+import { Layers, Database, Sparkles, Activity, Search } from "lucide-react";
 
 const ENTITY_ROUTES: [string, string][] = @@ENTITY_ROUTES@@;
 
 export default function Dashboard() {
   const [counts, setCounts] = useState<Record<string, number>>({});
+  const [filter, setFilter] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -593,44 +599,172 @@ export default function Dashboard() {
     })();
   }, []);
 
+  const totalRecords = Object.values(counts).reduce((a, b) => a + b, 0);
+  const visibleRoutes = ENTITY_ROUTES.filter(([name]) =>
+    name.toLowerCase().includes(filter.toLowerCase())
+  );
+
   return (
-    <main className="mx-auto max-w-5xl px-6 py-12">
-      <h1 className="text-3xl font-bold">@@TITLE@@</h1>
-      <p className="mt-2 text-slate-600">@@PURPOSE@@</p>
-      <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {ENTITY_ROUTES.map(([name, path]) => (
-          <Link
-            key={name}
-            href={`/${path}`}
-            className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md"
-          >
-            <h2 className="text-lg font-semibold capitalize">
-              {name.replaceAll("_", " ")}
+    <main className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 px-6 py-12 text-slate-900">
+      <div className="mx-auto max-w-6xl">
+        {/* Animated Hero Header */}
+        <motion.div
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="relative overflow-hidden rounded-3xl border border-slate-200/90 bg-white/80 p-8 shadow-sm backdrop-blur-md md:p-10"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <SkiperBadge variant="purple" pulse>
+                  Production Prototype
+                </SkiperBadge>
+                <SkiperBadge variant="success" pulse={false}>
+                  Live API
+                </SkiperBadge>
+              </div>
+              <h1 className="text-3xl font-extrabold tracking-tight md:text-4xl text-slate-900">
+                @@TITLE@@
+              </h1>
+              <p className="mt-2 text-slate-600 max-w-2xl">
+                @@PURPOSE@@
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Link001
+                href="/api/docs"
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:border-indigo-300"
+              >
+                API Docs
+              </Link001>
+            </div>
+          </div>
+
+          {/* Quick Metrics Bar */}
+          <div className="mt-8 grid grid-cols-2 gap-4 border-t border-slate-100 pt-6 sm:grid-cols-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                <Layers className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="text-xl font-bold text-slate-900">{ENTITY_ROUTES.length}</div>
+                <div className="text-xs text-slate-500">Modules</div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                <Database className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="text-xl font-bold text-slate-900">{totalRecords}</div>
+                <div className="text-xs text-slate-500">Total Records</div>
+              </div>
+            </div>
+
+            <div className="col-span-2 sm:col-span-1 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+                <Activity className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="text-xl font-bold text-slate-900">99.9%</div>
+                <div className="text-xs text-slate-500">System Uptime</div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Search & Header */}
+        <div className="mt-10 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-bold tracking-tight text-slate-900">
+              Application Modules
             </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              {counts[name] ?? "…"} records
+            <p className="text-xs text-slate-500">
+              Manage data models and business logic workflows
             </p>
-          </Link>
-        ))}
+          </div>
+
+          <div className="relative w-full max-w-xs">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search modules..."
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-4 text-xs font-medium text-slate-900 placeholder:text-slate-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+            />
+          </div>
+        </div>
+
+        {/* Animated Cards Grid */}
+        <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {visibleRoutes.map(([name, path], idx) => (
+            <motion.div
+              key={name}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: idx * 0.05, duration: 0.3 }}
+            >
+              <Link href={`/${path}`} className="group block">
+                <SkiperCard
+                  glow
+                  interactive
+                  className="border-slate-200/80 bg-white p-6 transition-all group-hover:border-indigo-400/80 group-hover:shadow-lg group-hover:shadow-indigo-500/5"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
+                      <Sparkles className="h-5 w-5" />
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
+                      {counts[name] ?? "…"} records
+                    </span>
+                  </div>
+
+                  <h3 className="mt-4 text-lg font-bold capitalize text-slate-900 group-hover:text-indigo-600 transition-colors">
+                    {name.replaceAll("_", " ")}
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Access data records, creation forms, and API actions for {name.replaceAll("_", " ")}.
+                  </p>
+
+                  <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4 text-xs font-semibold text-indigo-600">
+                    <span>Manage {name.replaceAll("_", " ")}</span>
+                    <span className="transition-transform group-hover:translate-x-1">→</span>
+                  </div>
+                </SkiperCard>
+              </Link>
+            </motion.div>
+          ))}
+        </div>
       </div>
     </main>
   );
 }
-"""
+\"\"\"
 
-_ENTITY_PAGE_TSX = """\
+_ENTITY_PAGE_TSX = \"\"\"\\
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { motion, AnimatePresence } from "framer-motion";
 import type { @@TYPE@@ } from "@/lib/types";
 import { api } from "@/lib/api";
+import { SkiperBadge } from "@/components/ui/skiper-ui/skiper-badge";
+import { SkiperButton } from "@/components/ui/skiper-ui/skiper-button";
+import { Plus, ArrowLeft, Trash2, Search, CheckCircle2, AlertCircle, RefreshCw } from "lucide-react";
 
 export default function @@PAGE_NAME@@() {
   const [rows, setRows] = useState<@@TYPE@@[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [form, setForm] = useState<Record<string, string | boolean>>({});
+  const [showDrawer, setShowDrawer] = useState(false);
+  const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -654,6 +788,9 @@ export default function @@PAGE_NAME@@() {
       @@FIELD_ASSIGN@@
       await api.post<@@TYPE@@>("/@@PLURAL@@", body);
       setForm({});
+      setShowDrawer(false);
+      setNotice("@@SINGULAR@@ created successfully!");
+      setTimeout(() => setNotice(""), 3000);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create record");
@@ -661,8 +798,11 @@ export default function @@PAGE_NAME@@() {
   };
 
   const remove = async (id: number) => {
+    if (!window.confirm("Are you sure you want to delete this record?")) return;
     try {
       await api.del(`/@@PLURAL@@/${id}`);
+      setNotice("Record deleted successfully.");
+      setTimeout(() => setNotice(""), 3000);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete record");
@@ -674,72 +814,228 @@ export default function @@PAGE_NAME@@() {
   const set = (name: string, value: string | boolean) =>
     setForm((f) => ({ ...f, [name]: value }));
 
+  const filteredRows = rows.filter((r) => {
+    if (!search.trim()) return true;
+    return JSON.stringify(r).toLowerCase().includes(search.toLowerCase());
+  });
+
   return (
-    <main className="mx-auto max-w-5xl px-6 py-12">
-      <Link href="/" className="text-sm text-slate-500 hover:underline">
-        ← Dashboard
-      </Link>
-      <h1 className="mt-2 text-3xl font-bold">@@TITLE@@</h1>
-      <p className="mt-2 text-slate-600">@@PURPOSE@@</p>
-
-      {error && (
-        <p className="mt-4 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">
-          {error}
-        </p>
-      )}
-
-      <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-semibold">New @@SINGULAR@@</h2>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void create();
-          }}
-          className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2"
-        >
-          @@FORM_FIELDS@@
-          <button
-            type="submit"
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+    <main className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 px-6 py-12 text-slate-900">
+      <div className="mx-auto max-w-6xl">
+        {/* Navigation Breadcrumb & Actions */}
+        <div className="flex items-center justify-between">
+          <Link
+            href="/"
+            className="group inline-flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-indigo-600 transition-colors"
           >
-            Create
-          </button>
-        </form>
-      </section>
+            <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-1" />
+            Back to Dashboard
+          </Link>
 
-      <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-semibold">Records</h2>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-slate-500">
-                <th className="px-3 py-2">ID</th>
-                @@HEADERS@@
-                <th className="px-3 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id} className="border-b border-slate-100">
-                  <td className="px-3 py-2">{row.id}</td>
-                  @@CELLS@@
-                  <td className="px-3 py-2 text-right">
-                    <button
-                      onClick={() => void remove(row.id)}
-                      className="text-red-600 hover:underline"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!loading && rows.length === 0 && (
-            <p className="mt-4 text-sm text-slate-500">No records yet.</p>
-          )}
+          <SkiperBadge variant="purple" pulse={false}>
+            Module: @@PLURAL@@
+          </SkiperBadge>
         </div>
-      </section>
+
+        {/* Header Hero */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-200/90 bg-white/80 p-8 shadow-sm backdrop-blur-md"
+        >
+          <div>
+            <h1 className="text-3xl font-extrabold tracking-tight">@@TITLE@@</h1>
+            <p className="mt-1 text-sm text-slate-600">@@PURPOSE@@</p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => void load()}
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 transition-colors"
+              title="Refresh records"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin text-indigo-600" : ""}`} />
+            </button>
+            <SkiperButton
+              variant="glow"
+              size="md"
+              icon={<Plus className="h-4 w-4" />}
+              onClick={() => setShowDrawer(true)}
+            >
+              New @@SINGULAR@@
+            </SkiperButton>
+          </div>
+        </motion.div>
+
+        {/* Notices and Alerts */}
+        <AnimatePresence>
+          {notice && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="mt-4 flex items-center gap-2 rounded-xl bg-emerald-50 border border-emerald-200/80 px-4 py-3 text-xs font-semibold text-emerald-800 shadow-sm"
+            >
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+              <span>{notice}</span>
+            </motion.div>
+          )}
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="mt-4 flex items-center gap-2 rounded-xl bg-rose-50 border border-rose-200/80 px-4 py-3 text-xs font-semibold text-rose-800 shadow-sm"
+            >
+              <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+              <span>{error}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Data Management Section */}
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-5">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Registered Records</h2>
+              <p className="text-xs text-slate-500">
+                {rows.length} total entries recorded in database
+              </p>
+            </div>
+
+            <div className="relative w-full max-w-xs">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Filter records..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2 pl-9 pr-4 text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  <th className="px-4 py-3">ID</th>
+                  @@HEADERS@@
+                  <th className="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {filteredRows.map((row) => (
+                  <tr
+                    key={row.id}
+                    className="hover:bg-slate-50/80 transition-colors"
+                  >
+                    <td className="px-4 py-3 text-xs font-semibold text-slate-500">#{row.id}</td>
+                    @@CELLS@@
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => void remove(row.id)}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 hover:text-rose-800 transition-colors p-1 rounded-md hover:bg-rose-50"
+                        title="Delete record"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        <span>Delete</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {loading && (
+              <div className="flex items-center justify-center py-12 text-slate-400 text-xs gap-2">
+                <RefreshCw className="h-4 w-4 animate-spin text-indigo-600" />
+                <span>Loading records...</span>
+              </div>
+            )}
+
+            {!loading && filteredRows.length === 0 && (
+              <div className="py-12 text-center">
+                <p className="text-sm font-medium text-slate-500">No records found.</p>
+                <p className="text-xs text-slate-400 mt-1">Get started by creating a new entry.</p>
+                <div className="mt-4">
+                  <SkiperButton
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowDrawer(true)}
+                  >
+                    Create First Record
+                  </SkiperButton>
+                </div>
+              </div>
+            )}
+          </div>
+        </motion.section>
+
+        {/* Slide-over Create Record Drawer */}
+        <AnimatePresence>
+          {showDrawer && (
+            <div className="fixed inset-0 z-50 flex justify-end">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowDrawer(false)}
+                className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm"
+              />
+
+              <motion.div
+                initial={{ x: "100%" }}
+                animate={{ x: 0 }}
+                exit={{ x: "100%" }}
+                transition={{ type: "spring", damping: 28, stiffness: 300 }}
+                className="relative z-10 w-full max-w-md bg-white p-8 shadow-2xl overflow-y-auto"
+              >
+                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900">New @@SINGULAR@@</h3>
+                    <p className="text-xs text-slate-500">Fill in the fields to create a record</p>
+                  </div>
+                  <button
+                    onClick={() => setShowDrawer(false)}
+                    className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void create();
+                  }}
+                  className="mt-6 space-y-4"
+                >
+                  @@FORM_FIELDS@@
+
+                  <div className="pt-6 flex items-center justify-end gap-3 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setShowDrawer(false)}
+                      className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <SkiperButton type="submit" variant="glow" size="md">
+                      Save Record
+                    </SkiperButton>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </div>
     </main>
   );
 }
