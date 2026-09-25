@@ -21,7 +21,7 @@ import {
 import ChatMessage from '@/components/ChatMessage';
 import FileUploader from '@/components/FileUploader';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
-import { opencodeApi, sendOpenCodeChatStream, mvpApi } from '@/lib/api';
+import { opencodeApi, sendOpenCodeChatStream, mvpApi, solutionApi } from '@/lib/api';
 import { BuildStep, MVPBuild, MVPDeployResult, OpenCodeChatComplete, OpenCodeBuildProgress } from '@/types';
 import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
 import { useI18n } from '@/components/I18nProvider';
@@ -62,7 +62,10 @@ function ChatContent() {
   const searchParams = useSearchParams();
   const { t } = useI18n();
   const initialPrompt = searchParams.get('prompt') || '';
-  const initialSolutionId = searchParams.get('solution_id') || null;
+  const querySolutionId = searchParams.get('solution_id');
+  const isNewRequested = searchParams.get('new') === 'true' || Boolean(initialPrompt && !querySolutionId);
+  const storedSolutionId = typeof window !== 'undefined' && !isNewRequested ? localStorage.getItem('sutra_active_solution_id') : null;
+  const initialSolutionId = querySolutionId || storedSolutionId || null;
 
   const [input, setInput] = useState(initialPrompt);
   const [appName, setAppName] = useState(searchParams.get('app_name') || '');
@@ -73,6 +76,7 @@ function ChatContent() {
   }]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [solutionId, setSolutionId] = useState<string | null>(initialSolutionId);
+  const loadedSolutionIdRef = useRef<string | null>(null);
   const [uploadedContext, setUploadedContext] = useState('');
   const [uploadedFilename, setUploadedFilename] = useState('');
   const [showUploader, setShowUploader] = useState(true);
@@ -104,6 +108,66 @@ function ChatContent() {
     }, 1000);
     return () => clearInterval(timer);
   }, [isStreaming, buildProgress]);
+
+  const targetId = isNewRequested ? null : (querySolutionId || solutionId);
+
+  // Hydrate conversation history and metadata when solution is established
+  useEffect(() => {
+    if (!targetId) {
+      loadedSolutionIdRef.current = null;
+      return;
+    }
+
+    if (loadedSolutionIdRef.current === targetId) {
+      return;
+    }
+
+    let active = true;
+    solutionApi
+      .get(targetId)
+      .then((sol) => {
+        if (!active) return;
+        loadedSolutionIdRef.current = sol.id;
+        setSolutionId(sol.id);
+        if (sol.title && sol.title !== 'Custom App Build' && sol.title !== 'Custom App') {
+          setAppName(sol.title);
+        }
+        if (sol.ai_state?.opencode_session_id && typeof sol.ai_state.opencode_session_id === 'string') {
+          setSessionId(sol.ai_state.opencode_session_id);
+        }
+        if (sol.conversation_history && sol.conversation_history.length > 0) {
+          const restored: Msg[] = sol.conversation_history.map((m) => ({
+            role: (m.role as 'user' | 'assistant' | 'system') || 'assistant',
+            content: m.content || '',
+            agent: m.role === 'assistant' ? t('common.sutraOrchestrator') : undefined,
+          }));
+          setMessages(restored);
+        }
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('sutra_active_solution_id', sol.id);
+          const currentUrl = new URL(window.location.href);
+          if (currentUrl.searchParams.get('solution_id') !== sol.id) {
+            currentUrl.searchParams.set('solution_id', sol.id);
+            window.history.replaceState(null, '', currentUrl.pathname + currentUrl.search);
+          }
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('sutra_active_solution_id');
+          const currentUrl = new URL(window.location.href);
+          currentUrl.searchParams.delete('solution_id');
+          window.history.replaceState(null, '', currentUrl.pathname + currentUrl.search);
+        }
+        setSolutionId(null);
+        loadedSolutionIdRef.current = null;
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [targetId, t]);
 
   // Load any existing builds for this solution on mount
   useEffect(() => {
@@ -171,13 +235,35 @@ function ChatContent() {
           onEvent: (event, data) => {
             if (event === 'agent_start') {
               if (typeof data.session_id === 'string') setSessionId(data.session_id);
-              if (typeof data.solution_id === 'string') setSolutionId(data.solution_id);
+              if (typeof data.solution_id === 'string' && data.solution_id) {
+                loadedSolutionIdRef.current = data.solution_id;
+                setSolutionId(data.solution_id);
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('sutra_active_solution_id', data.solution_id);
+                  const currentUrl = new URL(window.location.href);
+                  if (currentUrl.searchParams.get('solution_id') !== data.solution_id) {
+                    currentUrl.searchParams.set('solution_id', data.solution_id);
+                    window.history.replaceState(null, '', currentUrl.pathname + currentUrl.search);
+                  }
+                }
+              }
               push((data.message as string) || t('chat.initializingIntelligence'), (data.agent as string) || 'SUTRA Intelligence');
             } else if (event === 'capability') {
               setCapability(data as unknown as BuildCapability);
             } else if (event === 'build_progress') {
               const p = data as unknown as OpenCodeBuildProgress;
-              if (p.solution_id) setSolutionId(p.solution_id);
+              if (p.solution_id) {
+                loadedSolutionIdRef.current = p.solution_id;
+                setSolutionId(p.solution_id);
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('sutra_active_solution_id', p.solution_id);
+                  const currentUrl = new URL(window.location.href);
+                  if (currentUrl.searchParams.get('solution_id') !== p.solution_id) {
+                    currentUrl.searchParams.set('solution_id', p.solution_id);
+                    window.history.replaceState(null, '', currentUrl.pathname + currentUrl.search);
+                  }
+                }
+              }
 
               if (p.session_id) setSessionId(p.session_id);
               const inferred = p.percentage ?? Math.round(((p.step || 1) / Math.max(p.total_steps || 7, 1)) * 100);
@@ -203,7 +289,18 @@ function ChatContent() {
           onComplete: async (data) => {
             const c = data as OpenCodeChatComplete;
             if (c.session_id) setSessionId(c.session_id);
-            if (c.solution_id) setSolutionId(c.solution_id);
+            if (c.solution_id) {
+              loadedSolutionIdRef.current = c.solution_id;
+              setSolutionId(c.solution_id);
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('sutra_active_solution_id', c.solution_id);
+                const currentUrl = new URL(window.location.href);
+                if (currentUrl.searchParams.get('solution_id') !== c.solution_id) {
+                  currentUrl.searchParams.set('solution_id', c.solution_id);
+                  window.history.replaceState(null, '', currentUrl.pathname + currentUrl.search);
+                }
+              }
+            }
             push(c.message || t('chat.synthesisComplete'), t('common.sutraOrchestrator'));
             if (c.build_id) {
               try {
@@ -238,7 +335,11 @@ function ChatContent() {
       const msg = e instanceof Error ? e.message : 'Unable to reach SUTRA intelligence layer.';
       setError(msg);
       if (msg.includes('404') || msg.toLowerCase().includes('not found') || msg.toLowerCase().includes('solution')) {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('sutra_active_solution_id');
+        }
         setSolutionId(null);
+        loadedSolutionIdRef.current = null;
       }
       setBuildProgress(null);
       setIsStreaming(false);
