@@ -2402,6 +2402,55 @@ class AgentRunner:
                 content.replace("# __SCHEMA_INSERTION_POINT__", replacement), encoding="utf-8"
             )
 
+    # Legacy analytics summary endpoint in _auto_synthesize_slots fallback
+    num_ent = None
+    num_field = None
+    for ent in entities:
+        if not isinstance(ent, dict):
+            continue
+        for f in ent.get("fields", []):
+            f_type = str(f.get("type", "") if isinstance(f, dict) else "").upper()
+            if "INT" in f_type or any(t in f_type for t in ("FLOAT", "DOUBLE", "DECIMAL")):
+                num_ent = re.sub(r"[^a-zA-Z0-9_]+", "_", str(ent.get("name", "")).lower()).strip("_")
+                num_field = re.sub(
+                    r"[^a-zA-Z0-9_]+",
+                    "_",
+                    str(f.get("name", "") if isinstance(f, dict) else "").lower(),
+                ).strip("_")
+                break
+        if num_ent:
+            break
+
+    if num_ent and num_field:
+        num_cls = "".join(part.capitalize() for part in num_ent.split("_"))
+        analytics_endpoint = f"""
+@router.get("/analytics/summary")
+async def analytics_summary(session: SessionDep) -> dict[str, Any]:
+    from sqlalchemy import func
+    q = select(
+        func.count(models.{num_cls}.id).label("count"),
+        func.sum(models.{num_cls}.{num_field}).label("total"),
+        func.avg(models.{num_cls}.{num_field}).label("average"),
+    )
+    row = (await session.execute(q)).one()
+    return {{
+        "available": True,
+        "entity": "{num_ent}",
+        "metric": "{num_field}",
+        "count": int(row.count or 0),
+        "total": float(row.total or 0),
+        "average": float(row.average or 0),
+        "trend": [],
+    }}
+"""
+    else:
+        analytics_endpoint = """
+@router.get("/analytics/summary")
+async def analytics_summary() -> dict[str, Any]:
+    return {"available": False, "reason": "no numeric fields found"}
+"""
+    router_chunks.append(analytics_endpoint)
+
     # Apply to routers.py
     routers_file = backend_dir / "routers.py"
     if routers_file.exists():
