@@ -26,7 +26,7 @@ class FeatureExtensionEngine:
         self,
         *,
         provider: str = "groq",
-        model: str = "llama-3.3-70b-versatile",
+        model: str = "openai/gpt-oss-120b",
         chat_route_prefix: str = "/api/chat",
     ) -> list[str]:
         """Integrate an AI Chatbot endpoint and frontend UI directly into the existing repository.

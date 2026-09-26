@@ -163,10 +163,11 @@ class LegacyRepoModernizer:
 
             async def task_chat_backend():
                 is_py = "Python" in tech_stack.get("languages", []) or be_entry_str.endswith(".py")
+                chat_model = getattr(settings, "GROQ_MODEL_NAME", "openai/gpt-oss-120b") or "openai/gpt-oss-120b"
                 if is_py:
-                    files = engine._inject_python_chat_service(provider="groq", model="llama-3.3-70b-versatile")
+                    files = engine._inject_python_chat_service(provider="groq", model=chat_model)
                 else:
-                    files = engine._inject_node_chat_service(provider="groq", model="llama-3.3-70b-versatile")
+                    files = engine._inject_node_chat_service(provider="groq", model=chat_model)
                 modified_files_record.extend(files)
                 return f"Injected AI Chat service files: {', '.join(files)}"
 

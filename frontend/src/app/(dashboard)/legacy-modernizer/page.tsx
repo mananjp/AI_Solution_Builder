@@ -105,7 +105,7 @@ export default function LegacyModernizerPage() {
       }
 
       const res = await legacyRepoApi.modernize({
-        local_path: analysis?.root_path || localPath,
+        local_path: activeTab === 'github' ? undefined : (analysis?.root_path || (activeTab === 'sample' ? (localPath || 'sample_legacy_repo') : undefined)),
         github_repo_url: activeTab === 'github' ? githubUrl.trim() : undefined,
         github_token: activeTab === 'github' ? (githubToken.trim() || undefined) : undefined,
         requested_features: ['ai_chatbot'],

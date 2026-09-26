@@ -164,6 +164,14 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       });
 
       if (res.status === 404 && i < uniqueUrls.length - 1) {
+        // If the 404 came with an API JSON body (e.g. from FastAPI with detail or error),
+        // the backend was reached and explicitly returned an application response.
+        // Do not fallback to a frontend route that will mask the true error message.
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          response = res;
+          break;
+        }
         continue;
       }
       response = res;
