@@ -1,6 +1,9 @@
+﻿import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_endpoints.dart';
+import '../../../core/network/api_exceptions.dart';
+import '../../../core/network/json_utils.dart';
 import '../../../core/storage/secure_storage_service.dart';
 import '../domain/user_model.dart';
 
@@ -20,6 +23,21 @@ class AuthRepository {
   })  : _apiClient = apiClient,
         _storage = storage;
 
+  /// Persists the token and primes the client cache so the very next request
+  /// already carries the Authorization header.
+  Future<String> _persistToken(dynamic raw) async {
+    final token = asStringOrNull(raw);
+    if (token == null) {
+      throw ApiException(
+        message: 'Sign-in succeeded but the server returned no access token.',
+        statusCode: null,
+      );
+    }
+    await _storage.saveToken(token);
+    _apiClient.updateToken(token);
+    return token;
+  }
+
   Future<String> login({
     required String email,
     required String password,
@@ -31,11 +49,7 @@ class AuthRepository {
         'password': password,
       },
     );
-
-    final data = response.data as Map<String, dynamic>;
-    final token = data['access_token'] as String;
-    await _storage.saveToken(token);
-    return token;
+    return _persistToken(asMap(response.data)['access_token']);
   }
 
   Future<String> register({
@@ -53,34 +67,54 @@ class AuthRepository {
         'org_name': orgName.trim(),
       },
     );
-
-    final data = response.data as Map<String, dynamic>;
-    final token = data['access_token'] as String;
-    await _storage.saveToken(token);
-    return token;
+    return _persistToken(asMap(response.data)['access_token']);
   }
 
-  Future<Map<String, dynamic>> anonymousLogin() async {
+  Future<String> anonymousLogin() async {
     final response = await _apiClient.post(ApiEndpoints.anonymous);
-    final data = response.data as Map<String, dynamic>;
-    final token = data['access_token'] as String;
-    await _storage.saveToken(token);
-    return data;
+    return _persistToken(asMap(response.data)['access_token']);
+  }
+
+  Future<Response<dynamic>> oauthProviders() {
+    return _apiClient.get(ApiEndpoints.providers);
+  }
+
+  /// Returns the provider's authorization URL for the system browser to open.
+  Future<Response<dynamic>> oauthAuthorize(String provider) {
+    return _apiClient.get(ApiEndpoints.oauthAuthorize(provider));
+  }
+
+  /// Exchanges the callback code for a session token and persists it.
+  /// [provider] must be the same one used to start the flow, because the
+  /// backend routes the callback by provider name.
+  Future<String> oauthCallback(
+    String provider,
+    String code, {
+    String? state,
+  }) async {
+    final response = await _apiClient.get(
+      ApiEndpoints.oauthCallback(provider),
+      queryParameters: {
+        'code': code,
+        if (state != null && state.isNotEmpty) 'state': state,
+      },
+    );
+    return _persistToken(asMap(response.data)['access_token']);
   }
 
   Future<UserModel> getMe() async {
     final response = await _apiClient.get(ApiEndpoints.me);
-    final data = response.data as Map<String, dynamic>;
-    final user = UserModel.fromJson(data);
+    final user = UserModel.fromJson(asMap(response.data));
     await _storage.saveUserInfo(email: user.email, name: user.fullName);
     return user;
   }
 
   Future<void> logout() async {
-    await _storage.clearAll();
+    await _apiClient.clearSession();
   }
 
   Future<String?> getSavedToken() async {
-    return await _storage.getToken();
+    return _storage.getToken();
   }
 }
+

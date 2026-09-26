@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/api_exceptions.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -258,8 +259,10 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
                               const SizedBox(width: 4),
                               Text(
                                 usageAsync.maybeWhen(
-                                  data: (u) => '${u.creditsRemaining} Cr',
-                                  orElse: () => '420 Cr',
+                                  data: (u) => u.isUnlimited
+                                      ? 'Unlimited'
+                                      : '${u.creditsRemaining} Cr',
+                                  orElse: () => '--',
                                 ),
                                 style: AppTextStyles.smallCapsLabel(
                                   fontSize: 10,
@@ -292,13 +295,7 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
                       ),
                     ),
                     error: (_, __) => _buildActiveSubscriptionCard(
-                      BillingUsageModel(
-                        planName: 'Professional Studio',
-                        creditsRemaining: 420,
-                        creditsUsed: 80,
-                        creditsTotal: 500,
-                        usageRatio: 0.16,
-                      ),
+                      BillingUsageModel.unknown,
                     ),
                   ),
                 ),
@@ -657,6 +654,18 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
     );
   }
 
+  /// `/billing/usage` does not return renewal or payment details, so the line
+  /// under the plan name only shows them when the API actually supplies them.
+  String _subscriptionFootnote(BillingUsageModel usage) {
+    if (usage.renewalDate != null && usage.paymentMethod != null) {
+      return 'Renews on ${usage.renewalDate} via ${usage.paymentMethod}';
+    }
+    if (usage.isUnlimited) {
+      return 'Unlimited compute • no renewal required';
+    }
+    return 'Live balance from the billing ledger';
+  }
+
   // Active Subscription Card
   Widget _buildActiveSubscriptionCard(BillingUsageModel usage) {
     return SutraCard(
@@ -710,7 +719,7 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
           ),
           const SizedBox(height: 2),
           Text(
-            'Renews on ${usage.renewalDate} via ${usage.paymentMethod}',
+            _subscriptionFootnote(usage),
             style: AppTextStyles.bodySmall(
               color: AppColors.lightTextSecondary,
             ),
@@ -720,16 +729,19 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Compute Credits: ${usage.creditsRemaining} / ${usage.creditsTotal}',
+                usage.isUnlimited
+                    ? 'Compute Credits: unlimited'
+                    : 'Compute Credits: ${usage.creditsRemaining} / ${usage.creditsTotal}',
                 style: AppTextStyles.bodyMedium(
                   color: AppColors.lightTextPrimary,
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              Text(
-                'Resets in ${usage.resetsInDays} days',
-                style: AppTextStyles.bodySmall(color: AppColors.goldDark),
-              ),
+              if (usage.resetsInDays != null)
+                Text(
+                  'Resets in ${usage.resetsInDays} days',
+                  style: AppTextStyles.bodySmall(color: AppColors.goldDark),
+                ),
             ],
           ),
           const SizedBox(height: AppSpacing.xs),
@@ -1050,29 +1062,26 @@ class _PaymentCheckoutSheetState extends ConsumerState<_PaymentCheckoutSheet> {
     setState(() => _isProcessing = true);
     final repo = ref.read(billingRepositoryProvider);
 
-    final paymentMethodName = _paymentMethodTab == 0
-        ? 'Mastercard •••• 4288'
-        : 'Google Pay (${_upiIdController.text.trim()})';
-
     final finalAmount = (widget.basePrice - _discount).clamp(0.0, 999999.0);
 
-    if (widget.isPlan && widget.planId != null) {
-      await repo.changePlan(
-        planId: widget.planId!,
-        planName: widget.itemTitle,
-        price: finalAmount,
-        isAnnual: widget.isAnnual,
-        paymentMethod: paymentMethodName,
+    try {
+      if (widget.isPlan && widget.planId != null) {
+        await repo.changePlan(planId: widget.planId!);
+      } else {
+        await repo.purchaseCredits(widget.credits);
+      }
+    } catch (e) {
+      // Previously every failure was swallowed and a "Payment Confirmed" dialog
+      // was shown anyway, so the credits on screen never matched the backend.
+      if (!mounted) return;
+      setState(() => _isProcessing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e is ApiException ? e.message : e.toString()),
+          backgroundColor: AppColors.statusErrorRed,
+        ),
       );
-    } else {
-      await repo.processCheckout(
-        itemTitle: widget.itemTitle,
-        amount: widget.basePrice,
-        creditsAdded: widget.credits,
-        paymentMethod: paymentMethodName,
-        promoCode: _appliedPromo,
-        discount: _discount,
-      );
+      return;
     }
 
     if (mounted) {

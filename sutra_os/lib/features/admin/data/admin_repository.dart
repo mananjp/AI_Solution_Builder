@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/network/api_endpoints.dart';
+import '../../../core/network/json_utils.dart';
 import '../domain/admin_models.dart';
 
 final adminRepositoryProvider = Provider<AdminRepository>((ref) {
@@ -12,48 +14,21 @@ class AdminRepository {
 
   AdminRepository({required ApiClient apiClient}) : _apiClient = apiClient;
 
+  /// Errors propagate instead of resolving to invented figures, so a failed
+  /// admin fetch shows as an error state rather than plausible-looking numbers.
   Future<AdminStatsModel> fetchAdminStats() async {
-    try {
-      final response = await _apiClient.get('/api/v1/admin/stats');
-      if (response.data is Map<String, dynamic>) {
-        return AdminStatsModel.fromJson(response.data as Map<String, dynamic>);
-      }
-    } catch (_) {}
-    return AdminStatsModel(
-      totalUsers: 1,
-      totalWorkspaces: 1,
-      totalSolutions: 1,
-      activeBuilds: 0,
-      totalCreditsConsumed: 450,
-    );
+    final response = await _apiClient.get(ApiEndpoints.adminStats);
+    return AdminStatsModel.fromJson(asMap(response.data));
   }
 
   Future<List<AdminUserModel>> fetchAdminUsers() async {
-    try {
-      final response = await _apiClient.get('/api/v1/admin/users');
-      final data = response.data;
-      if (data is List) {
-        return data
-            .whereType<Map<String, dynamic>>()
-            .map((item) => AdminUserModel.fromJson(item))
-            .toList();
-      }
-    } catch (_) {}
-    return [];
+    final response = await _apiClient.get(ApiEndpoints.adminUsers);
+    return asList(response.data).map(asMap).map(AdminUserModel.fromJson).toList();
   }
 
   Future<List<AdminAuditLogModel>> fetchAuditLogs() async {
-    try {
-      final response = await _apiClient.get('/api/v1/admin/audit-logs');
-      final data = response.data;
-      if (data is List) {
-        return data
-            .whereType<Map<String, dynamic>>()
-            .map((item) => AdminAuditLogModel.fromJson(item))
-            .toList();
-      }
-    } catch (_) {}
-    return [];
+    final response = await _apiClient.get(ApiEndpoints.adminAuditLogs);
+    return asList(response.data).map(asMap).map(AdminAuditLogModel.fromJson).toList();
   }
 }
 
