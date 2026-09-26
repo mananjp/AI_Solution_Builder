@@ -55,7 +55,7 @@ export function getApiBaseUrl(): string {
 
   // 3. Detect Capacitor native mobile environment (e.g. running on Android WebView)
   const isCapacitorNative =
-    (window as any).Capacitor !== undefined ||
+    'Capacitor' in window ||
     (window.location.protocol === 'https:' && window.location.hostname === 'localhost' && window.location.port === '');
   if (isCapacitorNative) {
     return 'https://ai-solution-builder.onrender.com/api/v1';
@@ -68,7 +68,7 @@ const rawApiUrl =
   typeof window !== 'undefined'
     ? (process.env.NEXT_PUBLIC_API_URL && !process.env.NEXT_PUBLIC_API_URL.startsWith('http://localhost')
       ? normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL)
-      : (typeof window !== 'undefined' && ((window as any).Capacitor !== undefined || (window.location.protocol === 'https:' && window.location.hostname === 'localhost' && window.location.port === '')))
+      : (typeof window !== 'undefined' && ('Capacitor' in window || (window.location.protocol === 'https:' && window.location.hostname === 'localhost' && window.location.port === '')))
       ? 'https://ai-solution-builder.onrender.com/api/v1'
       : '/api/v1')
     : normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api/v1');
@@ -192,6 +192,14 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       });
 
       if (res.status === 404 && i < uniqueUrls.length - 1) {
+        // If the 404 came with an API JSON body (e.g. from FastAPI with detail or error),
+        // the backend was reached and explicitly returned an application response.
+        // Do not fallback to a frontend route that will mask the true error message.
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          response = res;
+          break;
+        }
         continue;
       }
       response = res;

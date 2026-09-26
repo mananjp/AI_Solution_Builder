@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Check, Eye, EyeOff, GitBranch, Lock, Rocket, ShieldCheck, Smartphone, Server, RefreshCw } from 'lucide-react';
 import { authApi, getApiBaseUrl } from '@/lib/api';
 
@@ -13,22 +13,26 @@ export default function SettingsPage() {
   const [message, setMessage] = useState<string | null>(null);
 
   // Mobile & API Backend configuration
-  const [customApiUrl, setCustomApiUrl] = useState('');
-  const [currentApi, setCurrentApi] = useState('');
-  const [apiSaveStatus, setApiSaveStatus] = useState<string | null>(null);
-  const [isMobileApp, setIsMobileApp] = useState(false);
-
-  useEffect(() => {
-    setCurrentApi(getApiBaseUrl());
-    const stored = localStorage.getItem('custom_backend_url') || '';
-    setCustomApiUrl(stored);
-
+  const [customApiUrl, setCustomApiUrl] = useState(() => {
     if (typeof window !== 'undefined') {
-      const isCap = (window as unknown as { Capacitor?: unknown }).Capacitor !== undefined ||
-        (window.location.protocol === 'https:' && window.location.hostname === 'localhost' && window.location.port === '');
-      setIsMobileApp(isCap);
+      return localStorage.getItem('custom_backend_url') || '';
     }
-  }, []);
+    return '';
+  });
+  const [currentApi, setCurrentApi] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return getApiBaseUrl();
+    }
+    return '';
+  });
+  const [apiSaveStatus, setApiSaveStatus] = useState<string | null>(null);
+  const [isMobileApp] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return 'Capacitor' in window ||
+        (window.location.protocol === 'https:' && window.location.hostname === 'localhost' && window.location.port === '');
+    }
+    return false;
+  });
 
   const handleSaveApiUrl = (e: React.FormEvent) => {
     e.preventDefault();
