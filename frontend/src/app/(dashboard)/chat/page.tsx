@@ -1,1173 +1,691 @@
 'use client';
 
-import React, { useState, useEffect, useRef, Suspense, useSyncExternalStore } from 'react';
-import { useSearchParams } from 'next/navigation';
+import React, { Suspense, useCallback, useEffect, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  Send,
-  Paperclip,
-  Loader2,
+  AlertTriangle,
   CheckCircle2,
   Circle,
-  FileText,
-  Layout,
-  Layers,
-  Settings2,
-  Play,
-  Clock,
-  Terminal,
-  Activity,
-  AlertTriangle,
   History,
-  MessageSquare,
+  Layout,
+  Loader2,
+  Paperclip,
   Plus,
-  Search,
-  Trash2,
+  Send,
+  Settings2,
   X,
 } from 'lucide-react';
+import clsx from 'clsx';
 import ChatMessage from '@/components/ChatMessage';
-import FileUploader from '@/components/FileUploader';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
-import { opencodeApi, sendOpenCodeChatStream, mvpApi, solutionApi, workspaceApi } from '@/lib/api';
-import { BuildStep, MVPBuild, MVPDeployResult, OpenCodeChatComplete, OpenCodeBuildProgress, Solution } from '@/types';
-import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
+import { ChatSidecar } from '@/components/chat/ChatSidecar';
+import { ArtifactsPanel } from '@/components/chat/ArtifactsPanel';
+import { ThreadSkeleton, ThinkingBubble } from '@/components/chat/Skeleton';
+import { mvpApi, opencodeApi, sendOpenCodeChatStream, solutionApi } from '@/lib/api';
+import { ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
 import { useI18n } from '@/components/I18nProvider';
-import type { TranslationKey } from '@/lib/i18n/dictionaries';
+import {
+  removeCachedSolution,
+  upsertCachedSolution,
+  useChatSession,
+} from '@/hooks/useChatSession';
+import type { MVPBuild, MVPDeployResult, OpenCodeChatComplete, Solution } from '@/types';
 
-type Msg = { role: 'user' | 'assistant' | 'system'; content: string; agent?: string };
+const ACTIVE_SOLUTION_KEY = 'sutra_active_solution_id';
 
-interface BuildProgressState {
-  phase: string;
-  step: number;
-  total_steps: number;
-  percentage: number;
-  message: string;
-  logs: string[];
-  startedAt: number;
-  steps?: BuildStep[];
-}
-
-interface BuildCapability {
-  sidecar_online: boolean;
-  llm_provider: string;
-  llm_authenticated: boolean;
-  simulation: boolean;
-  mode: string;
-}
-
-const BUILD_MILESTONES: { step: number; key: TranslationKey; phase: string }[] = [
-  { step: 1, key: 'buildMilestones.domainArchitecture', phase: 'analyzing' },
-  { step: 2, key: 'buildMilestones.databaseSchema', phase: 'persisting' },
-  { step: 3, key: 'buildMilestones.fullStackScaffold', phase: 'scaffolding' },
-  { step: 4, key: 'buildMilestones.domainModels', phase: 'coding' },
-  { step: 5, key: 'buildMilestones.interactiveUi', phase: 'frontend' },
-  { step: 6, key: 'buildMilestones.codebaseVerification', phase: 'verifying' },
-  { step: 7, key: 'buildMilestones.productionPackage', phase: 'packaging' },
-];
-
-function getStoredSolutionId(): string | null {
+function readStoredSolutionId(): string | null {
   if (typeof window === 'undefined') return null;
   try {
-    const raw = localStorage.getItem('sutra_active_solution_id');
-    if (raw && raw !== 'null' && raw !== 'undefined' && raw.trim()) {
-      return raw.trim();
-    }
+    const raw = window.localStorage.getItem(ACTIVE_SOLUTION_KEY);
+    return raw && raw !== 'null' && raw !== 'undefined' && raw.trim() ? raw.trim() : null;
   } catch {
-    // ignore
+    return null;
   }
-  return null;
 }
 
-const storageListeners = new Set<() => void>();
-
-function subscribeStorage(callback: () => void): () => void {
-  storageListeners.add(callback);
-  const handleStorage = () => callback();
-  if (typeof window !== 'undefined') {
-    window.addEventListener('storage', handleStorage);
-  }
-  return () => {
-    storageListeners.delete(callback);
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('storage', handleStorage);
-    }
-  };
-}
-
-function setActiveSolutionId(id: string | null) {
+function writeStoredSolutionId(id: string | null) {
   if (typeof window === 'undefined') return;
   try {
-    if (id) {
-      localStorage.setItem('sutra_active_solution_id', id);
-    } else {
-      localStorage.removeItem('sutra_active_solution_id');
-    }
+    if (id) window.localStorage.setItem(ACTIVE_SOLUTION_KEY, id);
+    else window.localStorage.removeItem(ACTIVE_SOLUTION_KEY);
   } catch {
-    // ignore
-  }
-  storageListeners.forEach((listener) => listener());
-}
-
-function formatSessionDate(dateString: string): string {
-  try {
-    const d = new Date(dateString);
-    const now = new Date();
-    const diffDays = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  } catch {
-    return dateString;
+    // storage unavailable — in-memory state is still correct
   }
 }
 
 function ChatContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const { t } = useI18n();
+
+  // Read the URL once; from here on `state.solutionId` is the only source of
+  // truth. Deriving it from `useSearchParams()` on every render is what froze
+  // the sidecar — the app used `history.replaceState`, which Next's App Router
+  // never observes.
+  const urlSolutionId = searchParams.get('solution_id');
+  const initialAppName = searchParams.get('app_name') || '';
   const initialPrompt = searchParams.get('prompt') || '';
-  const querySolutionId = searchParams.get('solution_id');
-  const isNewRequested = searchParams.get('new') === 'true' || Boolean(initialPrompt && !querySolutionId);
-  const storedSolutionId = useSyncExternalStore(subscribeStorage, getStoredSolutionId, () => null);
+  const startNew = searchParams.get('new') === 'true';
 
-  const [input, setInput] = useState(initialPrompt);
-  const [appName, setAppName] = useState(searchParams.get('app_name') || '');
-  const [messages, setMessages] = useState<Msg[]>([{
-    role: 'assistant',
-    agent: t('common.sutraOrchestrator'),
-    content: t('chat.welcomeMessage'),
-  }]);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [solutionId, setSolutionId] = useState<string | null>(null);
-  const loadedSolutionIdRef = useRef<string | null>(null);
+  const agent = t('common.sutraOrchestrator');
+  const welcome = t('chat.welcomeMessage');
 
-  // If user requested a new build, reset states during render
-  const [prevIsNew, setPrevIsNew] = useState(isNewRequested);
-  if (isNewRequested && !prevIsNew) {
-    setPrevIsNew(true);
-    setSolutionId(null);
-    setAppName('');
-    setSessionId(null);
-    setMessages([{
-      role: 'assistant',
-      agent: t('common.sutraOrchestrator'),
-      content: t('chat.welcomeMessage'),
-    }]);
-  } else if (!isNewRequested && prevIsNew) {
-    setPrevIsNew(false);
-  }
-
-  const targetId = isNewRequested ? null : (querySolutionId || solutionId || storedSolutionId);
-  const [uploadedContext, setUploadedContext] = useState('');
-  const [uploadedFilename, setUploadedFilename] = useState('');
-  const [showUploader, setShowUploader] = useState(true);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [buildRequested, setBuildRequested] = useState(false);
-  const [buildProgress, setBuildProgress] = useState<BuildProgressState | null>(null);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [builds, setBuilds] = useState<MVPBuild[]>([]);
-  const [engineOnline, setEngineOnline] = useState<boolean | null>(null);
-  const [capability, setCapability] = useState<BuildCapability | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [deployTarget, setDeployTarget] = useState<MVPBuild | null>(null);
-  const [configureTarget, setConfigureTarget] = useState<MVPBuild | null>(null);
-  const endRef = useRef<HTMLDivElement>(null);
-  const logEndRef = useRef<HTMLDivElement>(null);
-
-  // Chat History state & management
-  const [historySolutions, setHistorySolutions] = useState<Solution[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(true);
-  const [historySearch, setHistorySearch] = useState('');
-  const [leftTab, setLeftTab] = useState<'history' | 'context'>('history');
-  const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    workspaceApi.list()
-      .then(async (workspaces) => {
-        if (!active) return;
-        if (!workspaces || workspaces.length === 0) {
-          setHistorySolutions([]);
-          setHistoryLoading(false);
-          return;
-        }
-        const all: Solution[] = [];
-        for (const ws of workspaces) {
-          try {
-            const sols = await solutionApi.list(ws.id);
-            if (sols) all.push(...sols);
-          } catch {
-            // ignore
-          }
-        }
-        if (!active) return;
-        all.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        setHistorySolutions(all);
-        setHistoryLoading(false);
-      })
-      .catch(() => {
-        if (active) setHistoryLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [solutionId]);
-
-  const filteredSolutions = historySolutions.filter((s) => {
-    if (!historySearch.trim()) return true;
-    const q = historySearch.toLowerCase();
-    return (s.title && s.title.toLowerCase().includes(q)) || (s.description && s.description.toLowerCase().includes(q));
+  const { state, dispatch, hydrate, selectSolution, loadHistory } = useChatSession({
+    welcome,
+    agent,
+    initialPrompt,
+    initialSolutionId: startNew ? null : (urlSolutionId ?? readStoredSolutionId()),
+    initialAppName,
+    startNew,
   });
 
-  const handleSelectSolution = (sol: Solution) => {
-    if (solutionId === sol.id) {
-      setMobileHistoryOpen(false);
-      return;
-    }
-    setError(null);
-    setAppName(sol.title);
-    setSolutionId(sol.id);
-    setActiveSolutionId(sol.id);
-    loadedSolutionIdRef.current = null;
-    if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      url.searchParams.set('solution_id', sol.id);
-      url.searchParams.set('app_name', sol.title);
-      url.searchParams.delete('new');
-      window.history.replaceState(null, '', url.pathname + url.search);
-    }
-    setMobileHistoryOpen(false);
-  };
+  // Kept in a ref so the SSE callbacks always read the latest active solution
+  // without re-subscribing the stream on every keystroke.
+  const solutionIdRef = useRef<string | null>(state.solutionId);
+  useEffect(() => {
+    solutionIdRef.current = state.solutionId;
+  }, [state.solutionId]);
 
-  const handleStartNewChat = () => {
-    setActiveSolutionId(null);
-    setSolutionId(null);
-    setAppName('');
-    setSessionId(null);
-    loadedSolutionIdRef.current = null;
-    setInput('');
-    setMessages([{
-      role: 'assistant',
-      agent: t('common.sutraOrchestrator'),
-      content: t('chat.welcomeMessage'),
-    }]);
-    if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('solution_id');
-      url.searchParams.delete('app_name');
-      url.searchParams.set('new', 'true');
-      window.history.replaceState(null, '', url.pathname + url.search);
-    }
-    setMobileHistoryOpen(false);
-  };
-
-  const handleDeleteSolution = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    if (!window.confirm('Delete this architecture conversation from history?')) return;
-    try {
-      await solutionApi.delete(id);
-      setHistorySolutions((prev) => prev.filter((s) => s.id !== id));
-      if (solutionId === id || targetId === id) {
-        handleStartNewChat();
+  // ── Persist + reflect the active conversation ──
+  useEffect(() => {
+    writeStoredSolutionId(state.solutionId);
+    const params = new URLSearchParams(searchParams.toString());
+    if (state.solutionId) {
+      if (params.get('solution_id') !== state.solutionId) {
+        params.set('solution_id', state.solutionId);
+        router.replace(`/chat?${params.toString()}`, { scroll: false });
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete conversation.');
+    } else if (params.get('solution_id')) {
+      params.delete('solution_id');
+      params.delete('app_name');
+      router.replace(`/chat?${params.toString()}`, { scroll: false });
     }
-  };
+  }, [state.solutionId, router, searchParams]);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isStreaming]);
-
-  // Auto-scroll the live build log
+  // ── Load the conversation whenever the active id changes ──
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [buildProgress?.logs]);
+    void hydrate(state.solutionId);
+  }, [state.solutionId, hydrate]);
 
-  // Elapsed time timer for active builds
-  useEffect(() => {
-    if (!isStreaming || !buildProgress) return;
-    const timer = setInterval(() => {
-      setElapsedSeconds(Math.round((Date.now() - buildProgress.startedAt) / 1000));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [isStreaming, buildProgress]);
-
-  // 1. Discover user's latest solution from DB if no active solution is present
-  useEffect(() => {
-    if (isNewRequested || targetId) return;
-    let active = true;
-
-    workspaceApi
-      .list()
-      .then(async (workspaces) => {
-        if (!active || !workspaces || workspaces.length === 0) return;
-        try {
-          const solutions = await solutionApi.list(workspaces[0].id);
-          if (!active || !solutions || solutions.length === 0) return;
-          const latest = solutions[0];
-          setSolutionId(latest.id);
-          setActiveSolutionId(latest.id);
-        } catch {
-          // ignore
-        }
-      })
-      .catch(() => undefined);
-
-    return () => {
-      active = false;
-    };
-  }, [isNewRequested, targetId]);
-
-  // 2. Hydrate conversation history and metadata when solution is established
-  useEffect(() => {
-    if (!targetId) {
-      loadedSolutionIdRef.current = null;
-      return;
-    }
-
-    if (loadedSolutionIdRef.current === targetId) {
-      return;
-    }
-
-    let active = true;
-    solutionApi
-      .get(targetId)
-      .then((sol) => {
-        if (!active) return;
-        loadedSolutionIdRef.current = sol.id;
-        setSolutionId(sol.id);
-        if (sol.title && sol.title !== 'Custom App Build' && sol.title !== 'Custom App') {
-          setAppName(sol.title);
-        }
-        if (sol.ai_state?.opencode_session_id && typeof sol.ai_state.opencode_session_id === 'string') {
-          setSessionId(sol.ai_state.opencode_session_id);
-        }
-        if (sol.conversation_history && sol.conversation_history.length > 0) {
-          const restored: Msg[] = sol.conversation_history.map((m) => ({
-            role: (m.role as 'user' | 'assistant' | 'system') || 'assistant',
-            content: m.content || '',
-            agent: m.role === 'assistant' ? t('common.sutraOrchestrator') : undefined,
-          }));
-          setMessages(restored);
-        }
-        setActiveSolutionId(sol.id);
-        if (typeof window !== 'undefined') {
-          const currentUrl = new URL(window.location.href);
-          if (currentUrl.searchParams.get('solution_id') !== sol.id) {
-            currentUrl.searchParams.set('solution_id', sol.id);
-            window.history.replaceState(null, '', currentUrl.pathname + currentUrl.search);
-          }
-        }
-      })
-      .catch((err: unknown) => {
-        if (!active) return;
-        const is404 =
-          (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 404) ||
-          (err instanceof Error && (err.message.includes('404') || err.message.toLowerCase().includes('not found')));
-        if (is404) {
-          setActiveSolutionId(null);
-          if (typeof window !== 'undefined') {
-            const currentUrl = new URL(window.location.href);
-            currentUrl.searchParams.delete('solution_id');
-            window.history.replaceState(null, '', currentUrl.pathname + currentUrl.search);
-          }
-          setSolutionId(null);
-          loadedSolutionIdRef.current = null;
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [targetId, t]);
-
-  // Load any existing builds for this solution on mount
-  useEffect(() => {
-    if (!solutionId) return;
-    mvpApi.listBuilds(solutionId)
-      .then((list) => {
-        if (list && list.length > 0) {
-          setBuilds([...list].sort((a, b) => (b.build_number || 0) - (a.build_number || 0)));
-        }
-      })
-      .catch(() => undefined);
-  }, [solutionId]);
-
-  const upsertBuild = (b: MVPBuild) =>
-    setBuilds((prev) => [b, ...prev.filter((x) => x.build_id !== b.build_id)]);
-
-  const removeBuild = (buildId: string) =>
-    setBuilds((prev) => prev.filter((x) => x.build_id !== buildId));
-
+  // ── Engine health probe ──
   useEffect(() => {
     let mounted = true;
-    const probe = () => opencodeApi.health()
-      .then((r) => { if (mounted) setEngineOnline(Boolean(r.healthy)); })
-      .catch(() => { if (mounted) setEngineOnline(false); });
-    probe();
-    const t = setInterval(probe, engineOnline ? 20000 : 5000);
-    return () => { mounted = false; clearInterval(t); };
-  }, [engineOnline]);
+    const probe = () =>
+      opencodeApi
+        .health()
+        .then((r) => {
+          if (mounted) dispatch({ type: 'set-engine', value: r.healthy ? 'online' : 'offline' });
+        })
+        .catch(() => {
+          if (mounted) dispatch({ type: 'set-engine', value: 'offline' });
+        });
+    void probe();
+    const timer = setInterval(probe, state.engine === 'online' ? 20000 : 5000);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
+    // Re-arms the interval when connectivity flips.
+  }, [state.engine, dispatch]);
 
-  const push = (content: string, agent?: string) =>
-    setMessages((p) => [...p, { role: 'assistant', content, agent }]);
-
-  const handleSend = async (finalize: boolean) => {
-    const text = input.trim();
-    if (!text || isStreaming) return;
-    setInput('');
-    setError(null);
-    setMessages((p) => [...p, { role: 'user', content: text }]);
-    setIsStreaming(true);
-
-    if (finalize) {
-      setBuildProgress({
-        phase: 'analyzing',
-        step: 1,
-        total_steps: 7,
-        percentage: 10,
-        message: 'Synthesizing application architecture & specifications...',
-        logs: ['[0s] Initializing custom full-stack build sequence...'],
-        startedAt: Date.now(),
-      });
-      setElapsedSeconds(0);
-    }
-
-    let receivedMessageEvent = false;
-
+  // ── Persist conversation into history cache after each turn ──
+  const syncHistoryEntry = useCallback(async (id: string) => {
     try {
-      await sendOpenCodeChatStream(
-        {
-          message: text,
-          app_name: appName.trim() || undefined,
-          solution_id: solutionId || targetId || undefined,
-          session_id: sessionId,
-          uploaded_context: uploadedContext,
-          build_requested: finalize,
-        },
-        {
-          onEvent: (event, data) => {
-            if (event === 'agent_start') {
-              if (typeof data.session_id === 'string') setSessionId(data.session_id);
-              if (typeof data.solution_id === 'string' && data.solution_id) {
-                loadedSolutionIdRef.current = data.solution_id;
-                setSolutionId(data.solution_id);
-                setActiveSolutionId(data.solution_id);
-                if (typeof window !== 'undefined') {
-                  const currentUrl = new URL(window.location.href);
-                  if (currentUrl.searchParams.get('solution_id') !== data.solution_id) {
-                    currentUrl.searchParams.set('solution_id', data.solution_id);
-                    window.history.replaceState(null, '', currentUrl.pathname + currentUrl.search);
-                  }
-                }
-              }
-              push((data.message as string) || t('chat.initializingIntelligence'), (data.agent as string) || 'SUTRA Intelligence');
-            } else if (event === 'capability') {
-              setCapability(data as unknown as BuildCapability);
-            } else if (event === 'build_progress') {
-              const p = data as unknown as OpenCodeBuildProgress;
-              if (p.solution_id) {
-                loadedSolutionIdRef.current = p.solution_id;
-                setSolutionId(p.solution_id);
-                setActiveSolutionId(p.solution_id);
-                if (typeof window !== 'undefined') {
-                  const currentUrl = new URL(window.location.href);
-                  if (currentUrl.searchParams.get('solution_id') !== p.solution_id) {
-                    currentUrl.searchParams.set('solution_id', p.solution_id);
-                    window.history.replaceState(null, '', currentUrl.pathname + currentUrl.search);
-                  }
-                }
-              }
-
-              if (p.session_id) setSessionId(p.session_id);
-              const inferred = p.percentage ?? Math.round(((p.step || 1) / Math.max(p.total_steps || 7, 1)) * 100);
-              setBuildProgress((prev) => {
-                const startedAt = prev?.startedAt || Date.now();
-                const sec = Math.round((Date.now() - startedAt) / 1000);
-                const prevLogs = prev?.logs || [];
-                return {
-                  phase: p.phase || 'building',
-                  step: p.step || 1,
-                  total_steps: p.total_steps || 7,
-                  percentage: inferred,
-                  message: p.message || 'Building application...',
-                  steps: Array.isArray(p.steps) && p.steps.length > 0 ? p.steps : prev?.steps,
-                  logs: [...prevLogs, `[${sec}s] ${p.message}`],
-                  startedAt,
-                };
-              });
-            } else if (event === 'message' && data.message) {
-              receivedMessageEvent = true;
-              push(data.message as string, (data.agent as string) || 'SUTRA Intelligence');
-            }
-          },
-          onComplete: async (data) => {
-            const c = data as OpenCodeChatComplete;
-            if (c.session_id) setSessionId(c.session_id);
-            if (c.solution_id) {
-              loadedSolutionIdRef.current = c.solution_id;
-              setSolutionId(c.solution_id);
-              setActiveSolutionId(c.solution_id);
-              if (typeof window !== 'undefined') {
-                const currentUrl = new URL(window.location.href);
-                if (currentUrl.searchParams.get('solution_id') !== c.solution_id) {
-                  currentUrl.searchParams.set('solution_id', c.solution_id);
-                  window.history.replaceState(null, '', currentUrl.pathname + currentUrl.search);
-                }
-              }
-            }
-            if (c.build_id || c.status === 'complete' || !receivedMessageEvent) {
-              push(c.message || t('chat.synthesisComplete'), t('common.sutraOrchestrator'));
-            }
-            if (c.build_id) {
-              try {
-                const fresh = await mvpApi.getStatus(c.build_id);
-                upsertBuild(fresh);
-              } catch {
-                upsertBuild({
-                  build_id: c.build_id,
-                  solution_id: c.solution_id || solutionId || '',
-                  build_number: c.build_number || 1,
-                  status: 'complete',
-                  workspace_path: '',
-                  file_count: c.file_count || 0,
-                  files: (c.files || []).map((f) => ({ path: f, size: 1024, is_dir: false })),
-                });
-              }
-            }
-            if (finalize) setBuildRequested(false);
-            setBuildProgress(null);
-            setIsStreaming(false);
-          },
-          onError: (err) => {
-            const msg = typeof err === 'object' && err && 'message' in err ? String((err as { message: string }).message) : 'Sequence interrupted.';
-            setError(msg);
-            push(msg, t('common.sutraOrchestrator'));
-            setBuildProgress(null);
-            setIsStreaming(false);
-          },
-        }
-      );
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Unable to reach SUTRA intelligence layer.';
-      setError(msg);
-      if (msg.includes('404') || msg.toLowerCase().includes('not found') || msg.toLowerCase().includes('solution')) {
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('sutra_active_solution_id');
-        }
-        setSolutionId(null);
-        loadedSolutionIdRef.current = null;
-      }
-      setBuildProgress(null);
-      setIsStreaming(false);
+      const solution = await solutionApi.get(id);
+      upsertCachedSolution(solution);
+      dispatch({ type: 'history/upsert', solution });
+    } catch {
+      // best effort
     }
-  };
+  }, [dispatch]);
 
-  const handleDownload = async (build: MVPBuild) => {
-    try { await mvpApi.downloadBuild(build.build_id, `mvp_build${build.build_number}.zip`); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Export failed.'); }
-  };
+  // ── Send ──
+  const send = useCallback(
+    async (finalize: boolean) => {
+      const text = state.input.trim();
+      if (!text || state.streaming) return;
 
-  const handleDestroy = async (build: MVPBuild) => {
-    if (!window.confirm(`Destroy build #${build.build_number}?`)) return;
-    try { await mvpApi.destroy(build.build_id); removeBuild(build.build_id); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Purge failed.'); }
-  };
+      dispatch({ type: 'set-input', value: '' });
+      dispatch({ type: 'user/message', message: text });
+      dispatch({ type: 'stream/start', build: finalize, now: Date.now() });
 
-  const handleDeployed = (result: MVPDeployResult | string) => {
-    const repoUrl = typeof result === 'string' ? result : result.repo_url;
-    const renderUrl = typeof result === 'string' ? null : (result.frontend_url || result.render_service_url);
-    const targetId = deployTarget?.build_id;
-    setBuilds((prev) => prev.map((b) =>
-      b.build_id === targetId ? { ...b, repo_url: repoUrl, render_service_url: renderUrl, frontend_url: renderUrl } : b
-    ));
-  };
+      const hadContext = state.context;
+
+      try {
+        await sendOpenCodeChatStream(
+          {
+            message: text,
+            app_name: state.appName.trim() || undefined,
+            solution_id: solutionIdRef.current || undefined,
+            session_id: state.sessionId,
+            uploaded_context: hadContext?.text,
+            build_requested: finalize,
+          },
+          {
+            onEvent: (event, data) => {
+              switch (event) {
+                case 'agent_start': {
+                  dispatch({
+                    type: 'stream/agent-start',
+                    sessionId: (data.session_id as string) ?? null,
+                    solutionId: (data.solution_id as string) || null,
+                    appName: state.appName || null,
+                  });
+                  dispatch({
+                    type: 'stream/message',
+                    message: (data.message as string) || t('chat.initializingIntelligence'),
+                    agent: (data.agent as string) || 'SUTRA Intelligence',
+                  });
+                  if (data.solution_id) void syncHistoryEntry(data.solution_id as string);
+                  break;
+                }
+                case 'capability':
+                  dispatch({ type: 'set-capability', value: data as never });
+                  break;
+                case 'build_progress':
+                  dispatch({ type: 'stream/progress', progress: data as never });
+                  if (data.solution_id) void syncHistoryEntry(data.solution_id as string);
+                  break;
+                case 'message':
+                  if (data.message) {
+                    dispatch({
+                      type: 'stream/message',
+                      message: data.message as string,
+                      agent: (data.agent as string) || 'SUTRA Intelligence',
+                    });
+                  }
+                  break;
+                default:
+                  break;
+              }
+            },
+            onComplete: async (data) => {
+              const c = data as OpenCodeChatComplete;
+              dispatch({
+                type: 'stream/agent-start',
+                sessionId: c.session_id ?? null,
+                solutionId: c.solution_id || null,
+                appName: state.appName || null,
+              });
+              if (c.message) {
+                dispatch({ type: 'stream/message', message: c.message, agent });
+              }
+              if (c.build_id) {
+                try {
+                  const fresh = await mvpApi.getStatus(c.build_id);
+                  dispatch({ type: 'builds/upsert', build: fresh });
+                } catch {
+                  dispatch({
+                    type: 'builds/upsert',
+                    build: {
+                      build_id: c.build_id,
+                      solution_id: c.solution_id || solutionIdRef.current || '',
+                      build_number: c.build_number || 1,
+                      status: 'complete',
+                      workspace_path: '',
+                      file_count: c.file_count || 0,
+                      files: (c.files || []).map((f) => ({ path: f, size: 1024, is_dir: false })),
+                    },
+                  });
+                }
+              }
+              if (c.solution_id) void syncHistoryEntry(c.solution_id);
+              dispatch({ type: 'stream/finish' });
+            },
+            onError: (err) => {
+              const msg =
+                typeof err === 'object' && err && 'message' in err
+                  ? String((err as { message: string }).message)
+                  : 'Sequence interrupted.';
+              dispatch({ type: 'stream/fail', message: msg });
+            },
+          }
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Unable to reach SUTRA intelligence layer.';
+        dispatch({ type: 'stream/fail', message: msg });
+        if (/404|not found|solution/i.test(msg) && solutionIdRef.current) {
+          dispatch({ type: 'history/remove', id: solutionIdRef.current });
+          selectSolution(null);
+        }
+      }
+    },
+    [state.input, state.streaming, state.appName, state.sessionId, state.context, agent, dispatch, selectSolution, syncHistoryEntry, t]
+  );
+
+  // ── Build actions ──
+  const [deployTarget, setDeployTarget] = React.useState<MVPBuild | null>(null);
+  const [configureTarget, setConfigureTarget] = React.useState<MVPBuild | null>(null);
+
+  const handleDownload = useCallback(async (build: MVPBuild) => {
+    try {
+      await mvpApi.downloadBuild(build.build_id, `mvp_build${build.build_number}.zip`);
+    } catch (e) {
+      dispatch({
+        type: 'set-error',
+        value: e instanceof Error ? e.message : 'Export failed.',
+      });
+    }
+  }, [dispatch]);
+
+  const handleDestroy = useCallback(
+    async (build: MVPBuild) => {
+      if (!window.confirm(`Destroy build #${build.build_number}?`)) return;
+      try {
+        await mvpApi.destroy(build.build_id);
+        dispatch({
+          type: 'builds/upsert',
+          build: { ...build, status: 'cancelled' },
+        });
+      } catch (e) {
+        dispatch({ type: 'set-error', value: e instanceof Error ? e.message : 'Purge failed.' });
+      }
+    },
+    [dispatch]
+  );
+
+  const handleDeployed = useCallback(
+    (result: MVPDeployResult | string) => {
+      const repoUrl = typeof result === 'string' ? result : result.repo_url;
+      const renderUrl =
+        typeof result === 'string' ? null : result.frontend_url || result.render_service_url;
+      const targetId = deployTarget?.build_id;
+      if (!targetId) return;
+      dispatch({
+        type: 'builds/upsert',
+        build: {
+          ...(deployTarget as MVPBuild),
+          repo_url: repoUrl,
+          render_service_url: renderUrl,
+          frontend_url: renderUrl,
+        },
+      });
+    },
+    [deployTarget, dispatch]
+  );
+
+  // ── Sidecar actions ──
+  const startNewChat = useCallback(() => {
+    selectSolution(null);
+    dispatch({ type: 'set-app-name', value: '' });
+    dispatch({ type: 'set-input', value: '' });
+    dispatch({ type: 'set-sidecar-open', value: false });
+  }, [selectSolution, dispatch]);
+
+  const handleSelectSolution = useCallback(
+    (sol: Solution) => {
+      if (sol.id === state.solutionId) {
+        dispatch({ type: 'set-sidecar-open', value: false });
+        return;
+      }
+      selectSolution(sol);
+      dispatch({ type: 'set-sidecar-open', value: false });
+    },
+    [state.solutionId, selectSolution, dispatch]
+  );
+
+  const handleDeleteSolution = useCallback(
+    async (sol: Solution) => {
+      if (!window.confirm('Delete this architecture conversation from history?')) return;
+      try {
+        await solutionApi.delete(sol.id);
+        removeCachedSolution(sol.id);
+        dispatch({ type: 'history/remove', id: sol.id });
+        if (sol.id === state.solutionId) startNewChat();
+      } catch (err) {
+        dispatch({
+          type: 'set-error',
+          value: err instanceof Error ? err.message : 'Failed to delete conversation.',
+        });
+      }
+    },
+    [state.solutionId, startNewChat, dispatch]
+  );
+
+  const attachContext = useCallback(
+    (text: string, filename: string) => {
+      dispatch({ type: 'set-context', value: { filename, text } });
+      dispatch({
+        type: 'stream/message',
+        message: `Context established from **${filename}**. I am ready to process instructions.`,
+      });
+    },
+    [dispatch]
+  );
+
+  // ── Auto-scroll ──
+  const endRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [state.messages.length, state.streaming]);
+
+  const enginePill = {
+    connecting: { icon: Loader2, cls: 'border-[var(--border)] text-[var(--text-2)]', label: t('common.connecting') },
+    online: { icon: CheckCircle2, cls: 'border-[var(--border)] text-[var(--green)]', label: t('common.active') },
+    offline: { icon: Circle, cls: 'border-[var(--border)] text-[var(--red)]', label: t('common.offline') },
+  }[state.engine];
+  const EngineIcon = enginePill.icon;
+
+  const showThreadSkeleton = state.conversation === 'loading' && state.messages.length <= 1;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-6rem)] animate-fade-up">
-
-      {/* Header */}
-      <div className="mb-4 flex items-center justify-between gap-4 px-2">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 flex items-center justify-center border border-[var(--sutra-muted-gold)] bg-[var(--bg)] text-[var(--sutra-muted-gold)]">
+    <div className="flex flex-col h-[calc(100vh-5rem)] min-h-0 animate-fade-up">
+      {/* ── Header ── */}
+      <header className="mb-3 flex items-center justify-between gap-3 px-1 shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-8 h-8 flex items-center justify-center border border-[var(--sutra-muted-gold)] bg-[var(--bg)] text-[var(--sutra-muted-gold)] shrink-0">
             <Layout className="w-4 h-4" />
           </div>
-          <div>
-            <h1 className="text-xl font-serif text-[var(--sutra-charcoal)]">{t('chat.aiArchitectWorkspace')}</h1>
-            <p className="text-[11px] uppercase tracking-widest font-semibold text-[var(--text-2)] mt-0.5">
-              {appName ? `${appName} • ` : ''}{t('chat.synthesisEngine')}
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-xl font-serif text-[var(--sutra-charcoal)] truncate">
+              {t('chat.aiArchitectWorkspace')}
+            </h1>
+            <p className="text-[11px] uppercase tracking-widest font-semibold text-[var(--text-2)] mt-0.5 truncate">
+              {state.appName ? `${state.appName} • ` : ''}
+              {t('chat.synthesisEngine')}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold">
+        <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold shrink-0">
           <button
-            onClick={() => setMobileHistoryOpen(true)}
-            className="lg:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-sm border border-[var(--border)] bg-[var(--bg-2)] hover:bg-[var(--bg)] text-[var(--sutra-charcoal)] shadow-sm transition-colors"
+            onClick={() => dispatch({ type: 'set-sidecar-open', value: true })}
+            className="xl:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-sm border border-[var(--border)] bg-[var(--bg-2)] hover:bg-[var(--bg)] text-[var(--sutra-charcoal)] shadow-sm transition-colors"
           >
             <History className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
-            <span>Chat History</span>
-            {historySolutions.length > 0 && (
+            <span className="hidden sm:inline">History</span>
+            {state.history.length > 0 && (
               <span className="px-1.5 py-0.5 rounded-full bg-[var(--bg)] border border-[var(--border)] text-[9px] font-mono">
-                {historySolutions.length}
+                {state.history.length}
               </span>
             )}
           </button>
-          <span className="text-[var(--text-3)] hidden sm:inline">{t('chat.intelligenceLayer')}</span>
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-sm border shadow-sm ${
-              engineOnline === null ? 'bg-[var(--bg-2)] border-[var(--border)] text-[var(--text-2)]'
-              : engineOnline ? 'bg-[var(--bg-2)] border-[var(--border)] text-[var(--green)]'
-              : 'bg-[var(--bg-2)] border-[var(--border)] text-[var(--red)]'
-            }`}>
-            {engineOnline === null
-              ? <Loader2 className="w-3 h-3 animate-spin" />
-              : engineOnline
-                ? <CheckCircle2 className="w-3 h-3" />
-                : <Circle className="w-3 h-3 animate-pulse-dot" />
-            }
-            {engineOnline === null ? t('common.connecting') : engineOnline ? t('common.active') : t('common.offline')}
-          </div>
+          <span className="text-[var(--text-3)] hidden lg:inline">{t('chat.intelligenceLayer')}</span>
+          <span
+            className={clsx(
+              'flex items-center gap-2 px-3 py-1.5 rounded-sm border shadow-sm bg-[var(--bg-2)]',
+              enginePill.cls
+            )}
+          >
+            <EngineIcon
+              className={clsx(
+                'w-3 h-3',
+                state.engine === 'connecting' && 'animate-spin',
+                state.engine === 'offline' && 'animate-pulse-dot'
+              )}
+            />
+            <span className="hidden sm:inline">{enginePill.label}</span>
+          </span>
         </div>
-      </div>
+      </header>
 
-      {capability?.simulation && (
-        <div className="mx-2 mb-4 flex items-start gap-2.5 rounded-sm border border-[var(--sutra-gold)] bg-[var(--bg)] px-4 py-3 shadow-sm">
+      {state.capability?.simulation && (
+        <div className="mb-3 flex items-start gap-2.5 rounded-sm border border-[var(--sutra-gold)] bg-[var(--bg)] px-4 py-3 shadow-sm shrink-0">
           <AlertTriangle className="w-4 h-4 text-[var(--sutra-gold)] shrink-0 mt-0.5" />
-          <div className="text-[11px] leading-relaxed">
+          <div className="text-[11px] leading-relaxed min-w-0">
             <p className="font-bold uppercase tracking-widest text-[var(--sutra-charcoal)] text-[10px]">
-              Simulation Mode — No Live AI Engine Connected
+              Simulation mode — no live AI engine connected
             </p>
             <p className="text-[var(--text-2)] mt-1">
-              No LLM API key configured (<code className="font-mono bg-[var(--bg-2)] px-1">LLM_PROVIDER={capability.llm_provider}</code>) and the OpenCode
-              code engine sidecar is offline. Builds are orchestrating a deterministic template scaffold from your request — this is <strong className="text-[var(--sutra-charcoal)]">not</strong> bespoke AI-generated code.
-              To get real AI generation, set <code className="font-mono bg-[var(--bg-2)] px-1">GROQ_API_KEY</code> or <code className="font-mono bg-[var(--bg-2)] px-1">OPENAI_API_KEY</code> plus <code className="font-mono bg-[var(--bg-2)] px-1">LLM_PROVIDER</code>, and start the OpenCode sidecar
-              (<code className="font-mono bg-[var(--bg-2)] px-1">docker compose up opencode</code> or <code className="font-mono bg-[var(--bg-2)] px-1">opencode serve --port 4096</code>). The generated scaffold is still fully working FastAPI + Next.js code, verified and packaged for download.
+              No LLM API key configured (
+              <code className="font-mono bg-[var(--bg-2)] px-1">LLM_PROVIDER={state.capability.llm_provider}</code>)
+              and the OpenCode sidecar is offline. Builds use a deterministic template scaffold.
+              Set <code className="font-mono bg-[var(--bg-2)] px-1">GROQ_API_KEY</code> or{' '}
+              <code className="font-mono bg-[var(--bg-2)] px-1">OPENAI_API_KEY</code> plus{' '}
+              <code className="font-mono bg-[var(--bg-2)] px-1">LLM_PROVIDER</code> and start the sidecar for real
+              AI generation.
             </p>
           </div>
         </div>
       )}
 
-      {/* 3-Zone Workspace */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 min-h-0">
-        
-        {/* ZONE 1: SESSIONS / CONTEXT (3 cols) */}
-        <div className="hidden lg:flex flex-col lg:col-span-3 h-full sutra-card bg-[var(--bg-2)] border-[var(--border)] min-w-0">
-          {/* Zone 1 Tabs */}
-          <div className="flex border-b border-[var(--border)] bg-[var(--bg)] text-[11px] font-bold uppercase tracking-wider">
-            <button
-              onClick={() => setLeftTab('history')}
-              className={`flex-1 py-3 px-3 flex items-center justify-center gap-1.5 border-b-2 transition-colors ${
-                leftTab === 'history'
-                  ? 'border-[var(--sutra-muted-gold)] text-[var(--sutra-charcoal)] bg-[var(--bg-2)]'
-                  : 'border-transparent text-[var(--text-3)] hover:text-[var(--sutra-charcoal)]'
-              }`}
-            >
-              <History className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
-              <span>Chat History</span>
-              {historySolutions.length > 0 && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--bg)] border border-[var(--border)] text-[var(--text-2)] font-mono">
-                  {historySolutions.length}
+      {/* ── 3-zone workspace ── */}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3 min-h-0">
+        {/* Zone 1 — sessions / context */}
+        <aside className="hidden lg:flex lg:col-span-2 xl:col-span-2 min-h-0">
+          <ChatSidecar
+            state={state}
+            dispatch={dispatch}
+            onSelect={handleSelectSolution}
+            onDelete={handleDeleteSolution}
+            onNew={startNewChat}
+            onAttach={attachContext}
+            onClearContext={() => dispatch({ type: 'set-context', value: null })}
+            providePrdText={t('chat.providePrd')}
+          />
+        </aside>
+
+        {/* Zone 2 — thread */}
+        <section className="flex flex-col lg:col-span-10 xl:col-span-7 h-[56vh] lg:h-full min-h-0 bg-[var(--bg)] border border-[var(--sutra-muted-gold)] rounded-sm shadow-md overflow-hidden">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-5 pb-3 min-h-0">
+            {showThreadSkeleton ? (
+              <ThreadSkeleton />
+            ) : (
+              state.messages.map((m, i) => (
+                <ChatMessage key={i} role={m.role} content={m.content} agent={m.agent} />
+              ))
+            )}
+
+            {state.streaming && state.stage === 'thinking' && <div className="mt-3"><ThinkingBubble /></div>}
+
+            {state.streaming && state.progress && (
+              <div className="flex items-center gap-3 text-[12px] text-[var(--text-2)] py-4 font-serif italic border-t border-[var(--border)] mt-4">
+                <Loader2 className="w-4 h-4 animate-spin text-[var(--sutra-muted-gold)] shrink-0" />
+                <span className="min-w-0 break-words">
+                  {t('chat.buildingAppStatus')} <strong className="text-[var(--sutra-charcoal)]">{state.progress.target}%</strong>{' '}
+                  — {t('chat.stepLabel')} {state.progress.step}/{state.progress.totalSteps}: {state.progress.message}
                 </span>
-              )}
-            </button>
-            <button
-              onClick={() => setLeftTab('context')}
-              className={`flex-1 py-3 px-3 flex items-center justify-center gap-1.5 border-b-2 transition-colors ${
-                leftTab === 'context'
-                  ? 'border-[var(--sutra-muted-gold)] text-[var(--sutra-charcoal)] bg-[var(--bg-2)]'
-                  : 'border-transparent text-[var(--text-3)] hover:text-[var(--sutra-charcoal)]'
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5 text-[var(--text-3)]" />
-              <span>Context / PRD</span>
-              {uploadedContext && (
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              )}
-            </button>
+              </div>
+            )}
+            <div ref={endRef} className="h-2" />
           </div>
 
-          {/* Tab 1: History Content */}
-          {leftTab === 'history' && (
-            <div className="flex-1 flex flex-col min-h-0 p-3">
-              {/* New Build Action */}
-              <button
-                onClick={handleStartNewChat}
-                className="w-full mb-3 py-2 px-3 flex items-center justify-center gap-2 bg-[var(--bg)] hover:bg-[var(--sutra-charcoal)] text-[var(--sutra-charcoal)] hover:text-white border border-[var(--sutra-muted-gold)]/50 hover:border-[var(--sutra-charcoal)] rounded-sm text-[11px] font-bold uppercase tracking-wider transition-all shadow-sm group"
-              >
-                <Plus className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)] group-hover:text-white transition-colors" />
-                <span>New Architecture Build</span>
-              </button>
+          {/* Composer */}
+          <div className="p-3 sm:p-3.5 bg-[var(--bg-2)] border-t border-[var(--border)] shrink-0">
+            {state.error && (
+              <div className="flex items-start gap-2 mb-2.5 animate-fade-in">
+                <p className="flex-1 text-[11px] font-semibold text-[var(--red)] bg-[var(--bg)] border border-[var(--red)] px-3 py-2 shadow-sm break-words">
+                  {state.error}
+                </p>
+                <button
+                  onClick={() => dispatch({ type: 'set-error', value: null })}
+                  className="text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] p-1"
+                  aria-label="Dismiss error"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
 
-              {/* Quick Search */}
-              {historySolutions.length > 3 && (
-                <div className="relative mb-2">
-                  <Search className="w-3.5 h-3.5 text-[var(--text-3)] absolute left-2.5 top-2" />
+            <form onSubmit={(e) => { e.preventDefault(); void send(state.buildRequested); }}>
+              {state.buildRequested && (
+                <div className="mb-2.5 flex items-center gap-2 animate-fade-in">
+                  <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)] shrink-0">
+                    {t('chat.appNameOptional')}
+                  </span>
                   <input
                     type="text"
-                    value={historySearch}
-                    onChange={(e) => setHistorySearch(e.target.value)}
-                    placeholder="Search conversations..."
-                    className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--bg)] border border-[var(--border)] rounded-sm text-[var(--sutra-charcoal)] placeholder-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] font-sans"
+                    value={state.appName}
+                    onChange={(e) => dispatch({ type: 'set-app-name', value: e.target.value })}
+                    placeholder={t('chat.appNamePlaceholder')}
+                    disabled={state.streaming}
+                    className="flex-1 py-1.5 px-3 bg-[var(--bg)] border border-[var(--border)] text-[12px] text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm min-w-0"
                   />
-                  {historySearch && (
-                    <button
-                      onClick={() => setHistorySearch('')}
-                      className="absolute right-2 top-1.5 text-[var(--text-3)] hover:text-[var(--sutra-charcoal)]"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
                 </div>
               )}
 
-              {/* Sessions List */}
-              <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 min-h-0">
-                {historyLoading && historySolutions.length === 0 ? (
-                  <div className="flex items-center justify-center h-32 text-xs text-[var(--text-3)]">
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    Loading history...
-                  </div>
-                ) : filteredSolutions.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-48 text-center px-4 text-[var(--text-3)]">
-                    <MessageSquare className="w-8 h-8 mb-2 opacity-40" />
-                    <p className="text-xs font-serif text-[var(--text-2)]">No matching conversations</p>
-                    <p className="text-[11px] font-light mt-1">Start a build to begin your chat history</p>
-                  </div>
-                ) : (
-                  filteredSolutions.map((sol) => {
-                    const isActive = targetId === sol.id || solutionId === sol.id;
-                    const messageCount = sol.conversation_history?.length || 0;
-                    return (
-                      <div
-                        key={sol.id}
-                        onClick={() => handleSelectSolution(sol)}
-                        className={`group relative p-2.5 rounded-sm border cursor-pointer transition-all ${
-                          isActive
-                            ? 'border-[var(--sutra-muted-gold)] bg-[var(--bg)] shadow-sm'
-                            : 'border-transparent hover:border-[var(--border)] hover:bg-[var(--bg)]/70'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              {isActive && (
-                                <span className="w-1.5 h-1.5 rounded-full bg-[var(--sutra-muted-gold)] shrink-0" />
-                              )}
-                              <p className={`text-xs font-semibold truncate ${
-                                isActive ? 'text-[var(--sutra-charcoal)] font-bold' : 'text-[var(--text-2)] group-hover:text-[var(--sutra-charcoal)]'
-                              }`}>
-                                {sol.title || 'Untitled Build'}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2 mt-1 text-[10px] text-[var(--text-3)] font-mono">
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-2.5 h-2.5" />
-                                {formatSessionDate(sol.created_at)}
-                              </span>
-                              {messageCount > 0 && (
-                                <span>• {messageCount} msg{messageCount > 1 ? 's' : ''}</span>
-                              )}
-                              {sol.status && (
-                                <span className="uppercase text-[9px] font-bold px-1 rounded bg-[var(--bg-2)] border border-[var(--border)]">
-                                  {sol.status}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <button
-                            onClick={(e) => handleDeleteSolution(e, sol.id)}
-                            className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-600 text-[var(--text-3)] transition-all shrink-0"
-                            title="Delete conversation"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Tab 2: Context Content */}
-          {leftTab === 'context' && (
-            <div className="flex-1 p-4 overflow-y-auto overflow-x-hidden">
-              {uploadedContext ? (
-                <div className="space-y-4">
-                  <div className="p-3 bg-[var(--bg)] border border-[var(--sutra-muted-gold)] text-[12px]">
-                    <p className="font-semibold text-[var(--sutra-charcoal)] break-all">{uploadedFilename}</p>
-                    <p className="text-[10px] uppercase tracking-widest text-[var(--text-2)] mt-2 font-bold">{uploadedContext.length} characters parsed</p>
-                  </div>
-                  <button
-                    onClick={() => { setUploadedContext(''); setUploadedFilename(''); }}
-                    className="btn btn-ghost w-full text-[10px] uppercase tracking-widest font-semibold"
-                  >
-                    {t('chat.clearContext')}
-                  </button>
-                </div>
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center text-center space-y-4">
-                  <FileUploader
-                    onParsedContext={(text, filename) => {
-                      setUploadedContext(text);
-                      setUploadedFilename(filename);
-                      push(`Context established from **${filename}**. I am ready to process instructions.`);
-                    }}
-                    onClear={() => { setUploadedContext(''); setUploadedFilename(''); }}
-                  />
-                  <p className="text-[11px] text-[var(--text-2)] font-light max-w-[200px] break-words">
-                    {t('chat.providePrd')}
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* ZONE 2: WORKSPACE / CHAT (6 cols) */}
-        <div className="flex flex-col lg:col-span-6 h-[52vh] lg:h-full sutra-card border-[var(--sutra-muted-gold)] shadow-md overflow-hidden bg-[var(--bg)] relative min-w-0">
-          {/* Thread */}
-          <div className="flex-1 overflow-y-auto p-6 pb-4">
-            {messages.map((m, i) => <ChatMessage key={i} role={m.role} content={m.content} agent={m.agent} />)}
-
-            {isStreaming && (
-              <div className="flex items-center gap-3 text-[12px] text-[var(--text-2)] py-4 font-serif italic border-t border-[var(--border)] mt-4">
-                <Loader2 className="w-4 h-4 animate-spin text-[var(--sutra-muted-gold)]" />
-                {buildProgress ? (
-                  <span>
-                    {t('chat.buildingAppStatus')} <strong className="text-[var(--sutra-charcoal)]">{buildProgress.percentage}%</strong> — {t('chat.stepLabel')} {buildProgress.step}/{buildProgress.total_steps}: {buildProgress.message}
-                  </span>
-                ) : (
-                  t('chat.synthesizingArchitecture')
-                )}
-              </div>
-            )}
-            <div ref={endRef} className="h-4" />
-          </div>
-
-          {/* Input area */}
-          <div className="p-4 bg-[var(--bg-2)] border-t border-[var(--border)]">
-            {error && (
-              <p className="text-[11px] font-semibold text-[var(--red)] bg-[var(--bg)] border border-[var(--red)] px-4 py-2 mb-3 shadow-sm">{error}</p>
-            )}
-
-            {buildRequested && (
-              <div className="mb-2.5 flex items-center gap-2 animate-fade-in">
-                <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)] shrink-0">{t('chat.appNameOptional')}</span>
-                <input
-                  type="text"
-                  value={appName}
-                  onChange={(e) => setAppName(e.target.value)}
-                  placeholder={t('chat.appNamePlaceholder')}
-                  disabled={isStreaming}
-                  className="flex-1 py-1.5 px-3 bg-[var(--bg)] border border-[var(--border)] text-[12px] text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm"
-                />
-              </div>
-            )}
-
-            <form
-              onSubmit={(e) => { e.preventDefault(); handleSend(buildRequested); }}
-              className="flex items-center gap-3"
-            >
-              {/* Context Toggle for mobile */}
-              <button
-                type="button"
-                onClick={() => setShowUploader(!showUploader)}
-                className={`lg:hidden p-3 border transition-colors shrink-0 rounded-sm ${uploadedContext
-                    ? 'bg-[var(--bg)] border-[var(--sutra-muted-gold)] text-[var(--sutra-muted-gold)] shadow-sm'
-                    : 'bg-[var(--bg)] border-[var(--border)] text-[var(--text-3)]'
-                  }`}
-                title={t('chat.attachContext')}
-              >
-                <Paperclip className="w-4 h-4" />
-              </button>
-
-              {/* Voice input button with language support */}
-              <VoiceInputButton
-                onTranscribed={(text) => {
-                  setInput((prev) => (prev ? `${prev} ${text}` : text));
-                }}
-                disabled={isStreaming}
-              />
-
-              <div className="flex-1 relative flex items-center min-w-0">
-                <input
-                  type="text"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder={
-                    uploadedFilename
-                      ? t('chat.instructSutra', { filename: uploadedFilename })
-                      : t('chat.describeApp')
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    dispatch({ type: 'set-sidecar-tab', value: 'context' })
                   }
-                  disabled={isStreaming}
-                  className="w-full py-3.5 pl-4 pr-24 bg-[var(--bg)] border border-[var(--border)] text-[13px] text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm min-w-0"
-                />
-                
-                {/* Build toggle inside input */}
-                <label className={`absolute right-2 flex items-center gap-2 px-3 py-1.5 rounded-sm text-[10px] uppercase tracking-widest font-bold cursor-pointer select-none transition-colors ${buildRequested ? 'bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)]' : 'bg-[var(--bg-2)] border border-[var(--border)] text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] hover:border-[var(--text-3)]'
-                  }`}>
-                  <input type="checkbox" checked={buildRequested} onChange={(e) => setBuildRequested(e.target.checked)} className="sr-only" />
-                  <Settings2 className="w-3 h-3" /> {t('chat.buildTab')}
-                </label>
-              </div>
+                  className={clsx(
+                    'lg:hidden p-3 border transition-colors shrink-0 rounded-sm',
+                    state.context
+                      ? 'bg-[var(--bg)] border-[var(--sutra-muted-gold)] text-[var(--sutra-muted-gold)] shadow-sm'
+                      : 'bg-[var(--bg)] border border-[var(--border)] text-[var(--text-3)]'
+                  )}
+                  title={t('chat.attachContext')}
+                  aria-label={t('chat.attachContext')}
+                >
+                  <Paperclip className="w-4 h-4" />
+                </button>
 
-              <button
-                type="submit"
-                disabled={!input.trim() || isStreaming}
-                className="p-3.5 rounded-sm bg-[var(--sutra-charcoal)] hover:bg-black text-[var(--sutra-warm-ivory)] transition-colors disabled:opacity-50 shrink-0 shadow-md"
-              >
-                <Send className="w-4 h-4" />
-              </button>
+                <VoiceInputButton
+                  onTranscribed={(text) =>
+                    dispatch({ type: 'set-input', value: state.input ? `${state.input} ${text}` : text })
+                  }
+                  disabled={state.streaming}
+                />
+
+                <div className="flex-1 relative flex items-center min-w-0">
+                  <input
+                    type="text"
+                    value={state.input}
+                    onChange={(e) => dispatch({ type: 'set-input', value: e.target.value })}
+                    placeholder={
+                      state.context
+                        ? t('chat.instructSutra', { filename: state.context.filename })
+                        : t('chat.describeApp')
+                    }
+                    disabled={state.streaming}
+                    className="w-full py-3 pl-4 pr-4 sm:pr-28 bg-[var(--bg)] border border-[var(--border)] text-[13px] text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm min-w-0"
+                  />
+                  <label
+                    className={clsx(
+                      'absolute right-2 flex items-center gap-1.5 px-2.5 py-1.5 rounded-sm text-[10px] uppercase tracking-widest font-bold cursor-pointer select-none transition-colors',
+                      state.buildRequested
+                        ? 'bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)]'
+                        : 'bg-[var(--bg-2)] border border-[var(--border)] text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] hover:border-[var(--text-3)]'
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={state.buildRequested}
+                      onChange={(e) => dispatch({ type: 'toggle-build-requested', value: e.target.checked })}
+                      className="sr-only"
+                    />
+                    <Settings2 className="w-3 h-3" />
+                    <span className="hidden sm:inline">{t('chat.buildTab')}</span>
+                  </label>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={!state.input.trim() || state.streaming}
+                  className="p-3.5 rounded-sm bg-[var(--sutra-charcoal)] hover:bg-black text-[var(--sutra-warm-ivory)] transition-colors disabled:opacity-50 shrink-0 shadow-md"
+                  aria-label="Send"
+                >
+                  {state.streaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                </button>
+              </div>
             </form>
           </div>
-        </div>
+        </section>
 
-        {/* ZONE 3: ARTIFACT (3 cols, stacked below chat on mobile) */}
-        <div className="flex flex-col lg:col-span-3 h-[46vh] lg:h-full sutra-card bg-[var(--bg-2)] border-[var(--border)] min-w-0 overflow-hidden">
-          <div className="p-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--bg)]">
-            <div className="flex items-center gap-2">
-              <Layers className="w-4 h-4 text-[var(--text-3)]" />
-              <h2 className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">{t('chat.buildArtifacts')}</h2>
-            </div>
-            {isStreaming && buildProgress && (
-              <div className="flex items-center gap-1.5 text-[10px] font-mono text-[var(--sutra-muted-gold)] font-bold">
-                <Clock className="w-3 h-3 animate-spin" />
-                <span>{elapsedSeconds}s</span>
-              </div>
-            )}
-          </div>
-          
-          <div className="flex-1 p-4 overflow-y-auto overflow-x-hidden">
-            {builds.length > 0 && (
-              <div className="space-y-3 mb-4 animate-fade-in min-w-0">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold text-[var(--green)] bg-[var(--bg)] border border-[var(--border)] p-2">
-                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                    <span>{builds.length} {t('chat.buildOrchestrated')}</span>
-                  </div>
-                  {solutionId && (
-                    <a
-                      href={`/solution/${solutionId}`}
-                      className="text-[11px] font-medium text-[var(--sutra-muted-gold)] hover:underline"
-                    >
-                      {t('chat.viewArtifacts')} →
-                    </a>
-                  )}
-                </div>
-                {builds.map((b) => (
-                  <div key={b.build_id} className="min-w-0">
-                    <BuildCard
-                      build={b}
-                      isDeployed={Boolean(b.repo_url)}
-                      onDeploy={() => setDeployTarget(b)}
-                      onConfigure={() => setConfigureTarget(b)}
-                      onDownload={() => handleDownload(b)}
-                      onDestroy={() => handleDestroy(b)}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {isStreaming && (buildRequested || buildProgress) && (
-              /* LIVE BUILD PROGRESS DASHBOARD */
-              <div className={`space-y-4 animate-fade-in ${builds.length > 0 ? 'mt-4 border-t border-[var(--border)] pt-4' : ''}`}>
-                {/* Active Status Badge */}
-                <div className="p-3 bg-[var(--bg)] border border-[var(--sutra-muted-gold)] shadow-sm">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">
-                      <Activity className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)] animate-pulse" />
-                      <span>{t('chat.buildingApplication')}</span>
-                    </div>
-                    <span className="text-[11px] font-mono font-bold text-[var(--sutra-muted-gold)]">
-                      {buildProgress?.percentage ?? 15}%
-                    </span>
-                  </div>
-
-                  {/* Progress Bar */}
-                  <div className="w-full h-1.5 bg-[var(--bg-2)] rounded-full overflow-hidden border border-[var(--border)]">
-                    <div
-                      className="h-full bg-gradient-to-r from-[var(--sutra-muted-gold)] to-[var(--green)] transition-all duration-500 ease-out"
-                      style={{ width: `${Math.max(5, buildProgress?.percentage ?? 15)}%` }}
-                    />
-                  </div>
-
-                  <p className="text-[11px] text-[var(--text-2)] font-light mt-2 break-words">
-                    {buildProgress?.message || t('chat.synthesizingStructure')}
-                  </p>
-                </div>
-
-                {/* Milestone Checklist */}
-                <div className="bg-[var(--bg)] border border-[var(--border)] p-3 space-y-2">
-                  <h3 className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)] mb-2">
-                    {t('chat.executionMilestones')}
-                  </h3>
-                  <div className="space-y-2">
-                    {BUILD_MILESTONES.map((m) => {
-                      const currentStep = buildProgress?.step || 1;
-                      const stepStatus = buildProgress?.steps?.find((s) => s.key === m.phase)?.status;
-                      const isComplete = stepStatus
-                        ? stepStatus === 'completed'
-                        : currentStep > m.step;
-                      const isCurrent = stepStatus ? stepStatus === 'active' : currentStep === m.step;
-                      return (
-                        <div key={m.step} className="flex items-center gap-2.5 text-[11px]">
-                          {isComplete ? (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-[var(--green)] shrink-0" />
-                          ) : isCurrent ? (
-                            <Loader2 className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)] animate-spin shrink-0" />
-                          ) : (
-                            <Circle className="w-3.5 h-3.5 text-[var(--text-3)]/40 shrink-0" />
-                          )}
-                          <span
-                            className={
-                              isComplete
-                                ? 'text-[var(--sutra-charcoal)] font-medium'
-                                : isCurrent
-                                ? 'text-[var(--sutra-charcoal)] font-bold'
-                                : 'text-[var(--text-3)] font-light'
-                            }
-                          >
-                            {t(m.key)}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Live Activity Log */}
-                {buildProgress?.logs && buildProgress.logs.length > 0 && (
-                  <div className="bg-[var(--bg)] border border-[var(--border)] p-3">
-                    <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)] mb-2">
-                      <Terminal className="w-3 h-3" />
-                      <span>{t('chat.liveBuildLog')}</span>
-                    </div>
-                    <div className="max-h-36 overflow-y-auto space-y-1 font-mono text-[10px] text-[var(--text-2)] bg-[var(--bg-2)] p-2 rounded-sm border border-[var(--border)]">
-                      {buildProgress.logs.map((log, idx) => (
-                        <div key={idx} className="break-words leading-tight">
-                          <span className="text-[var(--sutra-muted-gold)]">{log}</span>
-                        </div>
-                      ))}
-                      <div ref={logEndRef} />
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {builds.length === 0 && !(isStreaming && (buildRequested || buildProgress)) && (
-              <div className="h-full flex flex-col items-center justify-center text-center space-y-4 opacity-60">
-                <div className="w-12 h-12 flex items-center justify-center border border-[var(--border)] border-dashed">
-                  <Play className="w-5 h-5 text-[var(--text-3)]" />
-                </div>
-                <div>
-                  <p className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">{t('chat.awaitingSynthesis')}</p>
-                  <p className="text-[11px] text-[var(--text-2)] font-light max-w-[180px] mx-auto mt-2">
-                    {t('chat.buildToggleHint')}
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
+        {/* Zone 3 — artifacts */}
+        <aside className="flex flex-col lg:col-span-12 xl:col-span-3 h-[42vh] lg:h-full min-h-0">
+          <ArtifactsPanel
+            state={state}
+            t={t}
+            buildOrchestratedLabel={t('chat.buildOrchestrated')}
+            viewArtifactsLabel={t('chat.viewArtifacts')}
+            buildToggleHint={t('chat.buildToggleHint')}
+            onDeploy={setDeployTarget}
+            onConfigure={setConfigureTarget}
+            onDownload={(b) => void handleDownload(b)}
+            onDestroy={(b) => void handleDestroy(b)}
+          />
+        </aside>
       </div>
 
-      {deployTarget && <DeployModal build={deployTarget} onClose={() => setDeployTarget(null)} onDeployed={handleDeployed} />}
-      {configureTarget && <ConfigureModal build={configureTarget} onClose={() => setConfigureTarget(null)} onConfigured={() => undefined} />}
-
-      {/* Mobile Chat History Drawer */}
-      {mobileHistoryOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm lg:hidden animate-fade-up">
-          <div className="bg-[var(--bg-2)] border border-[var(--border)] rounded-md shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden">
-            <div className="p-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--bg)]">
-              <div className="flex items-center gap-2">
-                <History className="w-4 h-4 text-[var(--sutra-muted-gold)]" />
-                <h2 className="text-xs font-bold uppercase tracking-widest text-[var(--sutra-charcoal)]">Architecture Chat History</h2>
-              </div>
-              <button
-                onClick={() => setMobileHistoryOpen(false)}
-                className="p-1 text-[var(--text-3)] hover:text-[var(--sutra-charcoal)]"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="p-3 border-b border-[var(--border)] bg-[var(--bg)]">
-              <button
-                onClick={handleStartNewChat}
-                className="w-full py-2 px-3 flex items-center justify-center gap-2 bg-[var(--sutra-charcoal)] text-white hover:bg-black rounded-sm text-[11px] font-bold uppercase tracking-wider transition-all"
-              >
-                <Plus className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
-                <span>Start New Architecture Build</span>
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
-              {filteredSolutions.map((sol) => {
-                const isActive = targetId === sol.id || solutionId === sol.id;
-                const messageCount = sol.conversation_history?.length || 0;
-                return (
-                  <div
-                    key={sol.id}
-                    onClick={() => handleSelectSolution(sol)}
-                    className={`group relative p-2.5 rounded-sm border cursor-pointer transition-all ${
-                      isActive
-                        ? 'border-[var(--sutra-muted-gold)] bg-[var(--bg)] shadow-sm'
-                        : 'border-[var(--border)] bg-[var(--bg)]/50 hover:bg-[var(--bg)]'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          {isActive && (
-                            <span className="w-1.5 h-1.5 rounded-full bg-[var(--sutra-muted-gold)] shrink-0" />
-                          )}
-                          <p className={`text-xs font-semibold truncate ${
-                            isActive ? 'text-[var(--sutra-charcoal)] font-bold' : 'text-[var(--text-2)]'
-                          }`}>
-                            {sol.title || 'Untitled Build'}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2 mt-1 text-[10px] text-[var(--text-3)] font-mono">
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-2.5 h-2.5" />
-                            {formatSessionDate(sol.created_at)}
-                          </span>
-                          {messageCount > 0 && (
-                            <span>• {messageCount} msg{messageCount > 1 ? 's' : ''}</span>
-                          )}
-                          {sol.status && (
-                            <span className="uppercase text-[9px] font-bold px-1 rounded bg-[var(--bg-2)] border border-[var(--border)]">
-                              {sol.status}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <button
-                        onClick={(e) => handleDeleteSolution(e, sol.id)}
-                        className="p-1 hover:text-red-600 text-[var(--text-3)] transition-all shrink-0"
-                        title="Delete conversation"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+      {/* ── Mobile / tablet sidecar drawer ── */}
+      {state.sidecarOpen && (
+        <div className="fixed inset-0 z-50 flex bg-black/50 backdrop-blur-sm lg:hidden animate-fade-in">
+          <div
+            className="absolute inset-0"
+            onClick={() => dispatch({ type: 'set-sidecar-open', value: false })}
+            aria-hidden="true"
+          />
+          <div className="relative bg-[var(--bg-2)] border-r border-[var(--border)] w-full max-w-xs h-full flex flex-col shadow-2xl animate-slide-in">
+            <ChatSidecar
+              state={state}
+              dispatch={dispatch}
+              onSelect={handleSelectSolution}
+              onDelete={handleDeleteSolution}
+              onNew={startNewChat}
+              onAttach={attachContext}
+              onClearContext={() => dispatch({ type: 'set-context', value: null })}
+              providePrdText={t('chat.providePrd')}
+              onClose={() => dispatch({ type: 'set-sidecar-open', value: false })}
+            />
+            <button
+              onClick={startNewChat}
+              className="m-3 py-2.5 px-3 flex items-center justify-center gap-2 bg-[var(--sutra-charcoal)] text-white hover:bg-black rounded-sm text-[11px] font-bold uppercase tracking-wider shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
+              <span>Start New Architecture Build</span>
+            </button>
           </div>
         </div>
+      )}
+
+      {deployTarget && (
+        <DeployModal
+          build={deployTarget}
+          onClose={() => setDeployTarget(null)}
+          onDeployed={handleDeployed}
+        />
+      )}
+      {configureTarget && (
+        <ConfigureModal
+          build={configureTarget}
+          onClose={() => setConfigureTarget(null)}
+          onConfigured={() => void loadHistory(true)}
+        />
       )}
     </div>
   );
 }
 
-export default function ChatPage() {
-  const { t } = useI18n();
+function ChatSkeleton() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-full text-[var(--text-2)] font-serif italic">{t('chat.initializingIntelligence')}</div>}>
+    <div className="flex flex-col h-[calc(100vh-5rem)] animate-fade-up">
+      <div className="mb-3 flex items-center gap-3 px-1">
+        <div className="w-8 h-8 border border-[var(--border)] skeleton" />
+        <div className="space-y-1.5">
+          <div className="skeleton h-4 w-52" />
+          <div className="skeleton h-2.5 w-36" />
+        </div>
+      </div>
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3 min-h-0">
+        <div className="hidden lg:flex lg:col-span-2 border border-[var(--border)] rounded-sm p-3 space-y-2">
+          <div className="skeleton h-8 w-full" />
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="space-y-1.5">
+              <div className="skeleton h-3 w-full" />
+              <div className="skeleton h-2 w-2/3" />
+            </div>
+          ))}
+        </div>
+        <div className="lg:col-span-10 xl:col-span-7 border border-[var(--border)] rounded-sm p-5">
+          <ThreadSkeleton />
+        </div>
+        <div className="lg:col-span-12 xl:col-span-3 border border-[var(--border)] rounded-sm p-3 space-y-3">
+          <div className="skeleton h-3 w-32" />
+          <div className="skeleton h-24 w-full" />
+          <div className="skeleton h-24 w-full" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={<ChatSkeleton />}>
       <ChatContent />
     </Suspense>
   );
-}
+}

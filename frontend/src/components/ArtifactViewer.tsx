@@ -23,6 +23,7 @@ import WorkablePreview from './WorkablePreview';
 import RegenerateModal from './RegenerateModal';
 import WireframeCanvas from './WireframeCanvas';
 import MarkdownRenderer from './MarkdownRenderer';
+import ProductVisuals from './ProductVisuals';
 
 interface ArtifactViewerProps {
   artifacts: Artifact[];
@@ -31,6 +32,18 @@ interface ArtifactViewerProps {
 }
 
 const BPMN_ALIAS: Record<string, ArtifactType> = { bpmn: 'bpmn_flows' };
+
+// Product visuals are three distinct artifact types shown under one tab.
+const VISUAL_TYPES: ArtifactType[] = ['hero_image', 'ui_mockup', 'app_icon'];
+const VISUAL_TAB: ArtifactType = 'ui_mockup';
+
+/** Does *artifactType* belong to the tab keyed by *tabType*? */
+function matchesTab(artifactType: ArtifactType, tabType: ArtifactType): boolean {
+  if (artifactType === tabType) return true;
+  if (BPMN_ALIAS[artifactType] === tabType) return true;
+  if (tabType === VISUAL_TAB && VISUAL_TYPES.includes(artifactType)) return true;
+  return false;
+}
 
 function toBpmnProcess(artifact?: Artifact): BpmnProcess | undefined {
   if (!artifact) return undefined;
@@ -83,9 +96,10 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
     { type: 'database_schema', label: 'DB Schema & ERD', icon: Database },
     { type: 'api_spec', label: 'OpenAPI Spec', icon: FileCode2 },
     { type: 'roadmap', label: 'Roadmap & Sprints', icon: Calendar },
+    { type: VISUAL_TAB, label: 'Product Visuals', icon: PenLine },
   ];
 
-  const currentArtifacts = artifacts.filter(a => a.artifact_type === activeType || BPMN_ALIAS[a.artifact_type] === activeType);
+  const currentArtifacts = artifacts.filter(a => matchesTab(a.artifact_type, activeType));
   const activeArtifact = currentArtifacts[0];
 
   const handleCopy = (text: string) => {
@@ -117,7 +131,7 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
         <div className="flex space-x-1">
           {tabs.map((tab) => {
             const Icon = tab.icon;
-            const hasData = artifacts.some(a => a.artifact_type === tab.type || BPMN_ALIAS[a.artifact_type] === tab.type) || tab.type === 'workable';
+            const hasData = artifacts.some(a => matchesTab(a.artifact_type, tab.type) || tab.type === 'workable');
             const isActive = activeType === tab.type;
 
             return (
@@ -145,7 +159,7 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
 
         {/* Action buttons */}
         <div className="flex items-center gap-3 pb-2 pr-2">
-          {activeType !== 'workable' && (
+          {activeType !== 'workable' && activeType !== VISUAL_TAB && (
             <button
               onClick={() => setShowRegenModal(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-[var(--bg)] hover:bg-[var(--bg-3)] text-[var(--sutra-charcoal)] text-[10px] uppercase tracking-widest font-semibold border border-[var(--border)] transition-colors whitespace-nowrap shadow-sm"
@@ -155,7 +169,7 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
             </button>
           )}
 
-          {activeArtifact && (
+          {activeArtifact && activeType !== VISUAL_TAB && (
             <>
               <button
                 onClick={() => handleCopy(getRawContentString(activeArtifact))}
@@ -186,6 +200,8 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
           <div className="h-full border border-[var(--border)] bg-[var(--bg-2)] p-2 shadow-sm">
             <BpmnViewer processData={toBpmnProcess(activeArtifact)} />
           </div>
+        ) : activeType === VISUAL_TAB ? (
+          <ProductVisuals artifacts={artifacts.filter((a) => VISUAL_TYPES.includes(a.artifact_type))} />
         ) : activeArtifact ? (
           <div className="max-w-5xl mx-auto space-y-6">
             <div className="flex items-center justify-between pb-4 border-b border-[var(--border)]">

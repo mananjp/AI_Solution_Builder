@@ -301,6 +301,11 @@ class MVPEnvVarSpec(BaseModel):
     current: str | None = None  # value already known (saved env or auto-injected)
     auto_injected: bool = False  # set automatically (e.g. backend URL → frontend)
     occurrences: int = 0
+    # A usable non-secret default the UI may pre-fill ("value"), or format
+    # guidance for a credential the user must obtain themselves ("hint").
+    # Never a fabricated secret — see ``_recommendation_for`` in mvp_builder.
+    recommended: str | None = None
+    recommendation_kind: str = "none"  # "value" | "hint" | "none"
 
 
 class MVPEnvPlanResponse(BaseModel):

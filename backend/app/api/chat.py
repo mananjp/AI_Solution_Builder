@@ -54,33 +54,58 @@ async def _verify_solution_access(solution_id: UUID, user: User, db: AsyncSessio
     return solution
 
 
+async def _artifact_version_map(db: AsyncSession, solution_id: UUID) -> dict[str, int]:
+    """Highest existing version per artifact type for a solution."""
+    rows = (
+        await db.execute(
+            select(SolutionArtifact.artifact_type, SolutionArtifact.version).where(
+                SolutionArtifact.solution_id == solution_id
+            )
+        )
+    ).all()
+    versions: dict[str, int] = {}
+    for artifact_type, version in rows:
+        versions[artifact_type] = max(versions.get(artifact_type, 0), version)
+    return versions
+
+
+def _queue_artifact(
+    db: AsyncSession,
+    solution_id: UUID,
+    versions: dict[str, int],
+    artifact_type: str,
+    title: str,
+    content: dict[str, Any],
+    content_text: str,
+) -> SolutionArtifact:
+    """Stage one artifact row with the next version number for its type.
+
+    The row is only added to the session — the caller owns the commit, so a
+    batch of artifacts lands atomically.
+    """
+    next_version = versions.get(artifact_type, 0) + 1
+    versions[artifact_type] = next_version
+    row = SolutionArtifact(
+        solution_id=solution_id,
+        artifact_type=artifact_type,
+        title=title,
+        content=content or {},
+        content_text=content_text or "",
+        version=next_version,
+    )
+    db.add(row)
+    return row
+
+
 async def _persist_artifacts(
     db: AsyncSession, solution: Solution, final_state: dict[str, Any]
 ) -> None:
     """Save all generated artifacts (scalar, wireframe, and BPMN lists) as new rows."""
-    max_version: dict[str, int] = {}
-    rows = (
-        await db.execute(
-            select(SolutionArtifact.artifact_type, SolutionArtifact.version).where(
-                SolutionArtifact.solution_id == solution.id
-            )
-        )
-    ).all()
-    for artifact_type, version in rows:
-        max_version[artifact_type] = max(max_version.get(artifact_type, 0), version)
+    max_version = await _artifact_version_map(db, solution.id)
 
     def add(artifact_type: str, title: str, content: dict[str, Any], content_text: str) -> None:
-        next_version = max_version.get(artifact_type, 0) + 1
-        max_version[artifact_type] = next_version
-        db.add(
-            SolutionArtifact(
-                solution_id=solution.id,
-                artifact_type=artifact_type,
-                title=title,
-                content=content or {},
-                content_text=content_text or "",
-                version=next_version,
-            )
+        _queue_artifact(
+            db, solution.id, max_version, artifact_type, title, content, content_text
         )
 
     for artifact_type in ARTIFACT_TYPES:
@@ -119,6 +144,49 @@ async def _persist_artifacts(
             generated.get("content", {}),
             generated.get("content_text", ""),
         )
+
+
+async def _persist_image_artifacts(
+    db: AsyncSession,
+    solution: Solution,
+    images: list[Any],
+    storage_keys: dict[str, str],
+) -> list[SolutionArtifact]:
+    """Store generated product visuals as first-class versioned artifact rows.
+
+    Kept separate from :func:`_persist_artifacts` because image generation runs
+    *after* that function has already staged the blueprint artifacts — calling it
+    a second time would re-stage every scalar artifact as a spurious v2.
+
+    ``storage_keys`` maps ``image.kind`` to the object-storage key holding its
+    bytes; the bytes themselves are uploaded by the caller.
+    """
+    if not images:
+        return []
+
+    from app.services import image_gen
+
+    versions = await _artifact_version_map(db, solution.id)
+    rows: list[SolutionArtifact] = []
+    for image in images:
+        kind = getattr(image, "kind", None)
+        if not kind or not image_gen.is_image_artifact(kind):
+            continue
+        storage_key = storage_keys.get(kind)
+        if not storage_key:
+            continue
+        rows.append(
+            _queue_artifact(
+                db,
+                solution.id,
+                versions,
+                kind,
+                image.title,
+                image_gen.image_content(image, storage_key),
+                image_gen.image_content_text(image),
+            )
+        )
+    return rows
 
 
 async def _stream_final_state(

@@ -11,6 +11,7 @@ from typing import Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +30,8 @@ from app.models.solution import Solution
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.artifact_graph import normalize_artifact_type
+from app.services.image_gen import is_image_artifact
+from app.services.storage import get_storage
 
 logger = logging.getLogger(__name__)
 
@@ -281,6 +284,20 @@ async def regenerate_artifact(
     new_text = ""
     new_title = f"{payload.artifact_type.upper()} (v{next_version})"
 
+    # Generated visuals are produced by the illustration phase, not by a
+    # regenerable agent node. Without this guard the dispatch chain below would
+    # fall through to its generic `else` branch and write a placeholder row with
+    # no storage_key, so the newest version could never load an image. Reject
+    # before the credit is deducted: the refund path only covers exceptions.
+    if is_image_artifact(payload.artifact_type):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"'{payload.artifact_type}' artifacts are generated during the build "
+                "and cannot be regenerated. Re-run the build to produce new visuals."
+            ),
+        )
+
     # Meter the regeneration through the shared credit gate (402 if insufficient)
     await require_and_deduct_credit(
         db,
@@ -388,6 +405,62 @@ async def regenerate_artifact(
             "created_at": new_artifact.created_at.isoformat() if new_artifact.created_at else None,
         },
     }
+
+
+@router.get("/{artifact_id}/image")
+async def get_artifact_image(
+    artifact_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Stream the bytes of a generated product visual.
+
+    Images are served through the API rather than from public object-storage
+    URLs so that access control is identical to every other artifact, and so the
+    same code path works for the local disk backend and Cloudinary (which stores
+    everything as ``resource_type="raw"`` and therefore has no directly
+    renderable URL).
+    """
+    artifact, _solution = await _verify_artifact_access(artifact_id, current_user, db)
+
+    if not is_image_artifact(artifact.artifact_type):
+        raise HTTPException(
+            status_code=404, detail="Artifact does not contain a generated image"
+        )
+
+    content = artifact.content or {}
+    image_meta = content.get("image")
+    if not isinstance(image_meta, dict):
+        raise HTTPException(status_code=404, detail="Artifact has no image payload")
+    storage_key = image_meta.get("storage_key")
+    if not storage_key:
+        raise HTTPException(status_code=404, detail="Artifact has no image storage key")
+
+    mime_type = str(image_meta.get("mime_type") or "image/png")
+    if not mime_type.startswith("image/"):
+        # Never echo an attacker-controlled content type back as a response
+        # header; fall back to a safe default instead.
+        mime_type = "image/png"
+
+    try:
+        data = await get_storage().download_raw(str(storage_key))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Image bytes no longer available") from exc
+    except Exception as exc:  # noqa: BLE001 - upstream storage failure
+        logger.error("Failed to read image artifact %s: %s", artifact_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="Image storage unavailable"
+        ) from exc
+
+    return Response(
+        content=data,
+        media_type=mime_type,
+        headers={
+            # Artifact bytes are immutable per version, so they cache hard.
+            "Cache-Control": "private, max-age=86400, immutable",
+            "Content-Disposition": f'inline; filename="{artifact.artifact_type}.png"',
+        },
+    )
 
 
 @router.get("/{artifact_id}/explain")

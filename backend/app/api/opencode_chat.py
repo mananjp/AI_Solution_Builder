@@ -23,7 +23,7 @@ import logging
 import re
 from collections.abc import AsyncIterator
 from typing import Any, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 from sse_starlette.sse import EventSourceResponse
 
-from app.api.chat import _persist_artifacts
+from app.api.chat import _persist_artifacts, _persist_image_artifacts
 from app.core.build_locks import allocate_build_number
 from app.core.config import settings
 from app.core.credits import require_and_deduct_credit
@@ -51,6 +51,7 @@ from app.models.workspace import Workspace
 from app.schemas import OpenCodeChatRequest
 from app.services import mvp_builder as builder
 from app.services import mvp_verifier
+from app.services.image_gen import generate_product_images, has_image_credentials, image_storage_key
 from app.services.storage import get_storage
 
 logger = logging.getLogger(__name__)
@@ -645,6 +646,375 @@ async def _get_or_create_workspace(db: AsyncSession, user: User) -> Workspace:
     return workspace
 
 
+# Ordered milestones for the chat build pipeline. Keys are exactly the ``phase``
+# values the SSE stream emits, so the live stepper, the persisted build row and
+# the SSE consumer can never drift apart.
+_CHAT_BUILD_STEPS: list[dict[str, str]] = [
+    {"key": "analyzing", "label": "Synthesizing domain architecture & specifications"},
+    {"key": "persisting", "label": "Persisting blueprints and data models"},
+    {"key": "scaffolding", "label": "Scaffolding the full-stack codebase"},
+    {"key": "coding", "label": "Generating models, schemas and routers"},
+    {"key": "illustrating", "label": "Generating product visuals & mockups"},
+    {"key": "verifying", "label": "Verifying & repairing the codebase"},
+    {"key": "packaging", "label": "Packaging the production artifact"},
+]
+_CHAT_STEP_INDEX: dict[str, int] = {s["key"]: i for i, s in enumerate(_CHAT_BUILD_STEPS)}
+# ``designing`` is a sub-phase of ``scaffolding`` — the AI designs the schema
+# before any files are written, so both advance the same milestone.
+_CHAT_STEP_INDEX["designing"] = 2
+
+
+# ── Description intent ────────────────────────────────────────────────
+# "What does this app do?" is a *question about* the app, not a request to
+# build one. It has to be detected explicitly: the sidecar branch is otherwise
+# taken on health alone and the model is handed a "Custom Build Request"
+# instruction, which answers with a two-line file-change summary instead of an
+# actual product description.
+_APP_NOUN = r"(?:app|application|system|platform|product|solution|project|website|site|tool)"
+
+_DESCRIPTION_PATTERNS = (
+    # Asking about the shape of the app itself.
+    r"\bwhat\s+(?:features?|capabilities|functionalit(?:y|ies)|modules?|screens?|"
+    r"pages?|entities|models?|tables?|endpoints?|routes?|apis?)\b",
+    rf"\bwhat\s+(?:does|do|is|are)\s+(?:this|the|my|our)\s+{_APP_NOUN}\b",
+    rf"\b(?:features?|capabilities|functionalit(?:y|ies)|scope)\s+(?:of|for|in)\s+"
+    rf"(?:this|the|my|our)\s*{_APP_NOUN}\b",
+    rf"\btell\s+me\s+about\s+(?:this|the|my|our)\s+{_APP_NOUN}\b",
+    r"\b(?:list|show|give|provide|detail)\b[^.?!]{0,40}\b"
+    r"(?:features?|capabilities|functionalit(?:y|ies)|screens?|pages?|endpoints?|models?)\b",
+    rf"\b(?:overview|description|summary|feature\s+list|breakdown)\s+"
+    rf"(?:of|for)\s+(?:this|the|my|our)?\s*{_APP_NOUN}\b",
+    r"\bwhat\s+(?:kind|type)\s+of\s+app\s+(?:is|are)\s+this\b",
+    r"\bproduction[- ]level\s+(?:description|overview|spec)\b",
+    # Weaker verbs only count when the app is the object — "explain how auth
+    # works" is a technical question and must not trigger a product write-up.
+    # Braces on the ``{0,40}`` repetition counts are doubled so f-string
+    # interpolation leaves the quantifier intact.
+    rf"\b(?:describe|explain|summari[sz]e|outline|walk\s+me\s+through)\b"
+    rf"[^.?!]{{0,40}}\b{_APP_NOUN}\b",
+    rf"\b{_APP_NOUN}\b[^.?!]{{0,30}}\b(?:description|overview|feature\s+list)\b",
+    # Gujarati / Hindi equivalents of "describe the app" / "what are its features".
+    r"(?:વર્ણો|સવાવરો|કેવી મૂળકાત્રી|મુલાક)\s*",
+    r"(?:क्या|कैसे)[^.?!]{0,30}(?:काम\s*करता\s*है|फीचर|विवरण|बताओ)",
+    r"(?:फीचर|विवरण|स्क्रीन)\s*(?:बताओ|बताएं|दे|दें)",
+)
+
+
+# Regression guard: the patterns above are raw f-strings, so a stray plain raw
+# string would embed the literal text "_APP_NOUN" and silently stop matching
+# instead of raising. Catch that at import time rather than quietly mis-routing
+# chat messages into the build pipeline.
+if any("_APP_NOUN" in _p for _p in _DESCRIPTION_PATTERNS):  # pragma: no cover
+    raise RuntimeError(
+        "Description patterns contain an uninterpolated '_APP_NOUN': use an "
+        "rf-string (doubling any {{m,n}} quantifier braces)."
+    )
+
+
+# A message that also asks to *build* is not a description request — the
+# sidecar build branch must still win for "describe it and then build it".
+_BUILD_VERB = re.compile(
+    r"\b(?:build|create|make|develop|design|generate|implement|scaffold|"
+    r"बनाओ|બનાવો)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _is_description_request(text: str) -> bool:
+    """True when the user is asking about the app rather than asking to build it."""
+    lowered = f" {text.strip().lower()} "
+    if not any(re.search(p, lowered, flags=re.IGNORECASE) for p in _DESCRIPTION_PATTERNS):
+        return False
+    # "describe X and build it" is still a build request; only treat it as a
+    # description when no build verb is present.
+    return not _BUILD_VERB.search(text)
+
+
+def _describe_grounding(ai_state: dict[str, Any], solution: Any) -> str:
+    """Flatten the stored AppSpec into a factual brief the model can expand on.
+
+    The generic chat context only carries entity *names* and the first handful
+    of endpoint paths, which is not enough to write a specific description —
+    the model has nothing to ground on and falls back to generic CRUD filler.
+    Entities, actions and screens from the spec are the real substance here.
+    """
+    parts: list[str] = [f"Application Title: {solution.title}"]
+    if solution.description:
+        parts.append(f"User's Own Description: {solution.description}")
+
+    spec_raw = ai_state.get("app_spec")
+    if not isinstance(spec_raw, dict):
+        parts.append(
+            "NOTE: no structured app spec has been synthesised yet, so base the "
+            "description on the architecture below and do not invent specifics."
+        )
+        return "\n".join(parts)
+
+    def _content(key: str) -> dict[str, Any]:
+        node = spec_raw.get(key)
+        if isinstance(node, dict):
+            inner = node.get("content")
+            if isinstance(inner, dict):
+                return inner
+            return node
+        return {}
+
+    if spec_raw.get("one_liner"):
+        parts.append(f"One-liner: {spec_raw['one_liner']}")
+    if spec_raw.get("core_value"):
+        parts.append(f"Core Value (what it does beyond plain CRUD): {spec_raw['core_value']}")
+    if spec_raw.get("assumptions"):
+        joined = "; ".join(str(a) for a in spec_raw["assumptions"][:8])
+        parts.append(f"Product Assumptions: {joined}")
+
+    for entity in spec_raw.get("entities") or []:
+        if not isinstance(entity, dict):
+            continue
+        name = entity.get("name") or entity.get("plural") or "entity"
+        desc = entity.get("description") or ""
+        fields: list[str] = []
+        for field in entity.get("fields") or []:
+            if not isinstance(field, dict):
+                continue
+            fname = field.get("name")
+            if not fname:
+                continue
+            ftype = field.get("type") or "string"
+            if field.get("ref"):
+                ftype = f"-> {field['ref']}"
+            if field.get("enum_values"):
+                ftype += f" {field['enum_values']}"
+            fields.append(f"{fname}: {ftype}")
+        line = f"Entity '{name}'"
+        if desc:
+            line += f" — {desc}"
+        if fields:
+            line += f" | fields: {'; '.join(fields)}"
+        parts.append(line)
+
+    for action in spec_raw.get("actions") or []:
+        if not isinstance(action, dict):
+            continue
+        method = action.get("method", "POST")
+        path = action.get("path", "")
+        summary = action.get("summary") or action.get("name") or ""
+        line = f"Action: {method} {path} — {summary}"
+        rules = action.get("rules") or []
+        if rules:
+            line += f" | rules: {'; '.join(str(r) for r in rules[:6])}"
+        parts.append(line)
+
+    for screen in spec_raw.get("screens") or []:
+        if not isinstance(screen, dict):
+            continue
+        route = screen.get("route") or "/"
+        purpose = screen.get("purpose") or ""
+        interactions = screen.get("key_interactions") or []
+        line = f"Screen '{screen.get('name', route)}' at {route} — {purpose}"
+        if interactions:
+            line += f" | interactions: {'; '.join(str(i) for i in interactions[:8])}"
+        parts.append(line)
+
+    tests = spec_raw.get("acceptance_tests") or []
+    if tests:
+        names = "; ".join(str(t.get("name", "")) for t in tests[:10] if isinstance(t, dict))
+        if names:
+            parts.append(f"Acceptance Scenarios: {names}")
+
+    parts.append(f"Architecture: {spec_raw.get('architecture', 'next_fullstack')}")
+    if spec_raw.get("has_ml_model"):
+        parts.append(f"ML Model: yes ({', '.join(spec_raw.get('ml_frameworks') or ['ML'])})")
+
+    # Older solutions may only have the loosely-shaped artifacts.
+    if not spec_raw.get("actions"):
+        endpoints = _content("api_spec").get("endpoints") or ai_state.get("endpoints") or []
+        if endpoints:
+            rendered = ", ".join(
+                f"{e.get('method', 'GET')} {e.get('path', '')}"
+                for e in endpoints[:12]
+                if isinstance(e, dict)
+            )
+            parts.append(f"API Endpoints: {rendered}")
+    return "\n".join(parts)
+
+
+def _spec_description_markdown(ai_state: dict[str, Any], solution: Any) -> str:
+    """Build a feature-heavy product description straight from the stored spec.
+
+    This is the no-LLM path. Without it the user gets a three-bullet placeholder
+    whenever credentials are missing or the provider is mocked, which reads as
+    "the app has almost no features" even when the spec is rich.
+    """
+    title = solution.title
+    spec = ai_state.get("app_spec")
+    spec = spec if isinstance(spec, dict) else {}
+
+    entities = [e for e in (spec.get("entities") or []) if isinstance(e, dict)]
+    actions = [a for a in (spec.get("actions") or []) if isinstance(a, dict)]
+    screens = [s for s in (spec.get("screens") or []) if isinstance(s, dict)]
+    tests = [t for t in (spec.get("acceptance_tests") or []) if isinstance(t, dict)]
+
+    if not entities and not actions and not screens:
+        return (
+            f"**{title}** is a full-stack application scaffolded on FastAPI (SQLAlchemy 2.0 + "
+            "PostgreSQL) with a Next.js App Router frontend.\n\n"
+            "A structured specification has not been synthesised for this solution yet, so a "
+            "detailed feature inventory isn't available. Ask a few questions about the domain "
+            "you want to build, then use **Synthesize & Build** — the generated plan, data "
+            "model, API surface and screens will be listed here in full."
+        )
+
+    out: list[str] = [f"# {title}"]
+
+    out.append("## Overview")
+    if spec.get("one_liner"):
+        out.append(str(spec["one_liner"]))
+    if solution.description:
+        out.append(str(solution.description))
+    if spec.get("core_value"):
+        out.append(f"**Core value:** {spec['core_value']}")
+    if spec.get("assumptions"):
+        out.append("**Product assumptions:**")
+        out.extend(f"- {a}" for a in spec["assumptions"][:8])
+
+    # ── Feature inventory, grouped by domain area ──
+    def _matches(entity: dict[str, Any], *blobs: str) -> bool:
+        names = {
+            str(entity.get("name", "")).lower(),
+            str(entity.get("plural", "")).lower(),
+        }
+        names.discard("")
+        haystack = " ".join(b for b in blobs if b).lower()
+        return any(n in haystack for n in names)
+
+    areas: list[tuple[str, list[str]]] = []
+    emitted_screens: set[int] = set()
+    for entity in entities:
+        name = str(entity.get("plural") or entity.get("name") or "domain").replace("_", " ")
+        slug = name.lower().replace(" ", "_")
+        bullets: list[str] = []
+        for action in actions:
+            if not _matches(entity, str(action.get("name", "")), str(action.get("path", ""))):
+                continue
+            summary = action.get("summary") or action.get("name") or ""
+            line = f"**{action.get('method', 'POST')} {action.get('path', '')}** — {summary}"
+            rules = action.get("rules") or []
+            if rules:
+                line += f" _(rules: {'; '.join(str(r) for r in rules[:4])})_"
+            bullets.append(line)
+        for screen in screens:
+            # A screen can match several entities (it uses more than one). Emit
+            # it under the first area only, otherwise the same feature is
+            # listed repeatedly under different headings.
+            if id(screen) in emitted_screens:
+                continue
+            used = {str(u).lower() for u in (screen.get("uses_entities") or [])}
+            named = slug in used or str(entity.get("name", "")).lower() in used
+            if not named and not _matches(
+                entity, str(screen.get("name", "")), str(screen.get("route", ""))
+            ):
+                continue
+            interactions = screen.get("key_interactions") or []
+            line = f"**{screen.get('name', 'Screen')}** at `{screen.get('route', '/')}` — {screen.get('purpose', '')}"
+            if interactions:
+                line += f" _(interactions: {'; '.join(str(i) for i in interactions[:5])})_"
+            bullets.append(line)
+            emitted_screens.add(id(screen))
+        if entity.get("description"):
+            bullets.insert(0, str(entity["description"]))
+        if bullets:
+            areas.append((name, bullets))
+
+    out.append("## Feature Set")
+    if areas:
+        for area, bullets in areas:
+            out.append(f"### {area.title()}")
+            out.extend(f"- {b}" for b in bullets)
+    else:
+        out.append(
+            "- The synthesised specification did not associate features with specific "
+            "domain areas. Review the data model and API surface below."
+        )
+
+    # Cross-cutting surface: screens not already listed under a domain area.
+    loose = [s for s in screens if id(s) not in emitted_screens]
+    if loose:
+        out.append("### Cross-Cutting Experience")
+        out.extend(
+            f"- **{s.get('name', 'Screen')}** at `{s.get('route', '/')}` — {s.get('purpose', '')}"
+            for s in loose
+        )
+
+    # ── Data model ──
+    if entities:
+        out.append("## Data Model")
+        for entity in entities:
+            fields = []
+            for field in entity.get("fields") or []:
+                if not isinstance(field, dict) or not field.get("name"):
+                    continue
+                ftype = field.get("type") or "string"
+                if field.get("ref"):
+                    ftype = f"→ {field['ref']}"
+                required = "" if field.get("required", True) else " (optional)"
+                fields.append(f"`{field['name']}`: {ftype}{required}")
+            if fields:
+                out.append(f"- **{entity.get('name', '')}** — {', '.join(fields)}")
+
+    if actions:
+        out.append("## API Surface")
+        for action in actions:
+            out.append(
+                f"- `{action.get('method', 'POST')} {action.get('path', '')}` — "
+                f"{action.get('summary') or action.get('name', '')}"
+            )
+
+    if tests:
+        out.append("## Acceptance Scenarios")
+        out.extend(f"- {t.get('name', '')}: {t.get('description', '')}" for t in tests)
+
+    out.append("## Architecture & Stack")
+    out.append(
+        f"- **Architecture:** {spec.get('architecture', 'next_fullstack')}"
+    )
+    out.append("- **Backend:** FastAPI + SQLAlchemy 2.0 + PostgreSQL, REST API with Pydantic validation")
+    out.append("- **Frontend:** Next.js App Router, responsive component-driven UI")
+    if spec.get("has_ml_model"):
+        out.append(f"- **ML:** {', '.join(spec.get('ml_frameworks') or ['ML'])}")
+    out.append(
+        "- **Operations:** environment configuration is captured per build, with deploy-time "
+        "injection of service URLs so no manual wiring is required"
+    )
+    return "\n\n".join(out)
+
+
+def chat_progress(phase: str, step: int, percentage: int, message: str) -> dict[str, Any]:
+    """Progress payload for the persisted build row."""
+    done = phase == "completed" or percentage >= 100
+    active = len(_CHAT_BUILD_STEPS) - 1 if done else min(
+        max(_CHAT_STEP_INDEX.get(phase, 0), 0), len(_CHAT_BUILD_STEPS) - 1
+    )
+    steps = [
+        {
+            **s,
+            "status": (
+                "completed"
+                if done or i < active
+                else ("active" if i == active else "pending")
+            ),
+        }
+        for i, s in enumerate(_CHAT_BUILD_STEPS)
+    ]
+    return {
+        "stage": phase,
+        "step": step,
+        "total_steps": len(_CHAT_BUILD_STEPS),
+        "percentage": percentage,
+        "message": message,
+        "steps": steps,
+    }
+
+
 def _extract_text(response: dict[str, Any]) -> str:
     """Concatenate the text parts from an OpenCode message response."""
     parts = response.get("parts") or []
@@ -794,7 +1164,12 @@ async def chat(
                 lang_name = LANGUAGE_NAMES.get(content_language, content_language)
 
                 # ── Generate the conversational reply ────────────────
-                if sidecar_ok:
+                # A description request must not be handed to the sidecar: that
+                # branch is phrased as a build request and answers with a short
+                # file-change summary, which is exactly the vague reply we are
+                # trying to eliminate.
+                wants_description = _is_description_request(payload.message)
+                if sidecar_ok and not wants_description:
                     lang_rule = ""
                     if content_language != "en":
                         lang_rule = (
@@ -899,27 +1274,88 @@ async def chat(
                             f"but explain all architecture, features, workflows, and answers naturally in {lang_name}."
                         )
 
-                    sys_prompt = (
-                        "You are an expert full-stack AI Developer & Solution Architect for AI Solution Builder. "
-                        "You are helping the user architect, understand, and build a complete "
-                        "FastAPI + Next.js application. A full working scaffold with "
-                        "database, auth, and API structure is already configured.\n\n"
-                        f"Current Solution Architecture Context:\n{arch_context}\n\n"
-                        "Instructions:\n"
-                        "- Answer the user's questions clearly, whether they ask about high-level requirements, "
-                        "database schemas, API design, frontend UX components (such as customer storefronts, interactive cart drawers, or admin kitchen boards), "
-                        "or technical implementation details.\n"
-                        "- If the user asks about technicalities, explain the concrete models, endpoints, state management, and frontend features.\n"
-                        "- Keep responses structured, informative, professional, and concise."
-                        f"{multilingual_note}"
-                    )
-                    user_prompt = payload.message
-                    if payload.uploaded_context:
-                        user_prompt = (
-                            f"Context from uploaded document:\n"
-                            f"{payload.uploaded_context[:_TARGET_MAX_CONTEXT]}\n\n"
-                            f"User request:\n{user_prompt}"
+                    if wants_description:
+                        # Grounding comes from the synthesised spec rather than the
+                        # thin generic context, so every claim can be traced back
+                        # to a real entity, action or screen.
+                        spec_context = _describe_grounding(ai_state, solution)
+                        sys_prompt = (
+                            "You are a principal product architect and senior technical "
+                            "writer. Write the production-grade description of the "
+                            "application defined by the specification below.\n\n"
+                            f"## Application Specification\n{spec_context}\n\n"
+                            "## Required Structure\n"
+                            "Write a genuinely comprehensive, production-level description "
+                            "using Markdown. Do NOT summarise it down — the reader needs to "
+                            "understand what they would be building and operating.\n\n"
+                            "Cover all of the following, using clear headings:\n"
+                            "1. **Overview** — what the application is, the problem it "
+                            "solves, who it serves, and the core value it delivers.\n"
+                            "2. **Target Users & Roles** — every distinct role that uses "
+                            "the system and what each is accountable for.\n"
+                            "3. **Complete Feature Set** — the core of the response. "
+                            "Enumerate the features grouped by area (e.g. authentication "
+                            "and onboarding, the primary domain workflows, management and "
+                            "admin, reporting, search and filtering, notifications, "
+                            "settings, mobile/responsive behaviour). Name each feature "
+                            "concretely and describe what the user can actually do with "
+                            "it. Aim for a thorough inventory, not three bullet points.\n"
+                            "4. **Core User Journeys** — step-by-step walkthroughs of the "
+                            "most important flows, from entry point to completion.\n"
+                            "5. **Data Model** — the entities, their purpose, and how they "
+                            "relate.\n"
+                            "6. **API Surface** — the significant endpoints grouped by "
+                            "resource, with what each does.\n"
+                            "7. **Frontend Experience** — every screen/route, its purpose, "
+                            "and the key interactions on it.\n"
+                            "8. **Architecture & Stack** — backend, frontend, database, "
+                            "auth, and any ML components.\n"
+                            "9. **Quality, Security & Operations** — validation, error "
+                            "handling, permissions, performance, auditability, and what "
+                            "it takes to run this in production.\n"
+                            "10. **Future Extensibility** — the obvious next increments.\n\n"
+                            "## Rules\n"
+                            "- Ground every feature in the specification above. Use the "
+                            "real entity, screen and action names.\n"
+                            "- If the specification does not cover something, say so "
+                            "explicitly rather than inventing it.\n"
+                            "- Prefer concrete nouns and real behaviour over marketing "
+                            "language. No filler, no restating the question.\n"
+                            "- Write in flowing Markdown prose and lists, never JSON."
+                            f"{multilingual_note}"
                         )
+                        user_prompt = payload.message
+                        if payload.uploaded_context:
+                            user_prompt = (
+                                f"Context from uploaded document:\n"
+                                f"{payload.uploaded_context[:_TARGET_MAX_CONTEXT]}\n\n"
+                                f"User request:\n{user_prompt}"
+                            )
+                    else:
+                        sys_prompt = (
+                            "You are an expert full-stack AI Developer & Solution Architect for AI Solution Builder. "
+                            "You are helping the user architect, understand, and build a complete "
+                            "FastAPI + Next.js application. A full working scaffold with "
+                            "database, auth, and API structure is already configured.\n\n"
+                            f"Current Solution Architecture Context:\n{arch_context}\n\n"
+                            "Instructions:\n"
+                            "- Answer the user's questions clearly, whether they ask about high-level requirements, "
+                            "database schemas, API design, frontend UX components (such as customer storefronts, interactive cart drawers, or admin kitchen boards), "
+                            "or technical implementation details.\n"
+                            "- If the user asks about technicalities, explain the concrete models, endpoints, state management, and frontend features.\n"
+                            "- Be specific and concrete: name the actual entities, endpoints, "
+                            "routes and components involved rather than describing them in "
+                            "general terms. Scale the depth to the question — a broad "
+                            "question deserves a thorough, well-structured answer."
+                            f"{multilingual_note}"
+                        )
+                        user_prompt = payload.message
+                        if payload.uploaded_context:
+                            user_prompt = (
+                                f"Context from uploaded document:\n"
+                                f"{payload.uploaded_context[:_TARGET_MAX_CONTEXT]}\n\n"
+                                f"User request:\n{user_prompt}"
+                            )
 
                     try:
                         resp = await llm.ainvoke(
@@ -942,14 +1378,20 @@ async def chat(
                         )
                         assistant_text = ""
                     if not assistant_text or assistant_text == "Mock response":
-                        raw_fallback = (
-                            f"I've structured your application requirements for **{solution.title}** into the "
-                            "FastAPI backend and Next.js frontend workspace.\n\n"
-                            "• **Architecture**: FastAPI REST backend with SQLAlchemy 2.0 and PostgreSQL\n"
-                            "• **Frontend**: Modern Next.js 15 App Router interface with responsive interactive components\n"
-                            "• **Next step**: You can ask any technical questions or click **Synthesize & Build** to generate the working prototype."
-                        )
-                        assistant_text = await translate_text(raw_fallback, content_language)
+                        if wants_description:
+                            # Never fall back to a generic placeholder for a
+                            # description request — render it from the spec.
+                            # Not translated here: the reply is translated once
+                            # at the end of the stream.
+                            assistant_text = _spec_description_markdown(ai_state, solution)
+                        else:
+                            assistant_text = (
+                                f"I've structured your application requirements for **{solution.title}** into the "
+                                "FastAPI backend and Next.js frontend workspace.\n\n"
+                                "• **Architecture**: FastAPI REST backend with SQLAlchemy 2.0 and PostgreSQL\n"
+                                "• **Frontend**: Modern Next.js 15 App Router interface with responsive interactive components\n"
+                                "• **Next step**: You can ask any technical questions or click **Synthesize & Build** to generate the working prototype."
+                            )
 
                 history = list(solution.conversation_history or [])
                 history.append({"role": "user", "content": payload.message})
@@ -983,21 +1425,9 @@ async def chat(
 
                 build_state: dict[str, Any] = {}
                 if payload.build_requested:
-                    yield {
-                        "event": "build_progress",
-                        "data": json.dumps(
-                            {
-                                "phase": "analyzing",
-                                "step": 1,
-                                "total_steps": 7,
-                                "percentage": 15,
-                                "message": f"Synthesizing domain architecture for {solution.title}...",
-                                "solution_id": str(solution.id),
-                                "session_id": session_id,
-                            }
-                        ),
-                    }
-
+                    # Captured up-front so the progress writer never has to read an
+                    # ORM attribute that a rollback may have expired.
+                    solution_id = solution.id
                     await require_and_deduct_credit(
                         stream_db,
                         current_user,
@@ -1006,304 +1436,435 @@ async def chat(
                         solution_id=solution.id,
                     )
 
-                    yield {
-                        "event": "build_progress",
-                        "data": json.dumps(
-                            {
-                                "phase": "persisting",
-                                "step": 2,
-                                "total_steps": 7,
-                                "percentage": 30,
-                                "message": "Persisting architectural blueprints and data models to solution registry...",
-                                "solution_id": str(solution.id),
-                                "session_id": session_id,
-                            }
-                        ),
-                    }
-                    # Persist solution artifacts to database so /solution/{id} is fully populated
-                    await _persist_artifacts(stream_db, solution, solution.ai_state)
-
-                    yield {
-                        "event": "build_progress",
-                        "data": json.dumps(
-                            {
-                                "phase": "scaffolding",
-                                "step": 3,
-                                "total_steps": 7,
-                                "percentage": 50,
-                                "message": "Initializing full-stack codebase scaffold (FastAPI + Next.js)...",
-                                "solution_id": str(solution.id),
-                                "session_id": session_id,
-                            }
-                        ),
-                    }
-                    # Pre-populate code slots from ai_state (spec-first when available)
-                    from app.services.app_spec import AppSpec, SpecError, generate_app_spec
-
-                    spec_obj = None
-                    spec_data = solution.ai_state.get("app_spec")
-                    if spec_data:
-                        try:
-                            spec_obj = AppSpec.model_validate(spec_data)
-                        except Exception:
-                            spec_obj = None
-
-                    # If no spec exists, generate one from the full conversation
-                    # context. This is the critical step: the LLM designs the app
-                    # structure from the user's actual requirements.
-                    if spec_obj is None:
-                        yield {
-                            "event": "build_progress",
-                            "data": json.dumps(
-                                {
-                                    "phase": "designing",
-                                    "step": 3,
-                                    "total_steps": 7,
-                                    "percentage": 50,
-                                    "message": "Designing domain models, schemas, and architecture with AI...",
-                                    "solution_id": str(solution.id),
-                                    "session_id": session_id,
-                                }
-                            ),
-                        }
-                        try:
-                            # Build a rich prompt from conversation history
-                            history_msgs = solution.conversation_history or []
-                            user_messages = [
-                                m.get("content", "")
-                                for m in history_msgs
-                                if m.get("role") == "user" and m.get("content")
-                            ]
-                            combined_prompt = (
-                                "\n\n".join(user_messages[-5:])
-                                if user_messages
-                                else payload.message
-                            )
-
-                            spec_obj = await generate_app_spec(
-                                solution.ai_state or {},
-                                combined_prompt,
-                                uploaded_context=payload.uploaded_context or "",
-                                conversation_history=history_msgs,
-                            )
-                            # Persist the spec so rebuilds reuse it
-                            solution.ai_state = {
-                                **(solution.ai_state or {}),
-                                "app_spec": spec_obj.model_dump(),
-                            }
-                            logger.info(
-                                "Generated AppSpec '%s' for chat build of solution=%s",
-                                spec_obj.app_name,
-                                solution.id,
-                            )
-                        except (SpecError, Exception) as exc:
-                            logger.warning(
-                                "AppSpec generation failed for chat build (%s); "
-                                "generating deterministic fallback AppSpec",
-                                exc,
-                            )
-                            from app.services.app_spec import fallback_app_spec
-
-                            spec_obj = fallback_app_spec(
-                                solution.ai_state or {},
-                                combined_prompt,
-                                uploaded_context=payload.uploaded_context or "",
-                                conversation_history=history_msgs,
-                            )
-                            solution.ai_state = {
-                                **(solution.ai_state or {}),
-                                "app_spec": spec_obj.model_dump(),
-                            }
-
-                    if spec_obj is None:
-                        from app.services.app_spec import fallback_app_spec
-
-                        spec_obj = fallback_app_spec(
-                            solution.ai_state or {},
-                            solution.title,
-                            uploaded_context=payload.uploaded_context or "",
-                            conversation_history=solution.conversation_history or [],
-                        )
-                        solution.ai_state = {
-                            **(solution.ai_state or {}),
-                            "app_spec": spec_obj.model_dump(),
-                        }
-
-                    builder.scaffold_build(
-                        ws_dir,
-                        app_title=solution.title,
-                        inject_modules=solution.ai_state.get("confirmed_modules") or [],
-                        ai_state=solution.ai_state,
-                        spec=spec_obj,
-                    )
-
-                    yield {
-                        "event": "build_progress",
-                        "data": json.dumps(
-                            {
-                                "phase": "coding",
-                                "step": 4,
-                                "total_steps": 7,
-                                "percentage": 70,
-                                "message": "Synthesizing domain models, Pydantic schemas, and REST routers...",
-                                "solution_id": str(solution.id),
-                                "session_id": session_id,
-                            }
-                        ),
-                    }
-
-                    if sidecar_ok:
-                        # Sidecar available — run verify+repair loop best-effort.
-                        async def _send_repair_turn(s: str | None, t: str) -> dict[str, Any]:
-                            if not s:
-                                raise ValueError("Missing session_id for repair turn")
-                            return await builder.send_message(
-                                s, t, timeout=settings.MVP_BUILD_TIMEOUT, seed=str(solution.id)
-                            )
-
-                        try:
-                            await asyncio.wait_for(
-                                mvp_verifier.verify_and_repair(
-                                    ws_dir,
-                                    session_id=session_id,
-                                    target_dir=target_dir,
-                                    send_prompt_fn=_send_repair_turn,
-                                    check_npm=False,
-                                    max_repair_turns=settings.MVP_MAX_REPAIR_TURNS,
-                                ),
-                                timeout=float(settings.MVP_BUILD_TIMEOUT),
-                            )
-                        except Exception as exc:
-                            logger.warning(
-                                "Sidecar verification encountered warnings (%s); proceeding with packaging as requested",
-                                exc,
-                            )
-                    else:
-                        # Offline — run static verification as advisory checks
-                        try:
-                            errors = mvp_verifier.verify_workspace(ws_dir, check_npm=False)
-                            if errors:
-                                logger.warning(
-                                    "Build verification reported %d warning(s): %s; proceeding with packaging",
-                                    len(errors),
-                                    "; ".join(errors[:3]),
-                                )
-                        except Exception as exc:
-                            logger.warning(
-                                "Offline verification check encountered an issue (%s); proceeding with packaging",
-                                exc,
-                            )
-
-                    yield {
-                        "event": "build_progress",
-                        "data": json.dumps(
-                            {
-                                "phase": "verifying",
-                                "step": 5,
-                                "total_steps": 7,
-                                "percentage": 85,
-                                "message": "Running codebase integrity verification (imports, routes, acceptance coverage)...",
-                                "solution_id": str(solution.id),
-                                "session_id": session_id,
-                            }
-                        ),
-                    }
-
-                    yield {
-                        "event": "build_progress",
-                        "data": json.dumps(
-                            {
-                                "phase": "packaging",
-                                "step": 6,
-                                "total_steps": 7,
-                                "percentage": 90,
-                                "message": "Packaging production archive (.zip) and saving build artifacts...",
-                                "solution_id": str(solution.id),
-                                "session_id": session_id,
-                            }
-                        ),
-                    }
-
+                    # Register the build row *up-front*. Creating it only at the end
+                    # left the UI with nothing to poll — progress looked frozen and a
+                    # refresh mid-build lost the build entirely.
                     lock, build_number = await allocate_build_number(stream_db, solution.id)
+                    # Declared before the try so the failure handler below can
+                    # always reference it, even if construction itself throws.
+                    mvp_build: MVPBuild | None = None
                     try:
-                        files = builder.list_build_files(ws_dir)
-                        rel_files = builder.relative_paths(ws_dir)
-
-                        # Package archive to local disk and object storage
-                        local_zip_path = ws_dir.with_suffix(".zip")
-                        zip_data = builder.build_bytes(ws_dir)
-                        local_zip_path.write_bytes(zip_data)
-
-                        storage_key = f"local:{local_zip_path}"
-                        try:
-                            storage = get_storage()
-                            uploaded_key = await asyncio.wait_for(
-                                storage.upload_bytes(
-                                    zip_data, f"builds/{solution.id}/build_{build_number}.zip"
-                                ),
-                                timeout=15.0,
-                            )
-                            if uploaded_key:
-                                storage_key = uploaded_key
-                        except Exception as store_err:
-                            logger.warning(
-                                "Remote storage upload failed (%s); using local fallback (%s)",
-                                store_err,
-                                local_zip_path,
-                            )
-
                         mvp_build = MVPBuild(
+                            # Assigned explicitly: the column default only fires
+                            # at INSERT, so ``.id`` would read as ``None`` here —
+                            # and the SSE frame needs a real id before the flush.
+                            id=uuid4(),
                             solution_id=solution.id,
                             build_number=build_number,
-                            status="complete",
+                            status="building",
                             workspace_path=str(ws_dir),
-                            file_count=len(files),
-                            file_list=rel_files,
-                            storage_key=storage_key,
+                            file_count=0,
                             opencode_session_id=session_id,
                             app_config={
                                 "app_name": solution.title,
                                 "source": "opencode_chat",
-                                "progress": {
-                                    "stage": "complete",
-                                    "step": 7,
-                                    "total_steps": 7,
-                                    "percentage": 100,
-                                    "message": f"Build complete! {len(files)} files generated.",
-                                },
+                                "progress": chat_progress(
+                                    "analyzing",
+                                    1,
+                                    10,
+                                    f"Synthesizing domain architecture for {solution.title}...",
+                                ),
                             },
                         )
+                        build_id = mvp_build.id
                         stream_db.add(mvp_build)
-                        solution.status = "complete"
-                        await stream_db.flush()
-                        build_state = {
-                            "build_id": str(mvp_build.id),
-                            "build_number": build_number,
-                            "file_count": len(files),
-                            "files": [{"path": p, "size": 0, "is_dir": False} for p in rel_files],
-                        }
-
-                        # Commit while still holding the per-solution lock so the
-                        # new build_number is visible before any concurrent build
-                        # computes the next one.
+                        solution.status = "building"
                         await stream_db.commit()
+                        await stream_db.refresh(mvp_build)
 
-                        yield {
-                            "event": "build_progress",
-                            "data": json.dumps(
-                                {
-                                    "phase": "completed",
-                                    "step": 7,
-                                    "total_steps": 7,
-                                    "percentage": 100,
-                                    "message": f"Build complete! {len(files)} files generated.",
-                                    "solution_id": str(solution.id),
-                                    "session_id": session_id,
-                                    "build_id": str(mvp_build.id),
-                                    "file_count": len(files),
+                        async def emit_progress(
+                            phase: str,
+                            step: int,
+                            percentage: int,
+                            message: str,
+                        ) -> dict[str, Any]:
+                            """Write progress through to the build row, then build the SSE frame.
+
+                            Persisting on every phase keeps ``/mvp/builds/{id}/status``
+                            live, so the stepper keeps moving even if this stream is
+                            dropped (refresh, proxy timeout, client disconnect).
+                            """
+                            nonlocal mvp_build, solution
+                            progress = chat_progress(phase, step, percentage, message)
+                            if mvp_build is not None:
+                                try:
+                                    mvp_build.app_config = {
+                                        **(mvp_build.app_config or {}),
+                                        "progress": progress,
+                                    }
+                                    await stream_db.commit()
+                                except Exception as exc:  # noqa: BLE001 - telemetry only
+                                    logger.warning(
+                                        "Could not persist build progress (%s): %s", phase, exc
+                                    )
+                                    # A rollback expires every ORM object on the
+                                    # session, so re-attach both before continuing.
+                                    await stream_db.rollback()
+                                    try:
+                                        mvp_build = await stream_db.get(MVPBuild, build_id)
+                                        solution = await _verify_solution_access(
+                                            stream_db, solution_id, current_user
+                                        )
+                                    except Exception:  # noqa: BLE001
+                                        mvp_build = None
+                            data: dict[str, Any] = {
+                                "phase": phase,
+                                "step": step,
+                                "total_steps": len(_CHAT_BUILD_STEPS),
+                                "percentage": percentage,
+                                "message": message,
+                                "solution_id": str(solution_id),
+                                "session_id": session_id,
+                            }
+                            if mvp_build is not None:
+                                data["build_id"] = str(mvp_build.id)
+                            return {"event": "build_progress", "data": json.dumps(data)}
+
+                        yield await emit_progress(
+                            "analyzing",
+                            1,
+                            10,
+                            f"Synthesizing domain architecture for {solution.title}...",
+                        )
+
+                        yield await emit_progress(
+                            "persisting",
+                            2,
+                            30,
+                            "Persisting architectural blueprints and data models to solution registry...",
+                        )
+                        # Persist solution artifacts to database so /solution/{id} is fully populated
+                        await _persist_artifacts(stream_db, solution, solution.ai_state)
+
+                        yield await emit_progress(
+                            "scaffolding",
+                            3,
+                            50,
+                            "Initializing full-stack codebase scaffold (FastAPI + Next.js)...",
+                        )
+                        # Pre-populate code slots from ai_state (spec-first when available)
+                        from app.services.app_spec import AppSpec, SpecError, generate_app_spec
+
+                        spec_obj = None
+                        spec_data = solution.ai_state.get("app_spec")
+                        if spec_data:
+                            try:
+                                spec_obj = AppSpec.model_validate(spec_data)
+                            except Exception:
+                                spec_obj = None
+
+                        # If no spec exists, generate one from the full conversation
+                        # context. This is the critical step: the LLM designs the app
+                        # structure from the user's actual requirements.
+                        if spec_obj is None:
+                            yield await emit_progress(
+                                "designing",
+                                3,
+                                55,
+                                "Designing domain models, schemas, and architecture with AI...",
+                            )
+                            try:
+                                # Build a rich prompt from conversation history
+                                history_msgs = solution.conversation_history or []
+                                user_messages = [
+                                    m.get("content", "")
+                                    for m in history_msgs
+                                    if m.get("role") == "user" and m.get("content")
+                                ]
+                                combined_prompt = (
+                                    "\n\n".join(user_messages[-5:])
+                                    if user_messages
+                                    else payload.message
+                                )
+
+                                spec_obj = await generate_app_spec(
+                                    solution.ai_state or {},
+                                    combined_prompt,
+                                    uploaded_context=payload.uploaded_context or "",
+                                    conversation_history=history_msgs,
+                                )
+                                # Persist the spec so rebuilds reuse it
+                                solution.ai_state = {
+                                    **(solution.ai_state or {}),
+                                    "app_spec": spec_obj.model_dump(),
                                 }
-                            ),
-                        }
+                                logger.info(
+                                    "Generated AppSpec '%s' for chat build of solution=%s",
+                                    spec_obj.app_name,
+                                    solution.id,
+                                )
+                            except (SpecError, Exception) as exc:
+                                logger.warning(
+                                    "AppSpec generation failed for chat build (%s); "
+                                    "generating deterministic fallback AppSpec",
+                                    exc,
+                                )
+                                from app.services.app_spec import fallback_app_spec
+
+                                spec_obj = fallback_app_spec(
+                                    solution.ai_state or {},
+                                    combined_prompt,
+                                    uploaded_context=payload.uploaded_context or "",
+                                    conversation_history=history_msgs,
+                                )
+                                solution.ai_state = {
+                                    **(solution.ai_state or {}),
+                                    "app_spec": spec_obj.model_dump(),
+                                }
+
+                        if spec_obj is None:
+                            from app.services.app_spec import fallback_app_spec
+
+                            spec_obj = fallback_app_spec(
+                                solution.ai_state or {},
+                                solution.title,
+                                uploaded_context=payload.uploaded_context or "",
+                                conversation_history=solution.conversation_history or [],
+                            )
+                            solution.ai_state = {
+                                **(solution.ai_state or {}),
+                                "app_spec": spec_obj.model_dump(),
+                            }
+
+                        builder.scaffold_build(
+                            ws_dir,
+                            app_title=solution.title,
+                            inject_modules=solution.ai_state.get("confirmed_modules") or [],
+                            ai_state=solution.ai_state,
+                            spec=spec_obj,
+                        )
+
+                        yield await emit_progress(
+                            "coding",
+                            4,
+                            70,
+                            "Synthesizing domain models, Pydantic schemas, and REST routers...",
+                        )
+
+                        # ── Product visuals ────────────────────────────────
+                        # Runs after the spec exists so prompts are grounded in
+                        # real entities/screens. Entirely best-effort: with no
+                        # Gemini key configured, or on any upstream failure, this
+                        # collapses to a no-op and the build carries on.
+                        if has_image_credentials():
+                            try:
+                                yield await emit_progress(
+                                    "illustrating",
+                                    5,
+                                    78,
+                                    "Illustrating product visuals from the domain specification...",
+                                )
+                                async def _image_progress(done: int, total: int, title: str) -> None:
+                                    """Stream per-image progress out of the illustration phase."""
+                                    nonlocal mvp_build
+                                    pct = 78 + int(10 * (done / max(total, 1)))
+                                    pct = min(pct, 88)
+                                    message = (
+                                        f"Illustrating product visuals ({done}/{total}): {title}"
+                                        if done < total
+                                        else f"Product visuals ready: {title}"
+                                    )
+                                    if mvp_build is not None:
+                                        try:
+                                            mvp_build.app_config = {
+                                                **(mvp_build.app_config or {}),
+                                                "progress": chat_progress(
+                                                    "illustrating", 5, pct, message
+                                                ),
+                                            }
+                                            await stream_db.commit()
+                                        except Exception as exc:  # noqa: BLE001
+                                            logger.warning(
+                                                "Could not persist image progress (%s)", exc
+                                            )
+                                            await stream_db.rollback()
+                                            try:
+                                                mvp_build = await stream_db.get(MVPBuild, build_id)
+                                            except Exception:  # noqa: BLE001
+                                                mvp_build = None
+
+                                generated_images = await generate_product_images(
+                                    spec_obj, on_progress=_image_progress
+                                )
+                                if generated_images:
+                                    storage = get_storage()
+                                    storage_keys: dict[str, str] = {}
+                                    for image in generated_images:
+                                        key = image_storage_key(
+                                            solution.id, image.kind, image.mime_type
+                                        )
+                                        try:
+                                            await asyncio.wait_for(
+                                                storage.upload_bytes(image.data, key),
+                                                timeout=30.0,
+                                            )
+                                            storage_keys[image.kind] = key
+                                        except Exception as store_err:  # noqa: BLE001
+                                            logger.warning(
+                                                "Could not upload %s visual (%s); skipping it",
+                                                image.kind,
+                                                store_err,
+                                            )
+                                    if storage_keys:
+                                        image_artifacts = await _persist_image_artifacts(
+                                            stream_db, solution, generated_images, storage_keys
+                                        )
+                                        if image_artifacts:
+                                            await stream_db.commit()
+                                            logger.info(
+                                                "Persisted %d product visual artifact(s) for solution=%s",
+                                                len(image_artifacts),
+                                                solution.id,
+                                            )
+                            except Exception as exc:  # noqa: BLE001
+                                logger.warning(
+                                    "Product illustration step failed (%s); "
+                                    "continuing build without visuals",
+                                    exc,
+                                )
+                                # A rollback expires every ORM object on the session.
+                                await stream_db.rollback()
+                                try:
+                                    mvp_build = await stream_db.get(MVPBuild, build_id)
+                                    solution = await _verify_solution_access(
+                                        stream_db, solution_id, current_user
+                                    )
+                                except Exception:  # noqa: BLE001
+                                    mvp_build = None
+
+                        if sidecar_ok:
+                            # Sidecar available — run verify+repair loop best-effort.
+                            async def _send_repair_turn(s: str | None, t: str) -> dict[str, Any]:
+                                if not s:
+                                    raise ValueError("Missing session_id for repair turn")
+                                return await builder.send_message(
+                                    s, t, timeout=settings.MVP_BUILD_TIMEOUT, seed=str(solution.id)
+                                )
+
+                            try:
+                                await asyncio.wait_for(
+                                    mvp_verifier.verify_and_repair(
+                                        ws_dir,
+                                        session_id=session_id,
+                                        target_dir=target_dir,
+                                        send_prompt_fn=_send_repair_turn,
+                                        check_npm=False,
+                                        max_repair_turns=settings.MVP_MAX_REPAIR_TURNS,
+                                    ),
+                                    timeout=float(settings.MVP_BUILD_TIMEOUT),
+                                )
+                            except Exception as exc:
+                                logger.warning(
+                                    "Sidecar verification encountered warnings (%s); proceeding with packaging as requested",
+                                    exc,
+                                )
+                        else:
+                            # Offline — run static verification as advisory checks
+                            try:
+                                errors = mvp_verifier.verify_workspace(ws_dir, check_npm=False)
+                                if errors:
+                                    logger.warning(
+                                        "Build verification reported %d warning(s): %s; proceeding with packaging",
+                                        len(errors),
+                                        "; ".join(errors[:3]),
+                                    )
+                            except Exception as exc:
+                                logger.warning(
+                                    "Offline verification check encountered an issue (%s); proceeding with packaging",
+                                    exc,
+                                )
+
+                        yield await emit_progress(
+                            "verifying",
+                            6,
+                            88,
+                            "Running codebase integrity verification (imports, routes, acceptance coverage)...",
+                        )
+
+                        yield await emit_progress(
+                            "packaging",
+                            7,
+                            93,
+                            "Packaging production archive (.zip) and saving build artifacts...",
+                        )
+
+                        try:
+                            files = builder.list_build_files(ws_dir)
+                            rel_files = builder.relative_paths(ws_dir)
+
+                            # Package archive to local disk and object storage
+                            local_zip_path = ws_dir.with_suffix(".zip")
+                            zip_data = builder.build_bytes(ws_dir)
+                            local_zip_path.write_bytes(zip_data)
+
+                            storage_key = f"local:{local_zip_path}"
+                            try:
+                                storage = get_storage()
+                                uploaded_key = await asyncio.wait_for(
+                                    storage.upload_bytes(
+                                        zip_data, f"builds/{solution.id}/build_{build_number}.zip"
+                                    ),
+                                    timeout=15.0,
+                                )
+                                if uploaded_key:
+                                    storage_key = uploaded_key
+                            except Exception as store_err:
+                                logger.warning(
+                                    "Remote storage upload failed (%s); using local fallback (%s)",
+                                    store_err,
+                                    local_zip_path,
+                                )
+
+                            if mvp_build is not None:
+                                mvp_build.status = "complete"
+                                mvp_build.file_count = len(files)
+                                mvp_build.file_list = rel_files
+                                mvp_build.storage_key = storage_key
+                                mvp_build.app_config = {
+                                    **(mvp_build.app_config or {}),
+                                    "progress": chat_progress(
+                                        "packaging",
+                                        7,
+                                        100,
+                                        f"Build complete! {len(files)} files generated.",
+                                    ),
+                                }
+                            solution.status = "complete"
+                            await stream_db.commit()
+                            build_state = {
+                                "build_id": str(build_id),
+                                "build_number": build_number,
+                                "file_count": len(files),
+                                "files": [{"path": p, "size": 0, "is_dir": False} for p in rel_files],
+                            }
+
+                            yield await emit_progress(
+                                "packaging",
+                                6,
+                                100,
+                                f"Build complete! {len(files)} files generated.",
+                            )
+                        except Exception:
+                            if mvp_build is not None:
+                                mvp_build.status = "failed"
+                                mvp_build.error_message = "Packaging failed."
+                                await stream_db.commit()
+                            raise
+                    except Exception as build_err:
+                        # The build row is created before the pipeline runs, so a
+                        # failure anywhere in the pipeline must land on it too —
+                        # otherwise a stranded "building" row spins in the UI
+                        # forever with no way for the user to tell it died.
+                        logger.exception("Build pipeline failed for solution=%s", solution_id)
+                        if mvp_build is not None:
+                            try:
+                                mvp_build.status = "failed"
+                                mvp_build.error_message = str(build_err)[:500]
+                                solution.status = "failed"
+                                await stream_db.commit()
+                            except Exception:  # noqa: BLE001 - already failing
+                                await stream_db.rollback()
+                        raise
                     finally:
                         lock.release()
 

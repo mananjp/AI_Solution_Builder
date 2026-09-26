@@ -431,6 +431,23 @@ export const artifactApi = {
       }),
     });
   },
+
+  /**
+   * Fetch a generated visual as an object URL.
+   *
+   * A plain `<img src>` cannot carry the Authorization header these endpoints
+   * require, so the bytes are fetched with auth and wrapped in a blob URL. The
+   * caller owns the returned URL and must `URL.revokeObjectURL` it.
+   */
+  async getImageObjectUrl(artifactId: string): Promise<string> {
+    const token = getAuthToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE_URL}/artifacts/${artifactId}/image`, { headers });
+    if (!res.ok) throw new Error(`Failed to load image with status ${res.status}`);
+    return URL.createObjectURL(await res.blob());
+  },
 };
 
 // ── Workable System Runtime ──────────────────────

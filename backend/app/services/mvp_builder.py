@@ -68,12 +68,92 @@ _ENV_DESCRIPTIONS = {
 # Keys the deployment platform injects itself — never prompt the user for them.
 _AUTO_SET_ENV = {"PORT", "CORS_ORIGINS", "NEXT_PUBLIC_API_URL", "DATABASE_URL"}
 
+# Recommendations shown next to each env var in the Configure/Deploy modals so the
+# user never faces a blank input with no clue what belongs there.
+#
+# Three kinds, because conflating them is how apps ship with "changeme" secrets:
+#   "value" — a genuinely usable, non-secret default. Safe to pre-fill.
+#   "hint"  — format guidance only, for credentials. NEVER auto-filled: a
+#             fabricated key that *looks* real is worse than an empty field.
+#   "none"  — we have nothing useful to say.
+_ENV_RECOMMENDED: dict[str, tuple[str, str]] = {
+    "PORT": ("value", "8080"),
+    "CORS_ORIGINS": ("hint", "http://localhost:3000,https://your-app.onrender.com"),
+    "NEXT_PUBLIC_API_URL": ("hint", "https://your-api.onrender.com"),
+    "NODE_ENV": ("value", "production"),
+    "LOG_LEVEL": ("value", "INFO"),
+    "VITE_API_URL": ("hint", "https://your-api.onrender.com"),
+    "DATABASE_URL": (
+        "hint",
+        "postgresql://USER:PASSWORD@HOST:5432/DBNAME?sslmode=require (Neon or Supabase)",
+    ),
+    "REDIS_URL": ("hint", "rediss://default:PASSWORD@HOST:6379 (Upstash)"),
+    "JWT_SECRET_KEY": (
+        "hint",
+        "at least 32 random characters — generate one, never reuse a default",
+    ),
+    "OPENAI_API_KEY": ("hint", "starts with sk-… from platform.openai.com"),
+    "ANTHROPIC_API_KEY": ("hint", "starts with sk-ant-… from console.anthropic.com"),
+    "STRIPE_SECRET_KEY": ("hint", "sk_live_… / sk_test_… from dashboard.stripe.com"),
+    "STRIPE_PUBLISHABLE_KEY": ("hint", "pk_live_… / pk_test_… — safe to expose to the browser"),
+    "SENDGRID_API_KEY": ("hint", "SG.… from app.sendgrid.com"),
+    "CLOUDINARY_CLOUD_NAME": ("hint", "your Cloudinary dashboard cloud name"),
+    "CLOUDINARY_API_KEY": ("hint", "your Cloudinary API key"),
+    "CLOUDINARY_API_SECRET": ("hint", "your Cloudinary API secret"),
+}
+
+# Substrings that mark a variable as a credential. These are *never* given a
+# concrete suggested value regardless of what a scan produced.
+_SECRET_HINTS = ("SECRET", "TOKEN", "PASSWORD", "PASSWD", "API_KEY", "PRIVATE_KEY", "CREDENTIAL")
+
+# Free-text fallbacks, used to at least tell the user what shape a value takes.
+_SECRET_FORMAT_HINTS: dict[str, str] = {
+    "SECRET": "a long random value — generate one, don't reuse a default",
+    "TOKEN": "an access token issued by the provider",
+    "PASSWORD": "the account password",
+    "API_KEY": "the API key issued by the provider",
+    "PRIVATE_KEY": "a PEM-encoded private key",
+    "CREDENTIAL": "the credential issued by the provider",
+}
+
+
+def _is_secret_key(key: str) -> bool:
+    return any(hint in key.upper() for hint in _SECRET_HINTS)
+
+
+def _recommendation_for(key: str, fallback_default: str | None) -> tuple[str | None, str]:
+    """Resolve ``(recommended, recommendation_kind)`` for an env var.
+
+    ``recommended`` always carries the text to show — a usable value when the
+    kind is ``"value"``, or format guidance when it is ``"hint"``. The kind is
+    what tells the UI whether it may pre-fill the field. A value is only ever
+    returned with kind ``"value"`` for non-secret variables, so the UI can never
+    hand the user a fabricated credential.
+    """
+    entry = _ENV_RECOMMENDED.get(key)
+    if entry is not None:
+        kind, text = entry
+        if kind == "value" and _is_secret_key(key):
+            # Defensive: the curated table must never contain a credential value.
+            return text, "hint"
+        return text, kind
+
+    if fallback_default and not _is_secret_key(key):
+        return fallback_default, "value"
+
+    marker = next((h for h in _SECRET_FORMAT_HINTS if h in key.upper()), None)
+    if _is_secret_key(key) and marker:
+        return _SECRET_FORMAT_HINTS[marker], "hint"
+
+    return None, "none"
+
 
 def scan_env_plan(build_dir: str | Path) -> list[dict[str, Any]]:
     """Scan generated code for every referenced environment variable.
 
     Returns a deduped list, required-first:
-        {key, required, kind, description, default, occurrences}
+        {key, required, kind, description, default, recommended,
+         recommendation_kind, occurrences}
     ``kind`` is ``"build"`` for NEXT_PUBLIC_* (inlined at build time) and
     ``"runtime"`` otherwise. Variables with a code fallback (``|| '...'``,
     ``os.getenv(key, default)``, ``os.environ.get``) or that are auto-set by the
@@ -167,6 +247,9 @@ def scan_env_plan(build_dir: str | Path) -> list[dict[str, Any]]:
         entry.setdefault("optional", not entry["required"])
         if entry["key"] in _AUTO_SET_ENV:
             entry["auto_injected"] = True
+        recommended, rec_kind = _recommendation_for(entry["key"], entry.get("default"))
+        entry["recommended"] = recommended
+        entry["recommendation_kind"] = rec_kind
 
     def sort_key(entry: dict[str, Any]) -> tuple[int, str]:
         return (0 if entry["required"] else 1, entry["key"])
@@ -3091,14 +3174,25 @@ async def run_premade_build(
     build_number: int,
     *,
     title: str | None = None,
+    progress_cb: Callable[[int, int, str], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
-    """Instantly build a starter template without LLM roundtrip latency."""
+    """Instantly build a starter template without LLM roundtrip latency.
+
+    ``progress_cb(idx, percentage, message)`` is awaited at each stage so the
+    UI stepper advances instead of sitting at the initial 10% until the build
+    suddenly reports 100%.
+    """
     from app.services import templates
 
     local_dir = build_workspace_dir(solution_id, build_number)
     app_title = title or template_slug.title()
 
+    async def _notify(step_idx: int, percentage: int, message: str) -> None:
+        if progress_cb is not None:
+            await progress_cb(step_idx, percentage, message)
+
     # 1. Base scaffold
+    await _notify(0, 15, "Scaffolding the full-stack FastAPI + Next.js workspace...")
     scaffold_build(
         local_dir,
         app_title=app_title,
@@ -3106,7 +3200,9 @@ async def run_premade_build(
     )
 
     # 2. Instantiate pre-generated, production-ready template files
+    await _notify(1, 50, f"Applying the {template_slug} template modules...")
     templates.apply_template_files(local_dir, template_slug, app_title=app_title)
+    await _notify(4, 90, "Packaging the production artifact...")
 
     logger.info(
         "Instant premade MVP build complete for solution=%s (template=%s)",

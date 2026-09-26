@@ -125,6 +125,19 @@ class Settings(BaseSettings):
     MVP_MAX_REPAIR_TURNS: int = 4
     MVP_TEST_TIMEOUT_S: int = 180
 
+    # ── Product Image Generation (Gemini) ───────────
+    # Optional. When no key is configured the build's "illustrating" phase is
+    # skipped entirely and the pipeline continues to verification unchanged, so
+    # image generation can never block a build.
+    GEMINI_API_KEY: str = ""
+    GEMINI_IMAGE_MODEL: str = "gemini-2.5-flash-image"
+    IMAGE_GENERATION_ENABLED: bool = True
+    MVP_IMAGE_COUNT: int = 3
+    MVP_IMAGE_TIMEOUT: int = 120  # seconds per image request
+    # Cap on the whole illustration phase. Checked before each new image, so a
+    # run that overruns still keeps (and persists) whatever already finished.
+    MVP_IMAGE_TOTAL_BUDGET: int = 180
+
     # ── Worker Process / Queue ────────────────────
     WORKER_MODE: str = "inline"  # "worker" (separate process) | "inline" (in-process fallback)
     WORKER_POLL_INTERVAL: float = 2.0  # seconds
@@ -153,6 +166,14 @@ class Settings(BaseSettings):
     )
     @classmethod
     def clean_cloudinary_creds(cls, v: Any) -> str:
+        if not v:
+            return ""
+        return str(v).strip().strip("'\"").strip()
+
+    @field_validator("GEMINI_API_KEY", mode="before")
+    @classmethod
+    def clean_gemini_key(cls, v: Any) -> str:
+        """Tolerate copy-pasted keys wrapped in quotes or whitespace."""
         if not v:
             return ""
         return str(v).strip().strip("'\"").strip()
