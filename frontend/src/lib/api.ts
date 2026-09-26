@@ -39,10 +39,37 @@ function normalizeApiUrl(url?: string | null): string {
 }
 
 
+export function getApiBaseUrl(): string {
+  if (typeof window === 'undefined') {
+    return normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api/v1');
+  }
+
+  // 1. Check local storage override (allows mobile users / devs to point to custom backend)
+  const customUrl = localStorage.getItem('custom_backend_url') || localStorage.getItem('api_base_url');
+  if (customUrl) return normalizeApiUrl(customUrl);
+
+  // 2. Check build-time env variable (if it's not a localhost address)
+  if (process.env.NEXT_PUBLIC_API_URL && !process.env.NEXT_PUBLIC_API_URL.startsWith('http://localhost')) {
+    return normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL);
+  }
+
+  // 3. Detect Capacitor native mobile environment (e.g. running on Android WebView)
+  const isCapacitorNative =
+    (window as any).Capacitor !== undefined ||
+    (window.location.protocol === 'https:' && window.location.hostname === 'localhost' && window.location.port === '');
+  if (isCapacitorNative) {
+    return 'https://ai-solution-builder.onrender.com/api/v1';
+  }
+
+  return '/api/v1';
+}
+
 const rawApiUrl =
   typeof window !== 'undefined'
     ? (process.env.NEXT_PUBLIC_API_URL && !process.env.NEXT_PUBLIC_API_URL.startsWith('http://localhost')
       ? normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL)
+      : (typeof window !== 'undefined' && ((window as any).Capacitor !== undefined || (window.location.protocol === 'https:' && window.location.hostname === 'localhost' && window.location.port === '')))
+      ? 'https://ai-solution-builder.onrender.com/api/v1'
       : '/api/v1')
     : normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api/v1');
 
@@ -141,13 +168,14 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const primaryUrl = `${API_BASE_URL}${endpoint}`;
+  const baseUrl = getApiBaseUrl();
+  const primaryUrl = `${baseUrl}${endpoint}`;
   const urlsToTry: string[] = [primaryUrl];
 
   if (!primaryUrl.includes('/api/v1')) {
-    urlsToTry.push(`${API_BASE_URL}/api/v1${endpoint}`);
+    urlsToTry.push(`${baseUrl}/api/v1${endpoint}`);
   }
-  if (typeof window !== 'undefined' && API_BASE_URL !== '/api/v1') {
+  if (typeof window !== 'undefined' && baseUrl !== '/api/v1' && !baseUrl.startsWith('http://localhost') && !baseUrl.startsWith('https://localhost')) {
     urlsToTry.push(`/api/v1${endpoint}`);
   }
 
@@ -792,14 +820,15 @@ async function streamSSE(
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
-  const primaryUrl = `${API_BASE_URL}${endpoint}`;
+  const baseUrl = getApiBaseUrl();
+  const primaryUrl = `${baseUrl}${endpoint}`;
   const urlsToTry: string[] = [primaryUrl];
 
   if (!primaryUrl.includes('/api/v1')) {
-    urlsToTry.push(`${API_BASE_URL}/api/v1${endpoint}`);
+    urlsToTry.push(`${baseUrl}/api/v1${endpoint}`);
   }
   if (typeof window !== 'undefined') {
-    if (API_BASE_URL !== '/api/v1') {
+    if (baseUrl !== '/api/v1' && !baseUrl.startsWith('http://localhost') && !baseUrl.startsWith('https://localhost')) {
       urlsToTry.push(`/api/v1${endpoint}`);
     }
     urlsToTry.push(endpoint);
