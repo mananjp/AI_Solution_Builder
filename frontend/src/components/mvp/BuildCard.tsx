@@ -141,31 +141,66 @@ function FileTree({ build }: { build: MVPBuild }) {
 }
 
 const DEPLOY_STEP_LABELS: Record<string, string> = {
+  web: 'Unified Web App (FastAPI + Next.js)',
+  database: 'Managed PostgreSQL Database (Render)',
   backend: 'Backend API service',
   frontend: 'Frontend app (links to backend URL)',
 };
 
 function EnvChip({ spec, value, onChange }: { spec: MVPEnvVarSpec; value: string; onChange: (v: string) => void }) {
+  const [showOverride, setShowOverride] = useState(Boolean(value));
+  const isDatabase = spec.key === 'DATABASE_URL';
+
   return (
-    <div className="p-3 bg-[var(--bg-2)] border border-[var(--border)] space-y-2">
+    <div className={`p-3 bg-[var(--bg-2)] border ${isDatabase ? 'border-[var(--sutra-muted-gold)]/40 bg-[var(--sutra-muted-gold)]/[0.03]' : 'border-[var(--border)]'} space-y-2`}>
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <code className="text-[11px] font-mono font-bold text-[var(--sutra-charcoal)]">
           {spec.key}
         </code>
         <div className="flex items-center gap-1.5">
-          {spec.auto_injected && <span className="badge badge-green text-[9px]">auto-injected</span>}
-          {spec.required ? (
-            <span className="badge badge-red text-[9px]">required</span>
+          {isDatabase ? (
+            <span className="badge badge-green text-[9px]">Render Postgres (Auto-configured)</span>
           ) : (
-            <span className="badge badge-amber text-[9px]">optional</span>
+            <>
+              {spec.auto_injected && <span className="badge badge-green text-[9px]">auto-injected</span>}
+              {spec.required ? (
+                <span className="badge badge-red text-[9px]">required</span>
+              ) : (
+                <span className="badge badge-amber text-[9px]">optional</span>
+              )}
+              {spec.kind === 'build' && <span className="badge badge-gray text-[9px]">build-time</span>}
+            </>
           )}
-          {spec.kind === 'build' && <span className="badge badge-gray text-[9px]">build-time</span>}
         </div>
       </div>
       {spec.description && (
         <p className="text-[10px] leading-snug text-[var(--text-2)] font-light">{spec.description}</p>
       )}
-      {spec.auto_injected && spec.current ? (
+
+      {isDatabase ? (
+        <div className="space-y-2 pt-1">
+          <div className="flex items-center justify-between gap-2 flex-wrap text-[10px]">
+            <span className="text-[var(--sutra-muted-gold)] font-mono flex items-center gap-1">
+              ✓ Auto-provisioned on Render — no manual database required
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowOverride(!showOverride)}
+              className="text-[9px] uppercase tracking-wider font-bold text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] underline cursor-pointer"
+            >
+              {showOverride ? 'Hide custom override' : 'Custom DB URL (optional)'}
+            </button>
+          </div>
+          {showOverride && (
+            <input
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder="postgresql://user:password@host/db (Leave empty to use Render PostgreSQL)"
+              className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[11px] font-mono focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors"
+            />
+          )}
+        </div>
+      ) : spec.auto_injected && spec.current ? (
         <p className="text-[10px] font-mono text-[var(--sutra-muted-gold)] break-all">
           Set automatically: {spec.current}
         </p>
@@ -260,7 +295,7 @@ export function DeployModal({
 
   const pendingRequired = useMemo(() => {
     if (!envPlan) return [];
-    return envPlan.env.filter((spec) => spec.required && !spec.auto_injected && !envValues[spec.key]?.trim());
+    return envPlan.env.filter((spec) => spec.required && !spec.auto_injected && spec.key !== 'DATABASE_URL' && !envValues[spec.key]?.trim());
   }, [envPlan, envValues]);
 
   const pendingEnv = Array.isArray(envPlan?.injected) ? [] : Object.entries(envPlan?.injected || {});
@@ -715,9 +750,9 @@ export function ConfigureModal({
     }
   };
 
-  const required = envPlan?.env.filter((s) => s.required) || [];
-  const optional = envPlan?.env.filter((s) => !s.required) || [];
-  const auto = envPlan?.env.filter((s) => s.auto_injected) || [];
+  const required = envPlan?.env.filter((s) => s.required && !s.auto_injected && s.key !== 'DATABASE_URL') || [];
+  const optional = envPlan?.env.filter((s) => !s.required || s.key === 'DATABASE_URL') || [];
+  const auto = envPlan?.env.filter((s) => s.auto_injected || s.key === 'DATABASE_URL') || [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--sutra-charcoal)]/80 backdrop-blur-sm animate-fade-in">

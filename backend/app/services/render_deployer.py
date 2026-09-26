@@ -136,6 +136,155 @@ class RenderDeployer:
             )
             return None
 
+    # -- PostgreSQL managed database provisioning --------------------------------
+
+    async def get_postgres_by_name(self, name: str) -> dict[str, Any] | None:
+        """Find an existing managed PostgreSQL instance in this workspace by exact name."""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.get(
+                f"{RENDER_API_BASE}/postgres",
+                headers=self._headers,
+                params={"limit": 50},
+            )
+            if resp.status_code == 200:
+                items = resp.json()
+                if isinstance(items, list):
+                    for item in items:
+                        pg = item.get("postgres", {}) if isinstance(item, dict) else {}
+                        if pg.get("name") == name:
+                            return pg
+            return None
+
+    async def get_postgres_by_id(self, postgres_id: str) -> dict[str, Any] | None:
+        """Retrieve details of a Render PostgreSQL database by its ID."""
+        if not postgres_id:
+            return None
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.get(
+                f"{RENDER_API_BASE}/postgres/{postgres_id}",
+                headers=self._headers,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, dict):
+                    return data.get("postgres", data)
+            return None
+
+    async def get_postgres_connection_string(
+        self, postgres_id: str, internal: bool = True
+    ) -> str | None:
+        """Retrieve internal or external connection string for a Render PostgreSQL database."""
+        if not postgres_id:
+            return None
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.get(
+                f"{RENDER_API_BASE}/postgres/{postgres_id}/connection-info",
+                headers=self._headers,
+            )
+            if resp.status_code == 200:
+                info = resp.json()
+                if isinstance(info, dict):
+                    if internal and info.get("internalConnectionString"):
+                        return info["internalConnectionString"]
+                    return info.get("externalConnectionString") or info.get("internalConnectionString")
+            return None
+
+    async def create_or_get_postgres(
+        self,
+        name: str,
+        owner_id: str,
+        plan: str = "free",
+        database_name: str | None = None,
+        database_user: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Ensure a managed PostgreSQL database exists on Render and return its connection info.
+
+        Provisions a free managed PostgreSQL instance if one does not already exist,
+        allowing zero-configuration deployments for non-technical users.
+        """
+        # 1. Check if database already exists
+        existing = await self.get_postgres_by_name(name)
+        if existing:
+            pg_id = existing.get("id")
+            conn_str = await self.get_postgres_connection_string(pg_id) if pg_id else None
+            return {
+                "id": pg_id,
+                "name": name,
+                "connection_string": conn_str,
+                "dashboard_url": existing.get("dashboardUrl"),
+                "status": existing.get("status", "available"),
+            }
+
+        # 2. Provision new PostgreSQL database on Render
+        clean_db = re.sub(r"[^a-zA-Z0-9_]", "_", database_name or name).lower().strip("_")[:26] or "app_db"
+        payload = {
+            "name": name,
+            "ownerId": owner_id,
+            "plan": plan,
+            "databaseName": clean_db,
+            "databaseUser": clean_db,
+        }
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.post(
+                f"{RENDER_API_BASE}/postgres",
+                headers=self._headers,
+                json=payload,
+            )
+            if resp.status_code in (200, 201):
+                data = resp.json()
+                pg = data.get("postgres", data) if isinstance(data, dict) else {}
+                pg_id = pg.get("id")
+                conn_str = await self.get_postgres_connection_string(pg_id) if pg_id else None
+                logger.info("Render PostgreSQL database provisioned: %s (%s)", name, pg_id)
+                return {
+                    "id": pg_id,
+                    "name": name,
+                    "connection_string": conn_str,
+                    "dashboard_url": pg.get("dashboardUrl"),
+                    "status": pg.get("status", "available"),
+                }
+
+            logger.warning(
+                "Render Postgres create for %s returned HTTP %d: %s",
+                name,
+                resp.status_code,
+                resp.text[:300],
+            )
+            # Check if created in a race condition or already exists
+            retry = await self.get_postgres_by_name(name)
+            if retry:
+                pg_id = retry.get("id")
+                conn_str = await self.get_postgres_connection_string(pg_id) if pg_id else None
+                return {
+                    "id": pg_id,
+                    "name": name,
+                    "connection_string": conn_str,
+                    "dashboard_url": retry.get("dashboardUrl"),
+                    "status": retry.get("status", "available"),
+                }
+        return None
+
+    async def destroy_postgres(self, postgres_id: str) -> bool:
+        """Tear down a Render PostgreSQL database by its ID."""
+        if not postgres_id:
+            return False
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.delete(
+                f"{RENDER_API_BASE}/postgres/{postgres_id}",
+                headers=self._headers,
+            )
+            if resp.status_code in (200, 204):
+                logger.info("Deleted Render PostgreSQL database %s", postgres_id)
+                return True
+            logger.warning(
+                "Failed to delete Render PostgreSQL database %s (HTTP %d): %s",
+                postgres_id,
+                resp.status_code,
+                resp.text[:200],
+            )
+            return False
+
     # -- Deploy status inspection ------------------------------------------------
 
     # Render deploy statuses grouped for UI display
@@ -375,14 +524,44 @@ class RenderDeployer:
             "status": "failed",
         }
 
+        # Check if DATABASE_URL was explicitly provided by user
+        user_db_url: str | None = None
+        for ev in backend_env_vars or []:
+            if ev.get("key") == "DATABASE_URL" and ev.get("value"):
+                user_db_url = ev["value"].strip()
+                break
+
+        # Zero-config DB link: Auto-provision Render's managed PostgreSQL database if not provided
+        db_info: dict[str, Any] | None = None
+        if not user_db_url:
+            db_name = f"{base_name}-db"
+            clean_db = re.sub(r"[^a-zA-Z0-9_]", "_", base_name).lower().strip("_")[:26] or "app_db"
+            try:
+                db_info = await self.create_or_get_postgres(
+                    name=db_name,
+                    owner_id=owner_id,
+                    plan="free",
+                    database_name=clean_db,
+                    database_user=clean_db,
+                )
+                if db_info and db_info.get("connection_string"):
+                    logger.info("Auto-wired Render PostgreSQL database %s into deployment", db_name)
+            except Exception as pg_err:
+                logger.warning("Render PostgreSQL auto-provisioning skipped: %s", pg_err)
+
         if unified:
             # ── Unified single-container deployment ──────────────────────────
             env_map: dict[str, str] = {
                 "PORT": "3000",
                 "CORS_ORIGINS": "*",
             }
+            if user_db_url:
+                env_map["DATABASE_URL"] = user_db_url
+            elif db_info and db_info.get("connection_string"):
+                env_map["DATABASE_URL"] = db_info["connection_string"]
+
             for ev in backend_env_vars or []:
-                if ev.get("key"):
+                if ev.get("key") and ev["key"] != "DATABASE_URL":
                     env_map[ev["key"]] = ev.get("value", "")
             for ev in frontend_env_vars or []:
                 if ev.get("key") and ev["key"] != "NEXT_PUBLIC_API_URL":
@@ -421,6 +600,15 @@ class RenderDeployer:
                 "frontend": web_services,
                 "backend": web_services,
             }
+            if db_info:
+                services["database"] = {
+                    "name": db_info.get("name", f"{base_name}-db"),
+                    "service_id": db_info.get("id"),
+                    "dashboard_url": db_info.get("dashboard_url"),
+                    "status": "ready" if db_info.get("connection_string") else "provisioning",
+                    "type": "database",
+                }
+
             service_id = web_services.get("service_id")
             dashboard_url = web_services.get("dashboard_url")
 
@@ -445,6 +633,14 @@ class RenderDeployer:
         api_service_name = f"{base_name}-api"
         fe_service_name = base_name
 
+        effective_backend_env = [
+            {"key": "PORT", "value": "8000"},
+            {"key": "CORS_ORIGINS", "value": "*"},
+            *(backend_env_vars or []),
+        ]
+        if not user_db_url and db_info and db_info.get("connection_string"):
+            effective_backend_env.append({"key": "DATABASE_URL", "value": db_info["connection_string"]})
+
         # 1. Deploy / update backend service on port 8000
         backend_info = await self.create_or_update_service(
             name=api_service_name,
@@ -453,11 +649,7 @@ class RenderDeployer:
             branch=branch,
             dockerfile_path="./backend/Dockerfile",
             docker_context="./backend",
-            env_vars=[
-                {"key": "PORT", "value": "8000"},
-                {"key": "CORS_ORIGINS", "value": "*"},
-                *(backend_env_vars or []),
-            ],
+            env_vars=effective_backend_env,
         )
         backend_url = backend_info.get("url") if backend_info else None
         backend_services: dict[str, Any] = {
@@ -509,6 +701,14 @@ class RenderDeployer:
             )
 
         services = {"backend": backend_services, "frontend": frontend_services}
+        if db_info:
+            services["database"] = {
+                "name": db_info.get("name", f"{base_name}-db"),
+                "service_id": db_info.get("id"),
+                "dashboard_url": db_info.get("dashboard_url"),
+                "status": "ready" if db_info.get("connection_string") else "provisioning",
+                "type": "database",
+            }
         service_url = frontend_url or backend_url
         service_id = frontend_services.get("service_id") or backend_services.get("service_id")
         dashboard_url = (

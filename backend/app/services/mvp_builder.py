@@ -52,7 +52,7 @@ _TEXT_SUFFIXES = {
 # Human descriptions for well-known environment variables so the env-required UI
 # can show *why* each variable is needed instead of a bare key.
 _ENV_DESCRIPTIONS = {
-    "DATABASE_URL": "PostgreSQL connection string (Neon/Supabase) for the backend",
+    "DATABASE_URL": "Render Managed PostgreSQL (auto-provisioned). Optional custom connection string override.",
     "JWT_SECRET_KEY": "Long random secret used to sign auth sessions (32+ chars)",
     "REDIS_URL": "Upstash/Redis endpoint for caching and queues",
     "NEXT_PUBLIC_API_URL": "Deployed backend API URL — auto-injected from the backend service",
@@ -66,7 +66,7 @@ _ENV_DESCRIPTIONS = {
 }
 
 # Keys the deployment platform injects itself — never prompt the user for them.
-_AUTO_SET_ENV = {"PORT", "CORS_ORIGINS", "NEXT_PUBLIC_API_URL"}
+_AUTO_SET_ENV = {"PORT", "CORS_ORIGINS", "NEXT_PUBLIC_API_URL", "DATABASE_URL"}
 
 
 def scan_env_plan(build_dir: str | Path) -> list[dict[str, Any]]:
@@ -150,13 +150,23 @@ def scan_env_plan(build_dir: str | Path) -> list[dict[str, Any]]:
     for entry in plan:
         if entry["key"] in _AUTO_SET_ENV:
             entry["required"] = False
-            entry["description"] = entry["description"] or (
-                "Set automatically by the deployment platform"
-            )
+            entry["optional"] = True
+            entry["auto_injected"] = True
+            if entry["key"] == "DATABASE_URL":
+                entry["description"] = (
+                    "Render Managed PostgreSQL (auto-provisioned). "
+                    "Zero configuration required for non-technical users."
+                )
+            else:
+                entry["description"] = entry["description"] or (
+                    "Set automatically by the deployment platform"
+                )
         entry["description"] = entry["description"] or (
             "Referenced by the generated app (no default provided)"
         )
         entry.setdefault("optional", not entry["required"])
+        if entry["key"] in _AUTO_SET_ENV:
+            entry["auto_injected"] = True
 
     def sort_key(entry: dict[str, Any]) -> tuple[int, str]:
         return (0 if entry["required"] else 1, entry["key"])
@@ -179,7 +189,12 @@ def env_plan_with_current(
     for entry in plan:
         key = entry["key"]
         entry["current"] = saved.get(key) or injected.get(key)
-        entry["auto_injected"] = key in injected
+        entry["auto_injected"] = key in injected or key in _AUTO_SET_ENV
+        if key in _AUTO_SET_ENV:
+            entry["required"] = False
+            entry["optional"] = True
+        if key == "DATABASE_URL" and not saved.get(key):
+            entry["current"] = "Render Managed PostgreSQL (auto-configured)"
         if key == "NEXT_PUBLIC_API_URL" and frontend_url:
             entry.setdefault("description", entry.get("description") or "")
     return plan
