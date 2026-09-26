@@ -1474,7 +1474,17 @@ async def deploy_status(
                 continue
             service_id = svc.get("service_id")
             deploy_id = svc.get("deploy_id")
-            if service_id and deploy_id:
+            if (name == "database" or svc.get("type") == "database") and service_id:
+                try:
+                    pg_data = await r_client.get_postgres_by_id(service_id)
+                    if isinstance(pg_data, dict):
+                        raw_pg_status = pg_data.get("status", "available")
+                        svc["status"] = "ready" if raw_pg_status == "available" else raw_pg_status
+                        if not svc.get("dashboard_url") and pg_data.get("dashboardUrl"):
+                            svc["dashboard_url"] = pg_data.get("dashboardUrl")
+                except Exception as pg_err:  # noqa: BLE001
+                    logger.info("Database status poll failed for %s: %s", name, pg_err)
+            elif service_id and deploy_id:
                 try:
                     raw = await r_client.get_deploy_status(service_id, deploy_id)
                     if isinstance(raw, dict) and raw.get("status"):
@@ -1487,12 +1497,15 @@ async def deploy_status(
                 except Exception as poll_err:  # noqa: BLE001
                     logger.info("Deploy status poll failed for %s: %s", name, poll_err)
 
+    def _is_active_status(st: str) -> bool:
+        return st in {"live", "ready", "available"}
+
     statuses = [s.get("status", "building") for s in services.values() if isinstance(s, dict)]
     overall = "building"
     if statuses:
         if any(st == "failed" for st in statuses):
             overall = "failed"
-        elif all(st == "live" for st in statuses):
+        elif all(_is_active_status(st) for st in statuses):
             overall = "live"
 
     deploy_state["status"] = overall

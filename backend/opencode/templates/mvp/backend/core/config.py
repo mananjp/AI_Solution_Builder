@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     def normalize_database_url(cls, v: str) -> str:
         url = _clean_env(v)
         if not url:
-            return url
+            return "sqlite+aiosqlite:///app.db"
         # SQLite support for local/test runs
         if url.startswith("sqlite://") and not url.startswith("sqlite+aiosqlite://"):
             return "sqlite+aiosqlite://" + url[len("sqlite://") :]

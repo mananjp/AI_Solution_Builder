@@ -283,7 +283,7 @@ def test_feature_extension_engine(sample_legacy_repo: Path):
         analysis["entry_points"],
     )
 
-    modified = engine.add_ai_chatbot(provider="groq", model="llama-3.3-70b-versatile")
+    modified = engine.add_ai_chatbot(provider="groq", model="openai/gpt-oss-120b")
     assert len(modified) >= 2
 
     # Check chatbot widget file exists
@@ -435,3 +435,73 @@ def test_github_url_parsing_and_token_resolution():
     # Override with payload token
     override = _resolve_github_token("ghp_overridetoken999", user_with_token)
     assert override == "ghp_overridetoken999"
+
+
+@pytest.mark.asyncio
+async def test_modernize_fallback_and_upload_persistence(sample_legacy_repo: Path):
+    """Verify that modernization falls back gracefully and uploaded archives persist for modernization."""
+    from app.core.security import get_current_user
+    from app.models.user import User
+    import uuid
+    import zipfile
+    import io
+    import httpx
+
+    test_user = User(
+        id=uuid.uuid4(),
+        email="test_mod_fallback@example.com",
+        org_id=uuid.uuid4(),
+    )
+    app.dependency_overrides[get_current_user] = lambda: test_user
+    headers = {"Authorization": "Bearer fake_token"}
+
+    try:
+        # Create in-memory zip of sample_legacy_repo
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for file in sample_legacy_repo.rglob("*"):
+                if file.is_file():
+                    zf.write(file, file.relative_to(sample_legacy_repo))
+        zip_bytes = zip_buf.getvalue()
+
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            # 1. Analyze upload
+            files = {"file": ("repo.zip", zip_bytes, "application/zip")}
+            up_resp = await client.post("/api/v1/legacy-repo/analyze-upload", files=files, headers=headers)
+            assert up_resp.status_code == 200
+            up_data = up_resp.json()
+            extracted_path = up_data["root_path"]
+            assert Path(extracted_path).exists()
+
+            # 2. Modernize the uploaded repo using root_path
+            mod_resp = await client.post(
+                "/api/v1/legacy-repo/modernize",
+                json={
+                    "local_path": extracted_path,
+                    "requested_features": ["ai_chatbot"],
+                    "credentials": {"GROQ_API_KEY": "gsk_" + "m" * 32},
+                },
+                headers=headers,
+            )
+            assert mod_resp.status_code == 200
+            mod_data = mod_resp.json()
+            assert mod_data["status"] == "complete"
+
+            # 3. Modernize with missing local_path falling back to demo or github
+            demo_fallback = await client.post(
+                "/api/v1/legacy-repo/modernize",
+                json={
+                    "local_path": "/nonexistent/temporary/path/legacy_gh_12345",
+                    "requested_features": ["ai_chatbot"],
+                    "credentials": {"GROQ_API_KEY": "gsk_" + "m" * 32},
+                },
+                headers=headers,
+            )
+            # Without github_repo_url and with non-existent path, expect 404
+            assert demo_fallback.status_code == 404
+            err_msg = demo_fallback.json().get("error", {}).get("message") or demo_fallback.json().get("detail", "")
+            assert "Target repository path does not exist" in err_msg
+
+    finally:
+        app.dependency_overrides.clear()
+

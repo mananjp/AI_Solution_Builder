@@ -52,7 +52,7 @@ _TEXT_SUFFIXES = {
 # Human descriptions for well-known environment variables so the env-required UI
 # can show *why* each variable is needed instead of a bare key.
 _ENV_DESCRIPTIONS = {
-    "DATABASE_URL": "PostgreSQL connection string (Neon/Supabase) for the backend",
+    "DATABASE_URL": "Render Managed PostgreSQL (auto-provisioned). Optional custom connection string override.",
     "JWT_SECRET_KEY": "Long random secret used to sign auth sessions (32+ chars)",
     "REDIS_URL": "Upstash/Redis endpoint for caching and queues",
     "NEXT_PUBLIC_API_URL": "Deployed backend API URL — auto-injected from the backend service",
@@ -66,7 +66,7 @@ _ENV_DESCRIPTIONS = {
 }
 
 # Keys the deployment platform injects itself — never prompt the user for them.
-_AUTO_SET_ENV = {"PORT", "CORS_ORIGINS", "NEXT_PUBLIC_API_URL"}
+_AUTO_SET_ENV = {"PORT", "CORS_ORIGINS", "NEXT_PUBLIC_API_URL", "DATABASE_URL"}
 
 # Recommendations shown next to each env var in the Configure/Deploy modals so the
 # user never faces a blank input with no clue what belongs there.
@@ -230,13 +230,23 @@ def scan_env_plan(build_dir: str | Path) -> list[dict[str, Any]]:
     for entry in plan:
         if entry["key"] in _AUTO_SET_ENV:
             entry["required"] = False
-            entry["description"] = entry["description"] or (
-                "Set automatically by the deployment platform"
-            )
+            entry["optional"] = True
+            entry["auto_injected"] = True
+            if entry["key"] == "DATABASE_URL":
+                entry["description"] = (
+                    "Render Managed PostgreSQL (auto-provisioned). "
+                    "Zero configuration required for non-technical users."
+                )
+            else:
+                entry["description"] = entry["description"] or (
+                    "Set automatically by the deployment platform"
+                )
         entry["description"] = entry["description"] or (
             "Referenced by the generated app (no default provided)"
         )
         entry.setdefault("optional", not entry["required"])
+        if entry["key"] in _AUTO_SET_ENV:
+            entry["auto_injected"] = True
         recommended, rec_kind = _recommendation_for(entry["key"], entry.get("default"))
         entry["recommended"] = recommended
         entry["recommendation_kind"] = rec_kind
@@ -262,7 +272,12 @@ def env_plan_with_current(
     for entry in plan:
         key = entry["key"]
         entry["current"] = saved.get(key) or injected.get(key)
-        entry["auto_injected"] = key in injected
+        entry["auto_injected"] = key in injected or key in _AUTO_SET_ENV
+        if key in _AUTO_SET_ENV:
+            entry["required"] = False
+            entry["optional"] = True
+        if key == "DATABASE_URL" and not saved.get(key):
+            entry["current"] = "Render Managed PostgreSQL (auto-configured)"
         if key == "NEXT_PUBLIC_API_URL" and frontend_url:
             entry.setdefault("description", entry.get("description") or "")
     return plan
@@ -2484,6 +2499,55 @@ class AgentRunner:
             schemas_file.write_text(
                 content.replace("# __SCHEMA_INSERTION_POINT__", replacement), encoding="utf-8"
             )
+
+    # Legacy analytics summary endpoint in _auto_synthesize_slots fallback
+    num_ent = None
+    num_field = None
+    for ent in entities:
+        if not isinstance(ent, dict):
+            continue
+        for f in ent.get("fields", []):
+            f_type = str(f.get("type", "") if isinstance(f, dict) else "").upper()
+            if "INT" in f_type or any(t in f_type for t in ("FLOAT", "DOUBLE", "DECIMAL")):
+                num_ent = re.sub(r"[^a-zA-Z0-9_]+", "_", str(ent.get("name", "")).lower()).strip("_")
+                num_field = re.sub(
+                    r"[^a-zA-Z0-9_]+",
+                    "_",
+                    str(f.get("name", "") if isinstance(f, dict) else "").lower(),
+                ).strip("_")
+                break
+        if num_ent:
+            break
+
+    if num_ent and num_field:
+        num_cls = "".join(part.capitalize() for part in num_ent.split("_"))
+        analytics_endpoint = f"""
+@router.get("/analytics/summary")
+async def analytics_summary(session: SessionDep) -> dict[str, Any]:
+    from sqlalchemy import func
+    q = select(
+        func.count(models.{num_cls}.id).label("count"),
+        func.sum(models.{num_cls}.{num_field}).label("total"),
+        func.avg(models.{num_cls}.{num_field}).label("average"),
+    )
+    row = (await session.execute(q)).one()
+    return {{
+        "available": True,
+        "entity": "{num_ent}",
+        "metric": "{num_field}",
+        "count": int(row.count or 0),
+        "total": float(row.total or 0),
+        "average": float(row.average or 0),
+        "trend": [],
+    }}
+"""
+    else:
+        analytics_endpoint = """
+@router.get("/analytics/summary")
+async def analytics_summary() -> dict[str, Any]:
+    return {"available": False, "reason": "no numeric fields found"}
+"""
+    router_chunks.append(analytics_endpoint)
 
     # Apply to routers.py
     routers_file = backend_dir / "routers.py"

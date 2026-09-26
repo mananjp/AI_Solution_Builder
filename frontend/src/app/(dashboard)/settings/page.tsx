@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Check, Eye, EyeOff, GitBranch, Lock, Rocket, ShieldCheck } from 'lucide-react';
-import { authApi } from '@/lib/api';
+import { Check, Eye, EyeOff, GitBranch, Lock, Rocket, ShieldCheck, Smartphone, Server, RefreshCw } from 'lucide-react';
+import { authApi, getApiBaseUrl } from '@/lib/api';
 
 export default function SettingsPage() {
   const [githubToken, setGithubToken] = useState('');
@@ -11,6 +11,41 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [message, setMessage] = useState<string | null>(null);
+
+  // Mobile & API Backend configuration
+  const [customApiUrl, setCustomApiUrl] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('custom_backend_url') || '';
+    }
+    return '';
+  });
+  const [currentApi, setCurrentApi] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return getApiBaseUrl();
+    }
+    return '';
+  });
+  const [apiSaveStatus, setApiSaveStatus] = useState<string | null>(null);
+  const [isMobileApp] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return 'Capacitor' in window ||
+        (window.location.protocol === 'https:' && window.location.hostname === 'localhost' && window.location.port === '');
+    }
+    return false;
+  });
+
+  const handleSaveApiUrl = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (customApiUrl.trim()) {
+      localStorage.setItem('custom_backend_url', customApiUrl.trim());
+      setApiSaveStatus('Backend URL updated successfully.');
+    } else {
+      localStorage.removeItem('custom_backend_url');
+      setApiSaveStatus('Reset to default backend.');
+    }
+    setCurrentApi(getApiBaseUrl());
+    setTimeout(() => setApiSaveStatus(null), 4000);
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -151,6 +186,82 @@ export default function SettingsPage() {
           </button>
         </div>
       </form>
+
+      {/* Mobile App & API Backend Network Configuration */}
+      <div className="sutra-card p-8 space-y-6 bg-[var(--bg)] border border-[var(--border)]">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-sm bg-[var(--sutra-muted-gold)]/15 text-[var(--sutra-muted-gold)] border border-[var(--sutra-muted-gold)]/30">
+              <Smartphone className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-[13px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">
+                Mobile &amp; API Server Configuration
+              </h2>
+              <p className="text-xs text-[var(--text-2)] font-light mt-0.5">
+                Configure backend API endpoint for Capacitor Android App and local development.
+              </p>
+            </div>
+          </div>
+          <span className={`px-2.5 py-1 text-[10px] font-mono uppercase font-bold rounded-sm border ${
+            isMobileApp
+              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+              : 'bg-[var(--bg-2)] text-[var(--text-2)] border-[var(--border)]'
+          }`}>
+            {isMobileApp ? 'Capacitor Android Active' : 'Web Shell Active'}
+          </span>
+        </div>
+
+        <form onSubmit={handleSaveApiUrl} className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">
+              <Server className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
+              Active Backend Base URL
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={customApiUrl}
+                onChange={(e) => setCustomApiUrl(e.target.value)}
+                placeholder={currentApi || 'https://ai-solution-builder.onrender.com/api/v1'}
+                className="flex-1 px-4 py-2.5 bg-[var(--bg-2)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[12px] font-mono focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm"
+              />
+              <button
+                type="submit"
+                className="btn btn-primary px-5 text-xs whitespace-nowrap"
+              >
+                Apply URL
+              </button>
+              {customApiUrl && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomApiUrl('');
+                    localStorage.removeItem('custom_backend_url');
+                    setCurrentApi(getApiBaseUrl());
+                    setApiSaveStatus('Reset to default backend.');
+                    setTimeout(() => setApiSaveStatus(null), 3000);
+                  }}
+                  className="btn btn-secondary px-3 text-xs"
+                  title="Reset to default"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            <p className="text-[11px] text-[var(--text-3)] font-mono">
+              Current resolved endpoint: <span className="text-[var(--sutra-muted-gold)]">{currentApi}</span>
+            </p>
+          </div>
+
+          {apiSaveStatus && (
+            <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs rounded-sm animate-fade-in flex items-center gap-2">
+              <Check className="w-3.5 h-3.5" />
+              {apiSaveStatus}
+            </div>
+          )}
+        </form>
+      </div>
 
       {/* Guides */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

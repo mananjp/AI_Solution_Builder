@@ -306,10 +306,8 @@ async def analyze_legacy_repository(
         logger.exception("Legacy repository analysis failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
     finally:
-        if cleanup_temp:
-            dir_to_remove = staging_dir if staging_dir and staging_dir.exists() else target_dir
-            if dir_to_remove and dir_to_remove.exists():
-                shutil.rmtree(dir_to_remove, ignore_errors=True)
+        # Preserve staging_dir so the subsequent modernize call can reuse the extracted files without re-fetching
+        pass
 
 
 @router.post("/analyze-upload")
@@ -343,8 +341,8 @@ async def analyze_uploaded_repository_zip(
         logger.exception("Legacy upload analysis failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
     finally:
-        if staging_dir and staging_dir.exists():
-            shutil.rmtree(staging_dir, ignore_errors=True)
+        # Preserve staging_dir so the subsequent modernize call can operate on the uploaded codebase
+        pass
 
 
 @router.post("/validate-credentials", response_model=CredentialValidateResponse)
@@ -390,26 +388,25 @@ async def modernize_legacy_repository(
     cleanup_temp = False
 
     try:
+        # 1. Check local path if provided and exists
         if payload.local_path:
             raw_path = payload.local_path.strip()
             if raw_path in ("sample_legacy_repo", "sample_legacy_crm", "demo", ""):
                 target_dir = _ensure_demo_sample_repo()
             else:
-                target_dir = Path(raw_path)
-                if not target_dir.exists():
-                    cand = Path(__file__).resolve().parents[2] / raw_path
-                    if cand.exists():
-                        target_dir = cand
+                cand = Path(raw_path)
+                if cand.exists():
+                    target_dir = cand
+                else:
+                    cand_workspace = Path(__file__).resolve().parents[2] / raw_path
+                    if cand_workspace.exists():
+                        target_dir = cand_workspace
                     elif "sample" in raw_path.lower():
                         target_dir = _ensure_demo_sample_repo()
-                    else:
-                        raise HTTPException(
-                            status_code=404,
-                            detail=f"Target repository path does not exist on server: {raw_path}",
-                        )
-        else:
-            # Fetch GitHub repository with authentication
-            owner, repo = _parse_github_owner_repo(payload.github_repo_url or "")
+
+        # 2. If target directory does not exist or wasn't provided, but github_repo_url is given, fetch from GitHub
+        if (not target_dir or not target_dir.exists()) and payload.github_repo_url:
+            owner, repo = _parse_github_owner_repo(payload.github_repo_url)
             token = _resolve_github_token(payload.github_token, current_user)
             zip_content = await _fetch_github_zipball(owner, repo, token)
 
@@ -417,6 +414,13 @@ async def modernize_legacy_repository(
             staging_dir = Path(tempfile.gettempdir()) / f"legacy_mod_{owner}_{repo}_{temp_id}"
             target_dir = _extract_zip_to_workspace(zip_content, staging_dir)
             cleanup_temp = True
+
+        # 3. If target_dir is still missing, raise descriptive 404
+        if not target_dir or not target_dir.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Target repository path does not exist on server: {payload.local_path or payload.github_repo_url}",
+            )
 
         # Strict boundary validation
         assert_safe_boundary(target_dir, action="modernize")
