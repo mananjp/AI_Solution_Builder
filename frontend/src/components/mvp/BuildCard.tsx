@@ -48,6 +48,10 @@ export function StatusBadge({ status }: { status: MVPBuildStatus }) {
   return <span className={`badge ${STATUS_STYLES[status]}`}>{status}</span>;
 }
 
+// Fallback only. The backend owns the canonical milestone list
+// (``_CHAT_BUILD_STEPS``) and ships it on every progress payload, so anything it
+// provides is used verbatim — hard-coding a second list here silently dropped
+// milestones it didn't know about.
 export const PROGRESS_STEPS: BuildStep[] = [
   { key: 'analyzing', label: 'Synthesizing architecture & specs', status: 'pending' },
   { key: 'scaffolding', label: 'Scaffolding full-stack codebase', status: 'pending' },
@@ -60,11 +64,11 @@ function useBuildSteps(build: MVPBuild): BuildStep[] {
   return useMemo(() => {
     const incoming = build.progress?.steps;
     if (Array.isArray(incoming) && incoming.length > 0) {
-      return PROGRESS_STEPS.map((def) => {
-        const match = incoming.find((s) => s.key === def.key);
-        const status = match?.status || 'pending';
-        return { ...def, status };
-      });
+      return incoming.map((s, i) => ({
+        key: s.key || `step-${i}`,
+        label: s.label || s.key || `Step ${i + 1}`,
+        status: s.status || 'pending',
+      }));
     }
     const pct = build.progress?.percentage;
     const activeIdx =
@@ -78,8 +82,16 @@ function useBuildSteps(build: MVPBuild): BuildStep[] {
 
 function BuildStepList({ build }: { build: MVPBuild }) {
   const steps = useBuildSteps(build);
+  const cols =
+    steps.length <= 3
+      ? 'sm:grid-cols-3'
+      : steps.length === 4
+        ? 'sm:grid-cols-4'
+        : steps.length === 5
+          ? 'sm:grid-cols-5'
+          : 'sm:grid-cols-3 lg:grid-cols-6';
   return (
-    <ol className="grid grid-cols-1 sm:grid-cols-5 gap-1.5">
+    <ol className={`grid grid-cols-1 ${cols} gap-1.5`}>
       {steps.map((step) => (
         <li key={step.key} className="flex items-start gap-2 min-w-0">
           {step.status === 'completed' ? (
@@ -170,12 +182,33 @@ function EnvChip({ spec, value, onChange }: { spec: MVPEnvVarSpec; value: string
           Set automatically: {spec.current}
         </p>
       ) : (
-        <input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={spec.current || spec.default || `Value for ${spec.key}`}
-          className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[11px] font-mono focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors"
-        />
+        <>
+          <div className="flex items-center gap-2">
+            <input
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder={spec.current || spec.default || `Value for ${spec.key}`}
+              className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[11px] font-mono focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors"
+            />
+            {spec.recommendation_kind === 'value' &&
+              spec.recommended &&
+              value !== spec.recommended && (
+                <button
+                  type="button"
+                  onClick={() => onChange(spec.recommended as string)}
+                  className="shrink-0 px-2 py-1.5 border border-[var(--sutra-muted-gold)] text-[9px] uppercase tracking-widest font-bold text-[var(--sutra-muted-gold)] hover:bg-[var(--sutra-muted-gold)] hover:text-[var(--bg)] transition-colors"
+                >
+                  Use default
+                </button>
+              )}
+          </div>
+          {spec.recommendation_kind === 'hint' && spec.recommended && (
+            <p className="text-[10px] leading-snug text-[var(--text-3)] font-light break-words">
+              <span className="font-bold uppercase tracking-wide">Expected:</span>{' '}
+              {spec.recommended}
+            </p>
+          )}
+        </>
       )}
     </div>
   );
@@ -210,7 +243,13 @@ export function DeployModal({
         setEnvPlan(plan);
         const initial: Record<string, string> = {};
         for (const spec of plan.env) {
-          if (spec.current && !spec.auto_injected) initial[spec.key] = spec.current;
+          if (spec.auto_injected) continue;
+          // Saved value wins; otherwise pre-fill the backend's suggested
+          // non-secret default so the user isn't staring at a blank field.
+          if (spec.current) initial[spec.key] = spec.current;
+          else if (spec.recommendation_kind === 'value' && spec.recommended) {
+            initial[spec.key] = spec.recommended;
+          }
         }
         setEnvValues((prev) => ({ ...initial, ...prev }));
       })
@@ -676,7 +715,13 @@ export function ConfigureModal({
         const lines: string[] = [];
         for (const spec of plan.env) {
           if (spec.auto_injected) continue;
-          lines.push(spec.current ? `${spec.key}=${spec.current}` : `${spec.key}=`);
+          // current → the backend's usable suggestion → leave blank for the
+          // user. Credential hints are never written into the field for them.
+          const seeded =
+            spec.current ||
+            (spec.recommendation_kind === 'value' ? spec.recommended : null) ||
+            '';
+          lines.push(`${spec.key}=${seeded}`);
         }
         if (lines.length > 0) setEnvText(lines.join('\n'));
       })

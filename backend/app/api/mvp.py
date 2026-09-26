@@ -264,6 +264,7 @@ async def execute_build_job(build_id: UUID) -> None:
                     template_slug,
                     build.build_number,
                     title=title,
+                    progress_cb=save_progress,
                 )
             else:
                 user_msg = (

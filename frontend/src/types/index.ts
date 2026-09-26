@@ -300,6 +300,10 @@ export interface MVPEnvVarSpec {
   current?: string | null;
   auto_injected?: boolean;
   occurrences?: number;
+  /** Usable non-secret default that may be pre-filled. */
+  recommended?: string | null;
+  /** "value" = pre-fill it, "hint" = guidance only, "none" = no suggestion. */
+  recommendation_kind?: 'value' | 'hint' | 'none';
 }
 
 export interface MVPEnvPlan {

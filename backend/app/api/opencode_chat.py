@@ -23,7 +23,7 @@ import logging
 import re
 from collections.abc import AsyncIterator
 from typing import Any, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -645,6 +645,50 @@ async def _get_or_create_workspace(db: AsyncSession, user: User) -> Workspace:
     return workspace
 
 
+# Ordered milestones for the chat build pipeline. Keys are exactly the ``phase``
+# values the SSE stream emits, so the live stepper, the persisted build row and
+# the SSE consumer can never drift apart.
+_CHAT_BUILD_STEPS: list[dict[str, str]] = [
+    {"key": "analyzing", "label": "Synthesizing domain architecture & specifications"},
+    {"key": "persisting", "label": "Persisting blueprints and data models"},
+    {"key": "scaffolding", "label": "Scaffolding the full-stack codebase"},
+    {"key": "coding", "label": "Generating models, schemas and routers"},
+    {"key": "verifying", "label": "Verifying & repairing the codebase"},
+    {"key": "packaging", "label": "Packaging the production artifact"},
+]
+_CHAT_STEP_INDEX: dict[str, int] = {s["key"]: i for i, s in enumerate(_CHAT_BUILD_STEPS)}
+# ``designing`` is a sub-phase of ``scaffolding`` — the AI designs the schema
+# before any files are written, so both advance the same milestone.
+_CHAT_STEP_INDEX["designing"] = 2
+
+
+def chat_progress(phase: str, step: int, percentage: int, message: str) -> dict[str, Any]:
+    """Progress payload for the persisted build row."""
+    done = phase == "completed" or percentage >= 100
+    active = len(_CHAT_BUILD_STEPS) - 1 if done else min(
+        max(_CHAT_STEP_INDEX.get(phase, 0), 0), len(_CHAT_BUILD_STEPS) - 1
+    )
+    steps = [
+        {
+            **s,
+            "status": (
+                "completed"
+                if done or i < active
+                else ("active" if i == active else "pending")
+            ),
+        }
+        for i, s in enumerate(_CHAT_BUILD_STEPS)
+    ]
+    return {
+        "stage": phase,
+        "step": step,
+        "total_steps": len(_CHAT_BUILD_STEPS),
+        "percentage": percentage,
+        "message": message,
+        "steps": steps,
+    }
+
+
 def _extract_text(response: dict[str, Any]) -> str:
     """Concatenate the text parts from an OpenCode message response."""
     parts = response.get("parts") or []
@@ -983,21 +1027,9 @@ async def chat(
 
                 build_state: dict[str, Any] = {}
                 if payload.build_requested:
-                    yield {
-                        "event": "build_progress",
-                        "data": json.dumps(
-                            {
-                                "phase": "analyzing",
-                                "step": 1,
-                                "total_steps": 7,
-                                "percentage": 15,
-                                "message": f"Synthesizing domain architecture for {solution.title}...",
-                                "solution_id": str(solution.id),
-                                "session_id": session_id,
-                            }
-                        ),
-                    }
-
+                    # Captured up-front so the progress writer never has to read an
+                    # ORM attribute that a rollback may have expired.
+                    solution_id = solution.id
                     await require_and_deduct_credit(
                         stream_db,
                         current_user,
@@ -1006,304 +1038,344 @@ async def chat(
                         solution_id=solution.id,
                     )
 
-                    yield {
-                        "event": "build_progress",
-                        "data": json.dumps(
-                            {
-                                "phase": "persisting",
-                                "step": 2,
-                                "total_steps": 7,
-                                "percentage": 30,
-                                "message": "Persisting architectural blueprints and data models to solution registry...",
-                                "solution_id": str(solution.id),
-                                "session_id": session_id,
-                            }
-                        ),
-                    }
-                    # Persist solution artifacts to database so /solution/{id} is fully populated
-                    await _persist_artifacts(stream_db, solution, solution.ai_state)
-
-                    yield {
-                        "event": "build_progress",
-                        "data": json.dumps(
-                            {
-                                "phase": "scaffolding",
-                                "step": 3,
-                                "total_steps": 7,
-                                "percentage": 50,
-                                "message": "Initializing full-stack codebase scaffold (FastAPI + Next.js)...",
-                                "solution_id": str(solution.id),
-                                "session_id": session_id,
-                            }
-                        ),
-                    }
-                    # Pre-populate code slots from ai_state (spec-first when available)
-                    from app.services.app_spec import AppSpec, SpecError, generate_app_spec
-
-                    spec_obj = None
-                    spec_data = solution.ai_state.get("app_spec")
-                    if spec_data:
-                        try:
-                            spec_obj = AppSpec.model_validate(spec_data)
-                        except Exception:
-                            spec_obj = None
-
-                    # If no spec exists, generate one from the full conversation
-                    # context. This is the critical step: the LLM designs the app
-                    # structure from the user's actual requirements.
-                    if spec_obj is None:
-                        yield {
-                            "event": "build_progress",
-                            "data": json.dumps(
-                                {
-                                    "phase": "designing",
-                                    "step": 3,
-                                    "total_steps": 7,
-                                    "percentage": 50,
-                                    "message": "Designing domain models, schemas, and architecture with AI...",
-                                    "solution_id": str(solution.id),
-                                    "session_id": session_id,
-                                }
-                            ),
-                        }
-                        try:
-                            # Build a rich prompt from conversation history
-                            history_msgs = solution.conversation_history or []
-                            user_messages = [
-                                m.get("content", "")
-                                for m in history_msgs
-                                if m.get("role") == "user" and m.get("content")
-                            ]
-                            combined_prompt = (
-                                "\n\n".join(user_messages[-5:])
-                                if user_messages
-                                else payload.message
-                            )
-
-                            spec_obj = await generate_app_spec(
-                                solution.ai_state or {},
-                                combined_prompt,
-                                uploaded_context=payload.uploaded_context or "",
-                                conversation_history=history_msgs,
-                            )
-                            # Persist the spec so rebuilds reuse it
-                            solution.ai_state = {
-                                **(solution.ai_state or {}),
-                                "app_spec": spec_obj.model_dump(),
-                            }
-                            logger.info(
-                                "Generated AppSpec '%s' for chat build of solution=%s",
-                                spec_obj.app_name,
-                                solution.id,
-                            )
-                        except (SpecError, Exception) as exc:
-                            logger.warning(
-                                "AppSpec generation failed for chat build (%s); "
-                                "generating deterministic fallback AppSpec",
-                                exc,
-                            )
-                            from app.services.app_spec import fallback_app_spec
-
-                            spec_obj = fallback_app_spec(
-                                solution.ai_state or {},
-                                combined_prompt,
-                                uploaded_context=payload.uploaded_context or "",
-                                conversation_history=history_msgs,
-                            )
-                            solution.ai_state = {
-                                **(solution.ai_state or {}),
-                                "app_spec": spec_obj.model_dump(),
-                            }
-
-                    if spec_obj is None:
-                        from app.services.app_spec import fallback_app_spec
-
-                        spec_obj = fallback_app_spec(
-                            solution.ai_state or {},
-                            solution.title,
-                            uploaded_context=payload.uploaded_context or "",
-                            conversation_history=solution.conversation_history or [],
-                        )
-                        solution.ai_state = {
-                            **(solution.ai_state or {}),
-                            "app_spec": spec_obj.model_dump(),
-                        }
-
-                    builder.scaffold_build(
-                        ws_dir,
-                        app_title=solution.title,
-                        inject_modules=solution.ai_state.get("confirmed_modules") or [],
-                        ai_state=solution.ai_state,
-                        spec=spec_obj,
-                    )
-
-                    yield {
-                        "event": "build_progress",
-                        "data": json.dumps(
-                            {
-                                "phase": "coding",
-                                "step": 4,
-                                "total_steps": 7,
-                                "percentage": 70,
-                                "message": "Synthesizing domain models, Pydantic schemas, and REST routers...",
-                                "solution_id": str(solution.id),
-                                "session_id": session_id,
-                            }
-                        ),
-                    }
-
-                    if sidecar_ok:
-                        # Sidecar available — run verify+repair loop best-effort.
-                        async def _send_repair_turn(s: str | None, t: str) -> dict[str, Any]:
-                            if not s:
-                                raise ValueError("Missing session_id for repair turn")
-                            return await builder.send_message(
-                                s, t, timeout=settings.MVP_BUILD_TIMEOUT, seed=str(solution.id)
-                            )
-
-                        try:
-                            await asyncio.wait_for(
-                                mvp_verifier.verify_and_repair(
-                                    ws_dir,
-                                    session_id=session_id,
-                                    target_dir=target_dir,
-                                    send_prompt_fn=_send_repair_turn,
-                                    check_npm=False,
-                                    max_repair_turns=settings.MVP_MAX_REPAIR_TURNS,
-                                ),
-                                timeout=float(settings.MVP_BUILD_TIMEOUT),
-                            )
-                        except Exception as exc:
-                            logger.warning(
-                                "Sidecar verification encountered warnings (%s); proceeding with packaging as requested",
-                                exc,
-                            )
-                    else:
-                        # Offline — run static verification as advisory checks
-                        try:
-                            errors = mvp_verifier.verify_workspace(ws_dir, check_npm=False)
-                            if errors:
-                                logger.warning(
-                                    "Build verification reported %d warning(s): %s; proceeding with packaging",
-                                    len(errors),
-                                    "; ".join(errors[:3]),
-                                )
-                        except Exception as exc:
-                            logger.warning(
-                                "Offline verification check encountered an issue (%s); proceeding with packaging",
-                                exc,
-                            )
-
-                    yield {
-                        "event": "build_progress",
-                        "data": json.dumps(
-                            {
-                                "phase": "verifying",
-                                "step": 5,
-                                "total_steps": 7,
-                                "percentage": 85,
-                                "message": "Running codebase integrity verification (imports, routes, acceptance coverage)...",
-                                "solution_id": str(solution.id),
-                                "session_id": session_id,
-                            }
-                        ),
-                    }
-
-                    yield {
-                        "event": "build_progress",
-                        "data": json.dumps(
-                            {
-                                "phase": "packaging",
-                                "step": 6,
-                                "total_steps": 7,
-                                "percentage": 90,
-                                "message": "Packaging production archive (.zip) and saving build artifacts...",
-                                "solution_id": str(solution.id),
-                                "session_id": session_id,
-                            }
-                        ),
-                    }
-
+                    # Register the build row *up-front*. Creating it only at the end
+                    # left the UI with nothing to poll — progress looked frozen and a
+                    # refresh mid-build lost the build entirely.
                     lock, build_number = await allocate_build_number(stream_db, solution.id)
+                    # Declared before the try so the failure handler below can
+                    # always reference it, even if construction itself throws.
+                    mvp_build: MVPBuild | None = None
                     try:
-                        files = builder.list_build_files(ws_dir)
-                        rel_files = builder.relative_paths(ws_dir)
-
-                        # Package archive to local disk and object storage
-                        local_zip_path = ws_dir.with_suffix(".zip")
-                        zip_data = builder.build_bytes(ws_dir)
-                        local_zip_path.write_bytes(zip_data)
-
-                        storage_key = f"local:{local_zip_path}"
-                        try:
-                            storage = get_storage()
-                            uploaded_key = await asyncio.wait_for(
-                                storage.upload_bytes(
-                                    zip_data, f"builds/{solution.id}/build_{build_number}.zip"
-                                ),
-                                timeout=15.0,
-                            )
-                            if uploaded_key:
-                                storage_key = uploaded_key
-                        except Exception as store_err:
-                            logger.warning(
-                                "Remote storage upload failed (%s); using local fallback (%s)",
-                                store_err,
-                                local_zip_path,
-                            )
-
                         mvp_build = MVPBuild(
+                            # Assigned explicitly: the column default only fires
+                            # at INSERT, so ``.id`` would read as ``None`` here —
+                            # and the SSE frame needs a real id before the flush.
+                            id=uuid4(),
                             solution_id=solution.id,
                             build_number=build_number,
-                            status="complete",
+                            status="building",
                             workspace_path=str(ws_dir),
-                            file_count=len(files),
-                            file_list=rel_files,
-                            storage_key=storage_key,
+                            file_count=0,
                             opencode_session_id=session_id,
                             app_config={
                                 "app_name": solution.title,
                                 "source": "opencode_chat",
-                                "progress": {
-                                    "stage": "complete",
-                                    "step": 7,
-                                    "total_steps": 7,
-                                    "percentage": 100,
-                                    "message": f"Build complete! {len(files)} files generated.",
-                                },
+                                "progress": chat_progress(
+                                    "analyzing",
+                                    1,
+                                    10,
+                                    f"Synthesizing domain architecture for {solution.title}...",
+                                ),
                             },
                         )
+                        build_id = mvp_build.id
                         stream_db.add(mvp_build)
-                        solution.status = "complete"
-                        await stream_db.flush()
-                        build_state = {
-                            "build_id": str(mvp_build.id),
-                            "build_number": build_number,
-                            "file_count": len(files),
-                            "files": [{"path": p, "size": 0, "is_dir": False} for p in rel_files],
-                        }
-
-                        # Commit while still holding the per-solution lock so the
-                        # new build_number is visible before any concurrent build
-                        # computes the next one.
+                        solution.status = "building"
                         await stream_db.commit()
+                        await stream_db.refresh(mvp_build)
 
-                        yield {
-                            "event": "build_progress",
-                            "data": json.dumps(
-                                {
-                                    "phase": "completed",
-                                    "step": 7,
-                                    "total_steps": 7,
-                                    "percentage": 100,
-                                    "message": f"Build complete! {len(files)} files generated.",
-                                    "solution_id": str(solution.id),
-                                    "session_id": session_id,
-                                    "build_id": str(mvp_build.id),
-                                    "file_count": len(files),
+                        async def emit_progress(
+                            phase: str,
+                            step: int,
+                            percentage: int,
+                            message: str,
+                        ) -> dict[str, Any]:
+                            """Write progress through to the build row, then build the SSE frame.
+
+                            Persisting on every phase keeps ``/mvp/builds/{id}/status``
+                            live, so the stepper keeps moving even if this stream is
+                            dropped (refresh, proxy timeout, client disconnect).
+                            """
+                            nonlocal mvp_build, solution
+                            progress = chat_progress(phase, step, percentage, message)
+                            if mvp_build is not None:
+                                try:
+                                    mvp_build.app_config = {
+                                        **(mvp_build.app_config or {}),
+                                        "progress": progress,
+                                    }
+                                    await stream_db.commit()
+                                except Exception as exc:  # noqa: BLE001 - telemetry only
+                                    logger.warning(
+                                        "Could not persist build progress (%s): %s", phase, exc
+                                    )
+                                    # A rollback expires every ORM object on the
+                                    # session, so re-attach both before continuing.
+                                    await stream_db.rollback()
+                                    try:
+                                        mvp_build = await stream_db.get(MVPBuild, build_id)
+                                        solution = await _verify_solution_access(
+                                            stream_db, solution_id, current_user
+                                        )
+                                    except Exception:  # noqa: BLE001
+                                        mvp_build = None
+                            data: dict[str, Any] = {
+                                "phase": phase,
+                                "step": step,
+                                "total_steps": len(_CHAT_BUILD_STEPS),
+                                "percentage": percentage,
+                                "message": message,
+                                "solution_id": str(solution_id),
+                                "session_id": session_id,
+                            }
+                            if mvp_build is not None:
+                                data["build_id"] = str(mvp_build.id)
+                            return {"event": "build_progress", "data": json.dumps(data)}
+
+                        yield await emit_progress(
+                            "analyzing",
+                            1,
+                            10,
+                            f"Synthesizing domain architecture for {solution.title}...",
+                        )
+
+                        yield await emit_progress(
+                            "persisting",
+                            2,
+                            30,
+                            "Persisting architectural blueprints and data models to solution registry...",
+                        )
+                        # Persist solution artifacts to database so /solution/{id} is fully populated
+                        await _persist_artifacts(stream_db, solution, solution.ai_state)
+
+                        yield await emit_progress(
+                            "scaffolding",
+                            3,
+                            50,
+                            "Initializing full-stack codebase scaffold (FastAPI + Next.js)...",
+                        )
+                        # Pre-populate code slots from ai_state (spec-first when available)
+                        from app.services.app_spec import AppSpec, SpecError, generate_app_spec
+
+                        spec_obj = None
+                        spec_data = solution.ai_state.get("app_spec")
+                        if spec_data:
+                            try:
+                                spec_obj = AppSpec.model_validate(spec_data)
+                            except Exception:
+                                spec_obj = None
+
+                        # If no spec exists, generate one from the full conversation
+                        # context. This is the critical step: the LLM designs the app
+                        # structure from the user's actual requirements.
+                        if spec_obj is None:
+                            yield await emit_progress(
+                                "designing",
+                                3,
+                                55,
+                                "Designing domain models, schemas, and architecture with AI...",
+                            )
+                            try:
+                                # Build a rich prompt from conversation history
+                                history_msgs = solution.conversation_history or []
+                                user_messages = [
+                                    m.get("content", "")
+                                    for m in history_msgs
+                                    if m.get("role") == "user" and m.get("content")
+                                ]
+                                combined_prompt = (
+                                    "\n\n".join(user_messages[-5:])
+                                    if user_messages
+                                    else payload.message
+                                )
+
+                                spec_obj = await generate_app_spec(
+                                    solution.ai_state or {},
+                                    combined_prompt,
+                                    uploaded_context=payload.uploaded_context or "",
+                                    conversation_history=history_msgs,
+                                )
+                                # Persist the spec so rebuilds reuse it
+                                solution.ai_state = {
+                                    **(solution.ai_state or {}),
+                                    "app_spec": spec_obj.model_dump(),
                                 }
-                            ),
-                        }
+                                logger.info(
+                                    "Generated AppSpec '%s' for chat build of solution=%s",
+                                    spec_obj.app_name,
+                                    solution.id,
+                                )
+                            except (SpecError, Exception) as exc:
+                                logger.warning(
+                                    "AppSpec generation failed for chat build (%s); "
+                                    "generating deterministic fallback AppSpec",
+                                    exc,
+                                )
+                                from app.services.app_spec import fallback_app_spec
+
+                                spec_obj = fallback_app_spec(
+                                    solution.ai_state or {},
+                                    combined_prompt,
+                                    uploaded_context=payload.uploaded_context or "",
+                                    conversation_history=history_msgs,
+                                )
+                                solution.ai_state = {
+                                    **(solution.ai_state or {}),
+                                    "app_spec": spec_obj.model_dump(),
+                                }
+
+                        if spec_obj is None:
+                            from app.services.app_spec import fallback_app_spec
+
+                            spec_obj = fallback_app_spec(
+                                solution.ai_state or {},
+                                solution.title,
+                                uploaded_context=payload.uploaded_context or "",
+                                conversation_history=solution.conversation_history or [],
+                            )
+                            solution.ai_state = {
+                                **(solution.ai_state or {}),
+                                "app_spec": spec_obj.model_dump(),
+                            }
+
+                        builder.scaffold_build(
+                            ws_dir,
+                            app_title=solution.title,
+                            inject_modules=solution.ai_state.get("confirmed_modules") or [],
+                            ai_state=solution.ai_state,
+                            spec=spec_obj,
+                        )
+
+                        yield await emit_progress(
+                            "coding",
+                            4,
+                            70,
+                            "Synthesizing domain models, Pydantic schemas, and REST routers...",
+                        )
+
+                        if sidecar_ok:
+                            # Sidecar available — run verify+repair loop best-effort.
+                            async def _send_repair_turn(s: str | None, t: str) -> dict[str, Any]:
+                                if not s:
+                                    raise ValueError("Missing session_id for repair turn")
+                                return await builder.send_message(
+                                    s, t, timeout=settings.MVP_BUILD_TIMEOUT, seed=str(solution.id)
+                                )
+
+                            try:
+                                await asyncio.wait_for(
+                                    mvp_verifier.verify_and_repair(
+                                        ws_dir,
+                                        session_id=session_id,
+                                        target_dir=target_dir,
+                                        send_prompt_fn=_send_repair_turn,
+                                        check_npm=False,
+                                        max_repair_turns=settings.MVP_MAX_REPAIR_TURNS,
+                                    ),
+                                    timeout=float(settings.MVP_BUILD_TIMEOUT),
+                                )
+                            except Exception as exc:
+                                logger.warning(
+                                    "Sidecar verification encountered warnings (%s); proceeding with packaging as requested",
+                                    exc,
+                                )
+                        else:
+                            # Offline — run static verification as advisory checks
+                            try:
+                                errors = mvp_verifier.verify_workspace(ws_dir, check_npm=False)
+                                if errors:
+                                    logger.warning(
+                                        "Build verification reported %d warning(s): %s; proceeding with packaging",
+                                        len(errors),
+                                        "; ".join(errors[:3]),
+                                    )
+                            except Exception as exc:
+                                logger.warning(
+                                    "Offline verification check encountered an issue (%s); proceeding with packaging",
+                                    exc,
+                                )
+
+                        yield await emit_progress(
+                            "verifying",
+                            5,
+                            85,
+                            "Running codebase integrity verification (imports, routes, acceptance coverage)...",
+                        )
+
+                        yield await emit_progress(
+                            "packaging",
+                            6,
+                            90,
+                            "Packaging production archive (.zip) and saving build artifacts...",
+                        )
+
+                        try:
+                            files = builder.list_build_files(ws_dir)
+                            rel_files = builder.relative_paths(ws_dir)
+
+                            # Package archive to local disk and object storage
+                            local_zip_path = ws_dir.with_suffix(".zip")
+                            zip_data = builder.build_bytes(ws_dir)
+                            local_zip_path.write_bytes(zip_data)
+
+                            storage_key = f"local:{local_zip_path}"
+                            try:
+                                storage = get_storage()
+                                uploaded_key = await asyncio.wait_for(
+                                    storage.upload_bytes(
+                                        zip_data, f"builds/{solution.id}/build_{build_number}.zip"
+                                    ),
+                                    timeout=15.0,
+                                )
+                                if uploaded_key:
+                                    storage_key = uploaded_key
+                            except Exception as store_err:
+                                logger.warning(
+                                    "Remote storage upload failed (%s); using local fallback (%s)",
+                                    store_err,
+                                    local_zip_path,
+                                )
+
+                            if mvp_build is not None:
+                                mvp_build.status = "complete"
+                                mvp_build.file_count = len(files)
+                                mvp_build.file_list = rel_files
+                                mvp_build.storage_key = storage_key
+                                mvp_build.app_config = {
+                                    **(mvp_build.app_config or {}),
+                                    "progress": chat_progress(
+                                        "packaging",
+                                        6,
+                                        100,
+                                        f"Build complete! {len(files)} files generated.",
+                                    ),
+                                }
+                            solution.status = "complete"
+                            await stream_db.commit()
+                            build_state = {
+                                "build_id": str(build_id),
+                                "build_number": build_number,
+                                "file_count": len(files),
+                                "files": [{"path": p, "size": 0, "is_dir": False} for p in rel_files],
+                            }
+
+                            yield await emit_progress(
+                                "packaging",
+                                6,
+                                100,
+                                f"Build complete! {len(files)} files generated.",
+                            )
+                        except Exception:
+                            if mvp_build is not None:
+                                mvp_build.status = "failed"
+                                mvp_build.error_message = "Packaging failed."
+                                await stream_db.commit()
+                            raise
+                    except Exception as build_err:
+                        # The build row is created before the pipeline runs, so a
+                        # failure anywhere in the pipeline must land on it too —
+                        # otherwise a stranded "building" row spins in the UI
+                        # forever with no way for the user to tell it died.
+                        logger.exception("Build pipeline failed for solution=%s", solution_id)
+                        if mvp_build is not None:
+                            try:
+                                mvp_build.status = "failed"
+                                mvp_build.error_message = str(build_err)[:500]
+                                solution.status = "failed"
+                                await stream_db.commit()
+                            except Exception:  # noqa: BLE001 - already failing
+                                await stream_db.rollback()
+                        raise
                     finally:
                         lock.release()
 
