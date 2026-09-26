@@ -24,6 +24,25 @@ import {
   X,
 } from 'lucide-react';
 import { mvpApi } from '@/lib/api';
+
+/** Relative time for a build card, falling back to an absolute date. */
+function formatBuildTime(iso?: string | null): string {
+  if (!iso) return 'Time unavailable';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'Time unavailable';
+
+  const secs = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (secs < 0) return d.toLocaleString();
+  if (secs < 60) return 'Just now';
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString();
+}
+
 import {
   BuildStep,
   MVPBuild,
@@ -509,11 +528,150 @@ export function DeployModal({
           </div>
         ) : (
           <DeployStatusPanel
-            status={liveStatus}
-            result={deployResult}
-            onClose={onClose}
+      status={liveStatus}
+      result={deployResult}
+      buildId={build.build_id}
+      onClose={onClose}
           />
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Post-deployment environment editor.
+ *
+ * Env vars could previously only be set before deploying, so rotating a secret
+ * or repointing DATABASE_URL meant a full redeploy. This patches the live
+ * Render service(s) in place and restarts them.
+ *
+ * NEXT_PUBLIC_* values are inlined by Vercel at build time and cannot change on
+ * a running service, so those are flagged as requiring a redeploy rather than
+ * silently pretending to have applied.
+ */
+function DeployedEnvEditor({ buildId }: { buildId: string }) {
+  const [open, setOpen] = useState(false);
+  const [plan, setPlan] = useState<MVPEnvPlan | null>(null);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || plan) return;
+    mvpApi
+      .envPlan(buildId)
+      .then((p) => {
+        setPlan(p);
+        const seeded: Record<string, string> = {};
+        for (const spec of p.env) {
+          if (spec.auto_injected) continue;
+          seeded[spec.key] = spec.current || '';
+        }
+        setValues(seeded);
+      })
+      .catch(() => setError('Could not load the environment variable list.'));
+  }, [open, plan, buildId]);
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await mvpApi.updateEnv(buildId, { env: values, restart: true });
+      if (res.failed.length > 0) {
+        setError(
+          `${res.failed.length} variable(s) were rejected: ${res.failed
+            .map((f) => `${f.key} (${f.error})`)
+            .join(', ')}`
+        );
+      }
+      const parts = [res.message];
+      if (res.restarted > 0) parts.push('Service restarting to apply.');
+      if (res.requires_redeploy.length > 0) {
+        parts.push(
+          `${res.requires_redeploy.join(', ')} ${
+            res.requires_redeploy.length === 1 ? 'is' : 'are'
+          } baked in at build time and need a redeploy to take effect.`
+        );
+      }
+      setNotice(parts.join(' '));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update environment variables.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-2 px-3 py-2 text-xs font-bold uppercase tracking-widest border border-[var(--border)] hover:bg-[var(--bg-2)] transition-colors"
+      >
+        <Settings2 className="w-3.5 h-3.5" />
+        Environment
+      </button>
+    );
+  }
+
+  const specs = (plan?.env || []).filter((s) => !s.auto_injected);
+
+  return (
+    <div className="space-y-3 p-4 border border-[var(--border)] bg-[var(--bg-2)]">
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-xs font-bold uppercase tracking-widest text-[var(--sutra-charcoal)]">
+          Environment (live)
+        </h4>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="text-[var(--text-3)] hover:text-[var(--sutra-charcoal)]"
+          aria-label="Close environment editor"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <p className="text-[11px] text-[var(--text-3)]">
+        Saves straight to the running service and restarts it. Secrets stay server-side and are
+        never sent to the browser.
+      </p>
+
+      {!plan && !error && (
+        <div className="flex items-center gap-2 text-[11px] text-[var(--text-3)]">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading variables...
+        </div>
+      )}
+
+      {specs.length > 0 && (
+        <div className="space-y-3">
+          {specs.map((spec) => (
+            <EnvChip
+              key={spec.key}
+              spec={spec}
+              value={values[spec.key] ?? ''}
+              onChange={(v) => setValues((prev) => ({ ...prev, [spec.key]: v }))}
+            />
+          ))}
+        </div>
+      )}
+
+      {error && <p className="text-[11px] text-[var(--red)]">{error}</p>}
+      {notice && <p className="text-[11px] text-[var(--green)]">{notice}</p>}
+
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving || specs.length === 0}
+          className="inline-flex items-center gap-2 px-3 py-2 text-xs font-bold uppercase tracking-widest bg-[var(--sutra-charcoal)] text-[var(--bg)] disabled:opacity-50"
+        >
+          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+          {saving ? 'Saving' : 'Save & restart'}
+        </button>
       </div>
     </div>
   );
@@ -522,10 +680,12 @@ export function DeployModal({
 function DeployStatusPanel({
   status,
   result,
+  buildId,
   onClose,
 }: {
   status: MVPDeployStatus | null;
   result: MVPDeployResult;
+  buildId: string;
   onClose: () => void;
 }) {
   const overall = status?.overall || 'building';
@@ -715,6 +875,9 @@ function DeployStatusPanel({
           </a>
         )}
       </div>
+
+      {/* Env vars can be changed on the live service, not only before deploy. */}
+      {overall === 'live' && <DeployedEnvEditor buildId={buildId} />}
 
       <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border)]">
         <button onClick={onClose} className="btn btn-primary px-6 py-2.5">
@@ -920,11 +1083,14 @@ export function BuildCard({
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
-              <h4 className="text-[12px] font-bold uppercase tracking-widest text-[var(--sutra-charcoal)]">Build Orchestration</h4>
+              <h4 className="text-[13px] font-bold tracking-wide text-[var(--sutra-charcoal)] truncate">
+                {build.app_name?.trim() || `Build #${build.build_number}`}
+              </h4>
               <StatusBadge status={build.status} />
             </div>
             <p className="text-[11px] text-[var(--text-2)] font-mono mt-1 break-all">
-              {build.file_count} files · {build.build_id.slice(0, 8)}
+              {formatBuildTime(build.created_at)} · {build.file_count} files ·{' '}
+              {build.build_id.slice(0, 8)}
             </p>
           </div>
         </div>

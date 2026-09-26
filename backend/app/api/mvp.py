@@ -53,6 +53,7 @@ from app.schemas import (
     MVPDeployRequest,
     MVPDeployStatusResponse,
     MVPEnvPlanResponse,
+    MVPEnvUpdateRequest,
     MVPFileEntry,
     MVPQuickBuildRequest,
     MVPTemplateResponse,
@@ -176,6 +177,8 @@ async def _build_response(build: MVPBuild, include_files: bool = False) -> MVPBu
         status=build.status,
         workspace_path=workspace_path,
         file_count=build.file_count,
+        app_name=app_config.get("app_name"),
+        created_at=build.created_at,
         error_message=build.error_message,
         repo_url=build.repo_url,
         render_service_url=fe_url,
@@ -1467,6 +1470,23 @@ async def deploy_status(
     if not render_token and settings.RENDER_API_KEY:
         render_token = settings.RENDER_API_KEY
 
+    # A unified deploy provisions ONE container (frontend + backend together) and
+    # records only `render_service_id`, leaving `services` empty. Without
+    # synthesising an entry here the loop below had nothing to poll and the build
+    # reported "building" forever even after Render had it live.
+    if not services:
+        unified_id = str(deploy_state.get("service_id") or app_config.get("render_service_id") or "")
+        if unified_id:
+            services = {
+                "backend": {
+                    "name": f"{build.repo_name or 'app'}-web",
+                    "service_id": unified_id,
+                    "deploy_id": deploy_state.get("deploy_id"),
+                    "url": app_config.get("backend_url") or app_config.get("frontend_url"),
+                    "status": deploy_state.get("status") or "building",
+                }
+            }
+
     if render_token and services:
         r_client = RenderDeployer(render_token)
         for name, svc in list(services.items()):
@@ -1484,12 +1504,21 @@ async def deploy_status(
                             svc["dashboard_url"] = pg_data.get("dashboardUrl")
                 except Exception as pg_err:  # noqa: BLE001
                     logger.info("Database status poll failed for %s: %s", name, pg_err)
-            elif service_id and deploy_id:
+            elif service_id:
                 try:
-                    raw = await r_client.get_deploy_status(service_id, deploy_id)
-                    if isinstance(raw, dict) and raw.get("status"):
-                        svc["status"] = r_client._classify_render_status(raw.get("status", ""))  # noqa: SLF001
-                    elif not svc.get("url"):
+                    deploy = None
+                    if deploy_id:
+                        deploy = await r_client.get_deploy_status(service_id, deploy_id)
+                    if not isinstance(deploy, dict) or not deploy.get("status"):
+                        # No captured deploy id, or it no longer exists - ask
+                        # Render what the newest deploy is doing instead of
+                        # leaving the status frozen at "building".
+                        deploy = await r_client.get_latest_deploy(service_id)
+                    if isinstance(deploy, dict) and deploy.get("status"):
+                        svc["status"] = r_client._classify_render_status(deploy["status"])  # noqa: SLF001
+                        if deploy.get("id"):
+                            svc["deploy_id"] = deploy["id"]
+                    if not svc.get("url"):
                         existing = await r_client.get_service_by_name(svc.get("name", ""))
                         if existing:
                             svc["url"] = existing.get("serviceDetails", {}).get("url")
@@ -1522,6 +1551,131 @@ async def deploy_status(
         injected_env=deploy_state.get("injected_env") or {},
         services=services,
     )
+
+
+@router.put("/builds/{build_id}/env")
+async def update_build_env(
+    build_id: UUID,
+    payload: MVPEnvUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Edit environment variables on a build that is ALREADY deployed.
+
+    Deploy-time env can only be set once, which makes changing a database URL or
+    rotating a secret after the fact impossible without a full redeploy. This
+    patches the live Render service(s) in place instead.
+
+    Each key is written with a per-key upsert (``set_env_vars``) rather than
+    Render's bulk replace, so variables the platform does not know about --
+    Render-injected values, anything set by hand in the Render dashboard --
+    survive the edit. Values are also persisted to ``app_config["env"]`` so the
+    env-plan UI reflects them immediately.
+    """
+    build = await _get_build_for_user(db, build_id, current_user)
+    app_config = dict(build.app_config or {})
+    deploy_state = dict(app_config.get("deploy_state") or {})
+    services = dict(deploy_state.get("services") or {})
+
+    raw_token = str((current_user.settings or {}).get("render_api_key", ""))
+    token = decrypt_secret(raw_token) if raw_token else ""
+    if not token and settings.RENDER_API_KEY:
+        token = settings.RENDER_API_KEY
+    if not token:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No Render API key configured. Add one in Settings to edit "
+                "environment variables on a deployed build."
+            ),
+        )
+
+    incoming = {str(k): "" if v is None else str(v) for k, v in (payload.env or {}).items()}
+    unset = [str(k) for k in (payload.unset or []) if str(k).strip()]
+
+    # Build-time (NEXT_PUBLIC_*) values are inlined by Vercel at build time, so
+    # they cannot take effect on a running frontend service -- a redeploy is
+    # required. Everything else is a runtime value and applies on restart.
+    frontend_keys = {k for k in incoming if k.startswith("NEXT_PUBLIC_")}
+
+    # The platform provisions EITHER a single unified container (frontend +
+    # backend in one service) OR split backend/frontend services.
+    unified_id = str(deploy_state.get("service_id") or app_config.get("render_service_id") or "")
+    backend_id = str((services.get("backend") or {}).get("service_id") or "")
+    frontend_id = str((services.get("frontend") or {}).get("service_id") or "")
+
+    targets: list[tuple[str, list[dict[str, str]]]] = []
+    if backend_id or frontend_id:
+        targets.append(
+            (
+                backend_id,
+                [{"key": k, "value": v} for k, v in incoming.items() if k not in frontend_keys],
+            )
+        )
+        if frontend_id:
+            targets.append(
+                (frontend_id, [{"key": k, "value": v} for k, v in incoming.items()])
+            )
+    elif unified_id:
+        targets.append((unified_id, [{"key": k, "value": v} for k, v in incoming.items()]))
+    else:
+        raise HTTPException(
+            status_code=409,
+            detail="This build has no live Render service yet, so env vars cannot be edited. Deploy it first.",
+        )
+
+    client = RenderDeployer(token)
+    updated: list[str] = []
+    failed: list[dict[str, str]] = []
+    restarted: list[str] = []
+
+    try:
+        for service_id, env_list in targets:
+            if not service_id or not env_list:
+                continue
+            res = await client.set_env_vars(service_id, env_list)
+            updated.extend(res.get("updated") or [])
+            failed.extend(res.get("failed") or [])
+            if payload.restart and not (res.get("failed") or []):
+                # A running container keeps the old environment until it is
+                # replaced, so a restart is what actually applies the change.
+                deploy_id = await client.trigger_deploy(service_id, clear_cache=True)
+                if deploy_id:
+                    restarted.append(service_id)
+
+        for service_id in {sid for sid, _ in targets if sid}:
+            for key in unset:
+                if await client.delete_env_var(service_id, key):
+                    updated.append(key)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Env update failed for build %s: %s", build_id, exc)
+        raise HTTPException(status_code=502, detail=f"Render rejected the env update: {exc}") from exc
+
+    # Persist so the env-plan editor shows the new values without a redeploy.
+    saved_env = {**(app_config.get("env") or {}), **incoming}
+    for key in unset:
+        saved_env.pop(key, None)
+    if updated or unset:
+        app_config["env"] = saved_env
+        deploy_state["env_updated_at"] = datetime.now(UTC).isoformat()
+        app_config["deploy_state"] = deploy_state
+        build.app_config = app_config
+        build.updated_at = datetime.now(UTC)
+        db.add(build)
+        await db.commit()
+
+    needs_redeploy_for_build_time = sorted(frontend_keys) if payload.restart else []
+    return {
+        "updated": sorted(set(updated)),
+        "failed": failed,
+        "restarted": len(restarted),
+        "requires_redeploy": needs_redeploy_for_build_time,
+        "message": (
+            f"Updated {len(set(updated))} environment variable(s) on the live service."
+            if updated
+            else "No environment variables were changed."
+        ),
+    }
 
 
 @router.get("/builds/{build_id}/env-plan", response_model=MVPEnvPlanResponse)

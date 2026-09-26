@@ -535,6 +535,74 @@ export function useSmoothProgress(target: number, active: boolean) {
 }
 
 /**
+ * Percentage the pipeline reports when each milestone is reached.
+ *
+ * Index = milestone number - 1, so `MILESTONE_PERCENT[i]` is the value reported
+ * once milestone `i` completes. Mirrors the emissions in
+ * `app/api/opencode_chat.py` (analyzing 10, persisting 30, scaffolding 50,
+ * designing 55, coding 70, illustrating 78, verifying 88, packaging 93, done 100).
+ */
+export const MILESTONE_PERCENT = [30, 50, 70, 78, 88, 93, 100] as const;
+
+/**
+ * Progress that never looks frozen.
+ *
+ * `useSmoothProgress` on its own is not enough: the pipeline reports a fixed
+ * percentage for an entire phase, and the two LLM-bound phases (designing the
+ * domain, then generating models/schemas/routers) can run for minutes. The bar
+ * therefore sat on one number and then snapped to the next, which reads as
+ * "stuck at 0%, then suddenly 100%".
+ *
+ * So the displayed value chases two things at once:
+ *  1. the real reported `target`, which always wins when it moves, and
+ *  2. an asymptotic creep toward the *next milestone's* percentage as time
+ *     passes within the current phase.
+ *
+ * The creep deliberately stops 1.5 points short of the next milestone: it shows
+ * that work is happening without ever claiming a milestone was reached, so the
+ * checklist and the real numbers stay honest.
+ */
+export function useLiveProgress(target: number, active: boolean, milestoneIndex: number) {
+  const real = useSmoothProgress(target, active);
+
+  const ceiling = useMemo(() => {
+    const next = MILESTONE_PERCENT[Math.min(Math.max(milestoneIndex, 0), MILESTONE_PERCENT.length - 1)];
+    return Math.min(next - 1.5, 99);
+  }, [milestoneIndex]);
+
+  const [creep, setCreep] = useState(0);
+  // Reset the creep window whenever a new real value lands, so time is measured
+  // "since the last thing the pipeline actually told us".
+  const lastTarget = useRef(target);
+  const since = useRef(0);
+
+  useEffect(() => {
+    if (lastTarget.current !== target) {
+      lastTarget.current = target;
+      since.current = 0;
+    }
+  }, [target]);
+
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => {
+      since.current += 1;
+      // 1 - e^(-t/18) over 1s ticks: fast at first, then asymptotic, so the bar
+      // keeps inching forward for minutes without ever hitting the ceiling.
+      const elapsed = since.current;
+      setCreep(1 - Math.exp(-elapsed / 18));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [active]);
+
+  if (!active) return target;
+
+  const floor = Math.min(target, ceiling);
+  const crept = floor + (ceiling - floor) * creep;
+  return Math.max(real, crept);
+}
+
+/**
  * True once the build has been silent for `idleAfterMs` — i.e. the displayed
  * percentage has stopped moving even though the build is still running.
  *

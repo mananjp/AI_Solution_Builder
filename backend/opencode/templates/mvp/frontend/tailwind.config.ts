@@ -35,6 +35,17 @@ const config: Config = {
           DEFAULT: "hsl(var(--accent, 210 40% 96.1%))",
           foreground: "hsl(var(--accent-foreground, 222.2 47.4% 11.2%))",
         },
+        // Required by the shadcn card/popover primitives installed via
+        // `npx shadcn add`. Without these, bg-card/text-card-foreground are
+        // unknown classes and cards render with no background.
+        card: {
+          DEFAULT: "hsl(var(--card, 0 0% 100%))",
+          foreground: "hsl(var(--card-foreground, 222.2 84% 4.9%))",
+        },
+        popover: {
+          DEFAULT: "hsl(var(--popover, 0 0% 100%))",
+          foreground: "hsl(var(--popover-foreground, 222.2 84% 4.9%))",
+        },
       },
       borderRadius: {
         lg: "var(--radius, 0.75rem)",

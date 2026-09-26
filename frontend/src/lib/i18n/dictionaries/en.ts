@@ -1,4 +1,4 @@
-export const en = {
+﻿export const en = {
   common: {
     appName: 'SUTRA OS',
     search: 'Search',
@@ -93,7 +93,7 @@ export const en = {
     buildToggleHint:
       'Toggle BUILD before sending to generate a deployable MVP architecture.',
     awaitingSynthesis: 'Awaiting Synthesis',
-    buildOrchestrated: 'Build Orchestrated',
+    buildOrchestrated: 'Builds',
     viewArtifacts: 'View Artifacts',
     buildingApplication: 'Building Application',
     executionMilestones: 'Execution Milestones',

@@ -675,10 +675,17 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { api } from "@/lib/api";
-import { SkiperBadge } from "@/components/ui/skiper-ui/skiper-badge";
-import { SkiperCard } from "@/components/ui/skiper-ui/skiper-card";
-import { Link001 } from "@/components/ui/skiper-ui/skiper40";
 import { Layers, Database, Sparkles, Activity, Search } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   ResponsiveContainer,
   LineChart,
@@ -700,15 +707,17 @@ function KpiCard({
   icon?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+    <Card className="gap-2">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           {label}
-        </span>
+        </CardTitle>
         {icon}
-      </div>
-      <div className="mt-2 text-2xl font-extrabold text-slate-900">{value}</div>
-    </div>
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-bold tabular-nums text-foreground">{value}</div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -754,144 +763,134 @@ export default function Dashboard() {
   );
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 px-6 py-12 text-slate-900">
+    <main className="min-h-screen bg-background px-4 py-8 text-foreground sm:px-6 md:py-12">
       <div className="mx-auto max-w-6xl">
         {/* Animated Hero Header */}
         <motion.div
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }}
-          className="relative overflow-hidden rounded-3xl border border-slate-200/90 bg-white/80 p-8 shadow-sm backdrop-blur-md md:p-10"
         >
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <SkiperBadge variant="purple" pulse>
-                  Production Prototype
-                </SkiperBadge>
-                <SkiperBadge variant="success" pulse={false}>
-                  Live API
-                </SkiperBadge>
+          <Card className="gap-6 overflow-hidden p-6 md:p-8">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <Badge>Production Prototype</Badge>
+                  <Badge variant="secondary">Live API</Badge>
+                </div>
+                <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl md:text-4xl">
+                  @@TITLE@@
+                </h1>
+                <p className="mt-2 max-w-2xl text-sm text-muted-foreground">@@PURPOSE@@</p>
               </div>
-              <h1 className="text-3xl font-extrabold tracking-tight md:text-4xl text-slate-900">
-                @@TITLE@@
-              </h1>
-              <p className="mt-2 text-slate-600 max-w-2xl">
-                @@PURPOSE@@
-              </p>
+
+              <Button asChild variant="outline" size="sm" className="shrink-0">
+                <Link href="/api/docs">API Docs</Link>
+              </Button>
             </div>
 
-            <div className="flex items-center gap-3">
-              <Link001
-                href="/api/docs"
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:border-indigo-300"
-              >
-                API Docs
-              </Link001>
-            </div>
-          </div>
-
-          {/* Real Analytics KPIs & Chart or Quick Metrics Bar */}
-          {analytics?.available ? (
-            <div className="mt-8 border-t border-slate-100 pt-6">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
+            {/* Real Analytics KPIs & Chart or Quick Metrics Bar */}
+            {analytics?.available ? (
+              <div className="border-t border-border pt-6">
+                <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <KpiCard
+                    label={`Total ${analytics.metric || "Volume"}`}
+                    value={analytics.total.toLocaleString()}
+                    icon={<Layers className="h-4 w-4 text-primary" />}
+                  />
+                  <KpiCard
+                    label="Average"
+                    value={analytics.average.toFixed(2)}
+                    icon={<Activity className="h-4 w-4 text-primary" />}
+                  />
+                  <KpiCard
+                    label="Records"
+                    value={analytics.count.toLocaleString()}
+                    icon={<Database className="h-4 w-4 text-primary" />}
+                  />
+                </div>
+                {analytics.trend && analytics.trend.length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-xs font-medium text-muted-foreground">
+                        Activity &amp; Volume Trend
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={220}>
+                        <LineChart data={analytics.trend}>
+                          <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} />
+                          <Tooltip />
+                          <Line
+                            type="monotone"
+                            dataKey="total"
+                            stroke="hsl(var(--primary))"
+                            strokeWidth={2}
+                            dot={false}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4 border-t border-border pt-6 sm:grid-cols-3">
                 <KpiCard
-                  label={`Total ${analytics.metric || "Volume"}`}
-                  value={analytics.total.toLocaleString()}
-                  icon={<Layers className="h-4 w-4 text-indigo-600" />}
+                  label="Modules"
+                  value={ENTITY_ROUTES.length}
+                  icon={<Layers className="h-4 w-4 text-primary" />}
                 />
                 <KpiCard
-                  label="Average"
-                  value={analytics.average.toFixed(2)}
-                  icon={<Activity className="h-4 w-4 text-emerald-600" />}
+                  label="Total Records"
+                  value={totalRecords}
+                  icon={<Database className="h-4 w-4 text-primary" />}
                 />
                 <KpiCard
-                  label="Records"
-                  value={analytics.count.toLocaleString()}
-                  icon={<Database className="h-4 w-4 text-violet-600" />}
+                  label="API Status"
+                  value="Live"
+                  icon={<Activity className="h-4 w-4 text-primary" />}
                 />
               </div>
-              {analytics.trend && analytics.trend.length > 0 && (
-                <div className="rounded-2xl border border-slate-200/80 bg-slate-50/50 p-4">
-                  <div className="mb-3 text-xs font-semibold text-slate-600">
-                    Activity & Volume Trend
-                  </div>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <LineChart data={analytics.trend}>
-                      <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                      <YAxis tick={{ fontSize: 11 }} />
-                      <Tooltip />
-                      <Line
-                        type="monotone"
-                        dataKey="total"
-                        stroke="#6366f1"
-                        strokeWidth={2}
-                        dot={false}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="mt-8 grid grid-cols-2 gap-4 border-t border-slate-100 pt-6 sm:grid-cols-3">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
-                  <Layers className="h-5 w-5" />
-                </div>
-                <div>
-                  <div className="text-xl font-bold text-slate-900">{ENTITY_ROUTES.length}</div>
-                  <div className="text-xs text-slate-500">Modules</div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-                  <Database className="h-5 w-5" />
-                </div>
-                <div>
-                  <div className="text-xl font-bold text-slate-900">{totalRecords}</div>
-                  <div className="text-xs text-slate-500">Total Records</div>
-                </div>
-              </div>
-
-              <div className="col-span-2 sm:col-span-1 flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
-                  <Activity className="h-5 w-5" />
-                </div>
-                <div>
-                  <div className="text-xl font-bold text-slate-900">99.9%</div>
-                  <div className="text-xs text-slate-500">System Uptime</div>
-                </div>
-              </div>
-            </div>
-          )}
+            )}
+          </Card>
         </motion.div>
 
         {/* Search & Header */}
         <div className="mt-10 flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h2 className="text-xl font-bold tracking-tight text-slate-900">
+            <h2 className="text-xl font-bold tracking-tight text-foreground">
               Application Modules
             </h2>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-muted-foreground">
               Manage data models and business logic workflows
             </p>
           </div>
 
           <div className="relative w-full max-w-xs">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
               type="text"
               placeholder="Search modules..."
+              aria-label="Search modules"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-4 text-xs font-medium text-slate-900 placeholder:text-slate-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              className="pl-9"
             />
           </div>
         </div>
 
         {/* Animated Cards Grid */}
+        {visibleRoutes.length === 0 ? (
+          <Card className="mt-6">
+            <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
+              <Search className="h-6 w-6 text-muted-foreground" />
+              <CardTitle className="text-base">No modules match "{filter}"</CardTitle>
+              <CardDescription>Clear the search to see every module in this app.</CardDescription>
+            </CardContent>
+          </Card>
+        ) : (
         <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {visibleRoutes.map(([name, path], idx) => (
             <motion.div
@@ -900,37 +899,33 @@ export default function Dashboard() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: idx * 0.05, duration: 0.3 }}
             >
-              <Link href={`/${path}`} className="group block">
-                <SkiperCard
-                  glow
-                  interactive
-                  className="border-slate-200/80 bg-white p-6 transition-all group-hover:border-indigo-400/80 group-hover:shadow-lg group-hover:shadow-indigo-500/5"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
-                      <Sparkles className="h-5 w-5" />
+              <Link href={`/${path}`} className="group block h-full">
+                <Card className="h-full gap-4 transition-colors group-hover:border-primary/50">
+                  <CardHeader>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary">
+                        <Sparkles className="h-5 w-5" />
+                      </div>
+                      <Badge variant="secondary">{counts[name] ?? "…"} records</Badge>
                     </div>
-                    <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
-                      {counts[name] ?? "…"} records
-                    </span>
-                  </div>
-
-                  <h3 className="mt-4 text-lg font-bold capitalize text-slate-900 group-hover:text-indigo-600 transition-colors">
-                    {name.replaceAll("_", " ")}
-                  </h3>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Access data records, creation forms, and API actions for {name.replaceAll("_", " ")}.
-                  </p>
-
-                  <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4 text-xs font-semibold text-indigo-600">
+                    <CardTitle className="capitalize transition-colors group-hover:text-primary">
+                      {name.replaceAll("_", " ")}
+                    </CardTitle>
+                    <CardDescription>
+                      Access data records, creation forms, and API actions for{" "}
+                      {name.replaceAll("_", " ")}.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="mt-auto flex items-center justify-between border-t border-border pt-4 text-xs font-semibold text-primary">
                     <span>Manage {name.replaceAll("_", " ")}</span>
                     <span className="transition-transform group-hover:translate-x-1">→</span>
-                  </div>
-                </SkiperCard>
+                  </CardContent>
+                </Card>
               </Link>
             </motion.div>
           ))}
         </div>
+        )}
       </div>
     </main>
   );
@@ -943,14 +938,41 @@ _ENTITY_PAGE_TSX = """\
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import type { @@TYPE@@ } from "@/lib/types";
+import type { @@TYPE@@ as @@TYPE@@Type } from "@/lib/types";
 import { api } from "@/lib/api";
-import { SkiperBadge } from "@/components/ui/skiper-ui/skiper-badge";
-import { SkiperButton } from "@/components/ui/skiper-ui/skiper-button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Plus, ArrowLeft, Trash2, Search, CheckCircle2, AlertCircle, RefreshCw } from "lucide-react";
 
 export default function @@PAGE_NAME@@() {
-  const [rows, setRows] = useState<@@TYPE@@[]>([]);
+  const [rows, setRows] = useState<@@TYPE@@Type[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -962,7 +984,7 @@ export default function @@PAGE_NAME@@() {
     try {
       setLoading(true);
       setError("");
-      setRows(await api.get<@@TYPE@@[]>("/@@PLURAL@@"));
+      setRows(await api.get<@@TYPE@@Type[]>("/@@PLURAL@@"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load @@PLURAL@@");
     } finally {
@@ -978,7 +1000,7 @@ export default function @@PAGE_NAME@@() {
     try {
       const body: Record<string, unknown> = {};
       @@FIELD_ASSIGN@@
-      await api.post<@@TYPE@@>("/@@PLURAL@@", body);
+      await api.post<@@TYPE@@Type>("/@@PLURAL@@", body);
       setForm({});
       setShowDrawer(false);
       setNotice("@@SINGULAR@@ created successfully!");
@@ -1012,51 +1034,52 @@ export default function @@PAGE_NAME@@() {
   });
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 px-6 py-12 text-slate-900">
+    <main className="min-h-screen bg-background px-4 py-8 text-foreground sm:px-6 md:py-12">
       <div className="mx-auto max-w-6xl">
         {/* Navigation Breadcrumb & Actions */}
-        <div className="flex items-center justify-between">
-          <Link
-            href="/"
-            className="group inline-flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-indigo-600 transition-colors"
-          >
-            <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-1" />
-            Back to Dashboard
-          </Link>
+        <div className="flex items-center justify-between gap-2">
+          <Button asChild variant="ghost" size="sm" className="text-muted-foreground">
+            <Link href="/">
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back to Dashboard
+            </Link>
+          </Button>
 
-          <SkiperBadge variant="purple" pulse={false}>
-            Module: @@PLURAL@@
-          </SkiperBadge>
+          <Badge variant="secondary">Module: @@PLURAL@@</Badge>
         </div>
 
         {/* Header Hero */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-200/90 bg-white/80 p-8 shadow-sm backdrop-blur-md"
+          className="mt-4"
         >
-          <div>
-            <h1 className="text-3xl font-extrabold tracking-tight">@@TITLE@@</h1>
-            <p className="mt-1 text-sm text-slate-600">@@PURPOSE@@</p>
-          </div>
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <CardTitle className="text-2xl md:text-3xl">@@TITLE@@</CardTitle>
+                  <CardDescription className="mt-1">@@PURPOSE@@</CardDescription>
+                </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => void load()}
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 transition-colors"
-              title="Refresh records"
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin text-indigo-600" : ""}`} />
-            </button>
-            <SkiperButton
-              variant="glow"
-              size="md"
-              icon={<Plus className="h-4 w-4" />}
-              onClick={() => setShowDrawer(true)}
-            >
-              New @@SINGULAR@@
-            </SkiperButton>
-          </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => void load()}
+                    title="Refresh records"
+                    aria-label="Refresh records"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+                  </Button>
+                  <Button onClick={() => setShowDrawer(true)}>
+                    <Plus className="h-4 w-4" />
+                    New @@SINGULAR@@
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+          </Card>
         </motion.div>
 
         {/* Notices and Alerts */}
@@ -1066,10 +1089,12 @@ export default function @@PAGE_NAME@@() {
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
-              className="mt-4 flex items-center gap-2 rounded-xl bg-emerald-50 border border-emerald-200/80 px-4 py-3 text-xs font-semibold text-emerald-800 shadow-sm"
+              className="mt-4"
             >
-              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-              <span>{notice}</span>
+              <Alert>
+                <CheckCircle2 className="h-4 w-4" />
+                <AlertDescription>{notice}</AlertDescription>
+              </Alert>
             </motion.div>
           )}
           {error && (
@@ -1077,10 +1102,12 @@ export default function @@PAGE_NAME@@() {
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
-              className="mt-4 flex items-center gap-2 rounded-xl bg-rose-50 border border-rose-200/80 px-4 py-3 text-xs font-semibold text-rose-800 shadow-sm"
+              className="mt-4"
             >
-              <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
-              <span>{error}</span>
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
             </motion.div>
           )}
         </AnimatePresence>
@@ -1090,83 +1117,94 @@ export default function @@PAGE_NAME@@() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+          className="mt-8"
         >
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-5">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900">Registered Records</h2>
-              <p className="text-xs text-slate-500">
-                {rows.length} total entries recorded in database
-              </p>
-            </div>
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <CardTitle>Registered Records</CardTitle>
+                  <CardDescription>
+                    {rows.length} total entries recorded in database
+                  </CardDescription>
+                </div>
 
-            <div className="relative w-full max-w-xs">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Filter records..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2 pl-9 pr-4 text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-              />
-            </div>
-          </div>
-
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-xs font-bold text-slate-400 uppercase tracking-wider">
-                  <th className="px-4 py-3">ID</th>
-                  @@HEADERS@@
-                  <th className="px-4 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                {filteredRows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className="hover:bg-slate-50/80 transition-colors"
-                  >
-                    <td className="px-4 py-3 text-xs font-semibold text-slate-500">#{row.id}</td>
-                    @@CELLS@@
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => void remove(row.id)}
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 hover:text-rose-800 transition-colors p-1 rounded-md hover:bg-rose-50"
-                        title="Delete record"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        <span>Delete</span>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            {loading && (
-              <div className="flex items-center justify-center py-12 text-slate-400 text-xs gap-2">
-                <RefreshCw className="h-4 w-4 animate-spin text-indigo-600" />
-                <span>Loading records...</span>
-              </div>
-            )}
-
-            {!loading && filteredRows.length === 0 && (
-              <div className="py-12 text-center">
-                <p className="text-sm font-medium text-slate-500">No records found.</p>
-                <p className="text-xs text-slate-400 mt-1">Get started by creating a new entry.</p>
-                <div className="mt-4">
-                  <SkiperButton
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowDrawer(true)}
-                  >
-                    Create First Record
-                  </SkiperButton>
+                <div className="relative w-full max-w-xs">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    type="text"
+                    placeholder="Filter records..."
+                    aria-label="Filter records"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="pl-9"
+                  />
                 </div>
               </div>
-            )}
-          </div>
+            </CardHeader>
+
+            <CardContent>
+              {/* A table of records has to stay usable on a phone, so the
+                  wrapper scrolls horizontally instead of forcing the page wide. */}
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-24">ID</TableHead>
+                      @@HEADERS@@
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredRows.map((row) => (
+                      <TableRow key={row.id}>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {String(row.id).slice(0, 8)}
+                        </TableCell>
+                        @@CELLS@@
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => void remove(row.id)}
+                            title="Delete record"
+                            className="text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            <span className="sr-only sm:not-sr-only">Delete</span>
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {loading && (
+                <div className="space-y-2 py-6">
+                  {[0, 1, 2].map((i) => (
+                    <Skeleton key={i} className="h-9 w-full" />
+                  ))}
+                </div>
+              )}
+
+              {!loading && filteredRows.length === 0 && (
+                <div className="flex flex-col items-center gap-2 py-12 text-center">
+                  <Search className="h-6 w-6 text-muted-foreground" />
+                  <CardTitle className="text-base">No records found</CardTitle>
+                  <CardDescription>
+                    {search
+                      ? "No records match your filter."
+                      : "Get started by creating your first record."}
+                  </CardDescription>
+                  <Button className="mt-2" size="sm" onClick={() => setShowDrawer(true)}>
+                    <Plus className="h-4 w-4" />
+                    Create First Record
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </motion.section>
 
         {/* Slide-over Create Record Drawer */}
@@ -1178,7 +1216,7 @@ export default function @@PAGE_NAME@@() {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 onClick={() => setShowDrawer(false)}
-                className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm"
+                className="fixed inset-0 bg-foreground/40 backdrop-blur-sm"
               />
 
               <motion.div
@@ -1186,19 +1224,26 @@ export default function @@PAGE_NAME@@() {
                 animate={{ x: 0 }}
                 exit={{ x: "100%" }}
                 transition={{ type: "spring", damping: 28, stiffness: 300 }}
-                className="relative z-10 w-full max-w-md bg-white p-8 shadow-2xl overflow-y-auto"
+                className="relative z-10 w-full max-w-md overflow-y-auto border-l border-border bg-background p-6 shadow-2xl"
+                role="dialog"
+                aria-modal="true"
+                aria-label="New @@SINGULAR@@"
               >
-                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div className="flex items-start justify-between gap-2 border-b border-border pb-4">
                   <div>
-                    <h3 className="text-lg font-bold text-slate-900">New @@SINGULAR@@</h3>
-                    <p className="text-xs text-slate-500">Fill in the fields to create a record</p>
+                    <h3 className="text-lg font-bold text-foreground">New @@SINGULAR@@</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Fill in the fields to create a record
+                    </p>
                   </div>
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     onClick={() => setShowDrawer(false)}
-                    className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                    aria-label="Close"
                   >
-                    ✕
-                  </button>
+                    <ArrowLeft className="h-4 w-4 rotate-90" />
+                  </Button>
                 </div>
 
                 <form
@@ -1210,17 +1255,15 @@ export default function @@PAGE_NAME@@() {
                 >
                   @@FORM_FIELDS@@
 
-                  <div className="pt-6 flex items-center justify-end gap-3 border-t border-slate-100">
-                    <button
+                  <div className="flex items-center justify-end gap-2 border-t border-border pt-6">
+                    <Button
                       type="button"
+                      variant="ghost"
                       onClick={() => setShowDrawer(false)}
-                      className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
                     >
                       Cancel
-                    </button>
-                    <SkiperButton type="submit" variant="glow" size="md">
-                      Save Record
-                    </SkiperButton>
+                    </Button>
+                    <Button type="submit">Save Record</Button>
                   </div>
                 </form>
               </motion.div>
@@ -1266,28 +1309,35 @@ def _gen_entity_page(spec: AppSpec, entity: Entity, route: str) -> str:
         label = _label(f.name)
         input_type = _TSX_INPUT.get(f.type, "text")
         key = js_key(f.name)
-        headers.append(f'<th className="px-3 py-2">{label}</th>')
+        headers.append(f'<TableHead className="px-3 py-2">{label}</TableHead>')
         if f.type == "bool":
-            cells.append(f'<td className="px-3 py-2">{{row.{f.name} ? "Yes" : "No"}}</td>')
+            cells.append(f'<TableCell className="px-3 py-2">{{row.{f.name} ? "Yes" : "No"}}</TableCell>')
             assigns.append(f"      body[{key}] = form[{key}] === true;")
             form_fields.append(
-                '<label className="flex items-center gap-2">\n'
-                f'          <input type="checkbox" className="h-4 w-4 rounded border-slate-300" '
-                f"checked={{field({key}) === true}} onChange={{(e) => set({key}, e.target.checked)}} />"
-                f'\n          <span className="text-sm font-medium">{label}</span>\n'
-                "        </label>"
+                '<div className="flex items-center gap-2">\n'
+                f'          <Checkbox id={key} '
+                f"checked={{field({key}) === true}} "
+                f"onCheckedChange={{(v) => set({key}, v === true)}} />\n"
+                f'          <Label htmlFor={key} className="cursor-pointer">{label}</Label>\n'
+                "        </div>"
             )
         elif f.type == "enum":
             options = "\n            ".join(
-                f"<option value={js_key(v)}>{_label(v)}</option>" for v in f.enum_values
+                f"<SelectItem value={js_key(v)}>{_label(v)}</SelectItem>" for v in f.enum_values
             )
             form_fields.append(
-                '<label className="flex flex-col gap-1">\n'
-                f'          <span className="text-sm font-medium">{label}</span>'
-                f'\n          <select className="rounded-lg border border-slate-300 px-3 py-2" '
-                f"value={{field({key})}} onChange={{(e) => set({key}, e.target.value)}}>"
-                f"\n            {options}\n          </select>\n"
-                "        </label>"
+                '<div className="flex flex-col gap-2">\n'
+                f'          <Label htmlFor={key}>{label}</Label>\n'
+                f"          <Select value={{String(field({key}) ?? \"\")}} "
+                f"onValueChange={{(v) => set({key}, v)}}>\n"
+                f"            <SelectTrigger id={key}>\n"
+                f"              <SelectValue placeholder=\"Select {label.lower()}\" />\n"
+                "            </SelectTrigger>\n"
+                "            <SelectContent>\n"
+                f"            {options}\n"
+                "            </SelectContent>\n"
+                "          </Select>\n"
+                "        </div>"
             )
         else:
             if f.type in ("int", "float", "ref"):
@@ -1308,13 +1358,17 @@ def _gen_entity_page(spec: AppSpec, entity: Entity, route: str) -> str:
                         f"body[{key}] = String(form[{key}]);"
                     )
             form_fields.append(
-                '<label className="flex flex-col gap-1">\n'
-                f'          <span className="text-sm font-medium">{label}</span>'
-                f'\n          <input type={js_key(input_type)} className="rounded-lg border border-slate-300 px-3 py-2" '
-                f"value={{field({key})}} onChange={{(e) => set({key}, e.target.value)}} />\n"
-                "        </label>"
+                '<div className="flex flex-col gap-2">\n'
+                f'          <Label htmlFor={key}>{label}</Label>\n'
+                f'          <Input id={key} type="{input_type}" '
+                f"value={{String(field({key}) ?? \"\")}} "
+                f"onChange={{(e) => set({key}, e.target.value)}} />\n"
+                "        </div>"
             )
-            cells.append(f'<td className="px-3 py-2">{{String(row.{f.name} ?? "—")}}</td>')
+            cells.append(
+                f'<TableCell className="px-3 py-2">'
+                f'{{String(row.{f.name} ?? "—")}}</TableCell>'
+            )
 
     page = _ENTITY_PAGE_TSX
     page = page.replace("@@TYPE@@", cls)

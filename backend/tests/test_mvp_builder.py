@@ -44,7 +44,9 @@ def _sample_ai_state(**overrides) -> dict:
 
 
 def _make_client(handler: Callable) -> Callable:
-    def _client():
+    # The real call site passes base_url/timeout/headers, so the factory has to
+    # tolerate whatever kwargs it is given rather than a fixed zero-arg shape.
+    def _client(*_args: object, **_kwargs: object):
         return AsyncClient(
             transport=MockTransport(handler), base_url="http://opencodetest", timeout=30.0
         )
