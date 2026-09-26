@@ -17,12 +17,18 @@ import {
   Terminal,
   Activity,
   AlertTriangle,
+  History,
+  MessageSquare,
+  Plus,
+  Search,
+  Trash2,
+  X,
 } from 'lucide-react';
 import ChatMessage from '@/components/ChatMessage';
 import FileUploader from '@/components/FileUploader';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { opencodeApi, sendOpenCodeChatStream, mvpApi, solutionApi, workspaceApi } from '@/lib/api';
-import { BuildStep, MVPBuild, MVPDeployResult, OpenCodeChatComplete, OpenCodeBuildProgress } from '@/types';
+import { BuildStep, MVPBuild, MVPDeployResult, OpenCodeChatComplete, OpenCodeBuildProgress, Solution } from '@/types';
 import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
 import { useI18n } from '@/components/I18nProvider';
 import type { TranslationKey } from '@/lib/i18n/dictionaries';
@@ -101,6 +107,20 @@ function setActiveSolutionId(id: string | null) {
   storageListeners.forEach((listener) => listener());
 }
 
+function formatSessionDate(dateString: string): string {
+  try {
+    const d = new Date(dateString);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch {
+    return dateString;
+  }
+}
+
 function ChatContent() {
   const searchParams = useSearchParams();
   const { t } = useI18n();
@@ -152,6 +172,108 @@ function ChatContent() {
   const [configureTarget, setConfigureTarget] = useState<MVPBuild | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
+
+  // Chat History state & management
+  const [historySolutions, setHistorySolutions] = useState<Solution[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historySearch, setHistorySearch] = useState('');
+  const [leftTab, setLeftTab] = useState<'history' | 'context'>('history');
+  const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    workspaceApi.list()
+      .then(async (workspaces) => {
+        if (!active) return;
+        if (!workspaces || workspaces.length === 0) {
+          setHistorySolutions([]);
+          setHistoryLoading(false);
+          return;
+        }
+        const all: Solution[] = [];
+        for (const ws of workspaces) {
+          try {
+            const sols = await solutionApi.list(ws.id);
+            if (sols) all.push(...sols);
+          } catch {
+            // ignore
+          }
+        }
+        if (!active) return;
+        all.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        setHistorySolutions(all);
+        setHistoryLoading(false);
+      })
+      .catch(() => {
+        if (active) setHistoryLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [solutionId]);
+
+  const filteredSolutions = historySolutions.filter((s) => {
+    if (!historySearch.trim()) return true;
+    const q = historySearch.toLowerCase();
+    return (s.title && s.title.toLowerCase().includes(q)) || (s.description && s.description.toLowerCase().includes(q));
+  });
+
+  const handleSelectSolution = (sol: Solution) => {
+    if (solutionId === sol.id) {
+      setMobileHistoryOpen(false);
+      return;
+    }
+    setError(null);
+    setAppName(sol.title);
+    setSolutionId(sol.id);
+    setActiveSolutionId(sol.id);
+    loadedSolutionIdRef.current = null;
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('solution_id', sol.id);
+      url.searchParams.set('app_name', sol.title);
+      url.searchParams.delete('new');
+      window.history.replaceState(null, '', url.pathname + url.search);
+    }
+    setMobileHistoryOpen(false);
+  };
+
+  const handleStartNewChat = () => {
+    setActiveSolutionId(null);
+    setSolutionId(null);
+    setAppName('');
+    setSessionId(null);
+    loadedSolutionIdRef.current = null;
+    setInput('');
+    setMessages([{
+      role: 'assistant',
+      agent: t('common.sutraOrchestrator'),
+      content: t('chat.welcomeMessage'),
+    }]);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('solution_id');
+      url.searchParams.delete('app_name');
+      url.searchParams.set('new', 'true');
+      window.history.replaceState(null, '', url.pathname + url.search);
+    }
+    setMobileHistoryOpen(false);
+  };
+
+  const handleDeleteSolution = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (!window.confirm('Delete this architecture conversation from history?')) return;
+    try {
+      await solutionApi.delete(id);
+      setHistorySolutions((prev) => prev.filter((s) => s.id !== id));
+      if (solutionId === id || targetId === id) {
+        handleStartNewChat();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete conversation.');
+    }
+  };
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isStreaming]);
 
@@ -478,7 +600,19 @@ function ChatContent() {
         </div>
 
         <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold">
-          <span className="text-[var(--text-3)]">{t('chat.intelligenceLayer')}</span>
+          <button
+            onClick={() => setMobileHistoryOpen(true)}
+            className="lg:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-sm border border-[var(--border)] bg-[var(--bg-2)] hover:bg-[var(--bg)] text-[var(--sutra-charcoal)] shadow-sm transition-colors"
+          >
+            <History className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
+            <span>Chat History</span>
+            {historySolutions.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-[var(--bg)] border border-[var(--border)] text-[9px] font-mono">
+                {historySolutions.length}
+              </span>
+            )}
+          </button>
+          <span className="text-[var(--text-3)] hidden sm:inline">{t('chat.intelligenceLayer')}</span>
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-sm border shadow-sm ${
               engineOnline === null ? 'bg-[var(--bg-2)] border-[var(--border)] text-[var(--text-2)]'
               : engineOnline ? 'bg-[var(--bg-2)] border-[var(--border)] text-[var(--green)]'
@@ -515,42 +649,179 @@ function ChatContent() {
       {/* 3-Zone Workspace */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 min-h-0">
         
-        {/* ZONE 1: CONTEXT (3 cols) */}
+        {/* ZONE 1: SESSIONS / CONTEXT (3 cols) */}
         <div className="hidden lg:flex flex-col lg:col-span-3 h-full sutra-card bg-[var(--bg-2)] border-[var(--border)] min-w-0">
-          <div className="p-4 border-b border-[var(--border)] flex items-center gap-2 bg-[var(--bg)]">
-            <FileText className="w-4 h-4 text-[var(--text-3)]" />
-            <h2 className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">{t('chat.contextualData')}</h2>
+          {/* Zone 1 Tabs */}
+          <div className="flex border-b border-[var(--border)] bg-[var(--bg)] text-[11px] font-bold uppercase tracking-wider">
+            <button
+              onClick={() => setLeftTab('history')}
+              className={`flex-1 py-3 px-3 flex items-center justify-center gap-1.5 border-b-2 transition-colors ${
+                leftTab === 'history'
+                  ? 'border-[var(--sutra-muted-gold)] text-[var(--sutra-charcoal)] bg-[var(--bg-2)]'
+                  : 'border-transparent text-[var(--text-3)] hover:text-[var(--sutra-charcoal)]'
+              }`}
+            >
+              <History className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
+              <span>Chat History</span>
+              {historySolutions.length > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--bg)] border border-[var(--border)] text-[var(--text-2)] font-mono">
+                  {historySolutions.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setLeftTab('context')}
+              className={`flex-1 py-3 px-3 flex items-center justify-center gap-1.5 border-b-2 transition-colors ${
+                leftTab === 'context'
+                  ? 'border-[var(--sutra-muted-gold)] text-[var(--sutra-charcoal)] bg-[var(--bg-2)]'
+                  : 'border-transparent text-[var(--text-3)] hover:text-[var(--sutra-charcoal)]'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5 text-[var(--text-3)]" />
+              <span>Context / PRD</span>
+              {uploadedContext && (
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              )}
+            </button>
           </div>
-          <div className="flex-1 p-4 overflow-y-auto overflow-x-hidden">
-            {uploadedContext ? (
-              <div className="space-y-4">
-                <div className="p-3 bg-[var(--bg)] border border-[var(--sutra-muted-gold)] text-[12px]">
-                  <p className="font-semibold text-[var(--sutra-charcoal)] break-all">{uploadedFilename}</p>
-                  <p className="text-[10px] uppercase tracking-widest text-[var(--text-2)] mt-2 font-bold">{uploadedContext.length} characters parsed</p>
+
+          {/* Tab 1: History Content */}
+          {leftTab === 'history' && (
+            <div className="flex-1 flex flex-col min-h-0 p-3">
+              {/* New Build Action */}
+              <button
+                onClick={handleStartNewChat}
+                className="w-full mb-3 py-2 px-3 flex items-center justify-center gap-2 bg-[var(--bg)] hover:bg-[var(--sutra-charcoal)] text-[var(--sutra-charcoal)] hover:text-white border border-[var(--sutra-muted-gold)]/50 hover:border-[var(--sutra-charcoal)] rounded-sm text-[11px] font-bold uppercase tracking-wider transition-all shadow-sm group"
+              >
+                <Plus className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)] group-hover:text-white transition-colors" />
+                <span>New Architecture Build</span>
+              </button>
+
+              {/* Quick Search */}
+              {historySolutions.length > 3 && (
+                <div className="relative mb-2">
+                  <Search className="w-3.5 h-3.5 text-[var(--text-3)] absolute left-2.5 top-2" />
+                  <input
+                    type="text"
+                    value={historySearch}
+                    onChange={(e) => setHistorySearch(e.target.value)}
+                    placeholder="Search conversations..."
+                    className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--bg)] border border-[var(--border)] rounded-sm text-[var(--sutra-charcoal)] placeholder-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] font-sans"
+                  />
+                  {historySearch && (
+                    <button
+                      onClick={() => setHistorySearch('')}
+                      className="absolute right-2 top-1.5 text-[var(--text-3)] hover:text-[var(--sutra-charcoal)]"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
-                <button
-                  onClick={() => { setUploadedContext(''); setUploadedFilename(''); }}
-                  className="btn btn-ghost w-full text-[10px] uppercase tracking-widest font-semibold"
-                >
-                  {t('chat.clearContext')}
-                </button>
+              )}
+
+              {/* Sessions List */}
+              <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 min-h-0">
+                {historyLoading && historySolutions.length === 0 ? (
+                  <div className="flex items-center justify-center h-32 text-xs text-[var(--text-3)]">
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    Loading history...
+                  </div>
+                ) : filteredSolutions.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-48 text-center px-4 text-[var(--text-3)]">
+                    <MessageSquare className="w-8 h-8 mb-2 opacity-40" />
+                    <p className="text-xs font-serif text-[var(--text-2)]">No matching conversations</p>
+                    <p className="text-[11px] font-light mt-1">Start a build to begin your chat history</p>
+                  </div>
+                ) : (
+                  filteredSolutions.map((sol) => {
+                    const isActive = targetId === sol.id || solutionId === sol.id;
+                    const messageCount = sol.conversation_history?.length || 0;
+                    return (
+                      <div
+                        key={sol.id}
+                        onClick={() => handleSelectSolution(sol)}
+                        className={`group relative p-2.5 rounded-sm border cursor-pointer transition-all ${
+                          isActive
+                            ? 'border-[var(--sutra-muted-gold)] bg-[var(--bg)] shadow-sm'
+                            : 'border-transparent hover:border-[var(--border)] hover:bg-[var(--bg)]/70'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              {isActive && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-[var(--sutra-muted-gold)] shrink-0" />
+                              )}
+                              <p className={`text-xs font-semibold truncate ${
+                                isActive ? 'text-[var(--sutra-charcoal)] font-bold' : 'text-[var(--text-2)] group-hover:text-[var(--sutra-charcoal)]'
+                              }`}>
+                                {sol.title || 'Untitled Build'}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1 text-[10px] text-[var(--text-3)] font-mono">
+                              <span className="flex items-center gap-1">
+                                <Clock className="w-2.5 h-2.5" />
+                                {formatSessionDate(sol.created_at)}
+                              </span>
+                              {messageCount > 0 && (
+                                <span>• {messageCount} msg{messageCount > 1 ? 's' : ''}</span>
+                              )}
+                              {sol.status && (
+                                <span className="uppercase text-[9px] font-bold px-1 rounded bg-[var(--bg-2)] border border-[var(--border)]">
+                                  {sol.status}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            onClick={(e) => handleDeleteSolution(e, sol.id)}
+                            className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-600 text-[var(--text-3)] transition-all shrink-0"
+                            title="Delete conversation"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center text-center space-y-4">
-                <FileUploader
-                  onParsedContext={(text, filename) => {
-                    setUploadedContext(text);
-                    setUploadedFilename(filename);
-                    push(`Context established from **${filename}**. I am ready to process instructions.`);
-                  }}
-                  onClear={() => { setUploadedContext(''); setUploadedFilename(''); }}
-                />
-                <p className="text-[11px] text-[var(--text-2)] font-light max-w-[200px] break-words">
-                  {t('chat.providePrd')}
-                </p>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
+
+          {/* Tab 2: Context Content */}
+          {leftTab === 'context' && (
+            <div className="flex-1 p-4 overflow-y-auto overflow-x-hidden">
+              {uploadedContext ? (
+                <div className="space-y-4">
+                  <div className="p-3 bg-[var(--bg)] border border-[var(--sutra-muted-gold)] text-[12px]">
+                    <p className="font-semibold text-[var(--sutra-charcoal)] break-all">{uploadedFilename}</p>
+                    <p className="text-[10px] uppercase tracking-widest text-[var(--text-2)] mt-2 font-bold">{uploadedContext.length} characters parsed</p>
+                  </div>
+                  <button
+                    onClick={() => { setUploadedContext(''); setUploadedFilename(''); }}
+                    className="btn btn-ghost w-full text-[10px] uppercase tracking-widest font-semibold"
+                  >
+                    {t('chat.clearContext')}
+                  </button>
+                </div>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-center space-y-4">
+                  <FileUploader
+                    onParsedContext={(text, filename) => {
+                      setUploadedContext(text);
+                      setUploadedFilename(filename);
+                      push(`Context established from **${filename}**. I am ready to process instructions.`);
+                    }}
+                    onClear={() => { setUploadedContext(''); setUploadedFilename(''); }}
+                  />
+                  <p className="text-[11px] text-[var(--text-2)] font-light max-w-[200px] break-words">
+                    {t('chat.providePrd')}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ZONE 2: WORKSPACE / CHAT (6 cols) */}
@@ -806,6 +1077,88 @@ function ChatContent() {
 
       {deployTarget && <DeployModal build={deployTarget} onClose={() => setDeployTarget(null)} onDeployed={handleDeployed} />}
       {configureTarget && <ConfigureModal build={configureTarget} onClose={() => setConfigureTarget(null)} onConfigured={() => undefined} />}
+
+      {/* Mobile Chat History Drawer */}
+      {mobileHistoryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm lg:hidden animate-fade-up">
+          <div className="bg-[var(--bg-2)] border border-[var(--border)] rounded-md shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--bg)]">
+              <div className="flex items-center gap-2">
+                <History className="w-4 h-4 text-[var(--sutra-muted-gold)]" />
+                <h2 className="text-xs font-bold uppercase tracking-widest text-[var(--sutra-charcoal)]">Architecture Chat History</h2>
+              </div>
+              <button
+                onClick={() => setMobileHistoryOpen(false)}
+                className="p-1 text-[var(--text-3)] hover:text-[var(--sutra-charcoal)]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-3 border-b border-[var(--border)] bg-[var(--bg)]">
+              <button
+                onClick={handleStartNewChat}
+                className="w-full py-2 px-3 flex items-center justify-center gap-2 bg-[var(--sutra-charcoal)] text-white hover:bg-black rounded-sm text-[11px] font-bold uppercase tracking-wider transition-all"
+              >
+                <Plus className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
+                <span>Start New Architecture Build</span>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
+              {filteredSolutions.map((sol) => {
+                const isActive = targetId === sol.id || solutionId === sol.id;
+                const messageCount = sol.conversation_history?.length || 0;
+                return (
+                  <div
+                    key={sol.id}
+                    onClick={() => handleSelectSolution(sol)}
+                    className={`group relative p-2.5 rounded-sm border cursor-pointer transition-all ${
+                      isActive
+                        ? 'border-[var(--sutra-muted-gold)] bg-[var(--bg)] shadow-sm'
+                        : 'border-[var(--border)] bg-[var(--bg)]/50 hover:bg-[var(--bg)]'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          {isActive && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-[var(--sutra-muted-gold)] shrink-0" />
+                          )}
+                          <p className={`text-xs font-semibold truncate ${
+                            isActive ? 'text-[var(--sutra-charcoal)] font-bold' : 'text-[var(--text-2)]'
+                          }`}>
+                            {sol.title || 'Untitled Build'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1 text-[10px] text-[var(--text-3)] font-mono">
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-2.5 h-2.5" />
+                            {formatSessionDate(sol.created_at)}
+                          </span>
+                          {messageCount > 0 && (
+                            <span>• {messageCount} msg{messageCount > 1 ? 's' : ''}</span>
+                          )}
+                          {sol.status && (
+                            <span className="uppercase text-[9px] font-bold px-1 rounded bg-[var(--bg-2)] border border-[var(--border)]">
+                              {sol.status}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => handleDeleteSolution(e, sol.id)}
+                        className="p-1 hover:text-red-600 text-[var(--text-3)] transition-all shrink-0"
+                        title="Delete conversation"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
