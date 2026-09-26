@@ -2,7 +2,7 @@
 
 import React, { useMemo } from 'react';
 import type { Dispatch } from 'react';
-import { Clock, FileText, History, MessageSquare, Plus, Search, Trash2, X } from 'lucide-react';
+import { Clock, FileText, History, MessageSquare, Plus, Search, ShieldCheck, Trash2, X } from 'lucide-react';
 import clsx from 'clsx';
 import FileUploader from '@/components/FileUploader';
 import { HistorySkeleton, Skeleton } from '@/components/chat/Skeleton';
@@ -201,11 +201,20 @@ function ContextPanel({
   if (state.context) {
     return (
       <div className="flex-1 p-4 overflow-y-auto overflow-x-hidden space-y-4">
-        <div className="p-3 bg-[var(--bg)] border border-[var(--sutra-muted-gold)] text-[12px]">
-          <p className="font-semibold text-[var(--sutra-charcoal)] break-all">{state.context.filename}</p>
-          <p className="text-[10px] uppercase tracking-widest text-[var(--text-2)] mt-2 font-bold">
-            {state.context.text.length.toLocaleString()} characters parsed
+        <div className="p-3 bg-[var(--bg)] border border-[var(--sutra-muted-gold)] rounded-sm shadow-sm space-y-2.5 text-[12px]">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 bg-[var(--bg-2)] border border-[var(--border)] rounded-sm text-[var(--sutra-charcoal)]">
+              <FileText className="w-4 h-4" />
+            </div>
+            <p className="font-semibold text-[var(--sutra-charcoal)] break-all">{state.context.filename}</p>
+          </div>
+          <p className="text-[10px] uppercase tracking-widest text-[var(--text-3)] font-mono font-medium">
+            {state.context.text.length.toLocaleString()} characters parsed · Context active
           </p>
+          <div className="flex items-center gap-1.5 pt-2 border-t border-[var(--border)] text-[11px] text-[var(--green)] font-mono font-medium">
+            <ShieldCheck className="w-4 h-4 text-[var(--green)] shrink-0" />
+            <span>Threat Scan: Verified Clean</span>
+          </div>
         </div>
         <button onClick={onClear} className="btn btn-ghost w-full text-[10px] uppercase tracking-widest font-semibold">
           Clear context

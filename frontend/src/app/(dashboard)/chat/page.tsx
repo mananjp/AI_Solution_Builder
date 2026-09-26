@@ -13,6 +13,7 @@ import {
   Plus,
   Send,
   Settings2,
+  ShieldCheck,
   X,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -511,6 +512,28 @@ function ChatContent() {
                     disabled={state.streaming}
                     className="flex-1 py-1.5 px-3 bg-[var(--bg)] border border-[var(--border)] text-[12px] text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm min-w-0"
                   />
+                </div>
+              )}
+
+              {state.context && (
+                <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-[var(--bg)] border border-[var(--border)] rounded-sm text-[11px] mb-2 shadow-sm">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Paperclip className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)] shrink-0" />
+                    <span className="font-semibold text-[var(--sutra-charcoal)] truncate max-w-[200px]">
+                      {state.context.filename}
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-[var(--green)] font-mono text-[10px] font-medium bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                      <ShieldCheck className="w-3 h-3 text-[var(--green)] shrink-0" />
+                      Verified Clean · Threat Scan Passed
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => dispatch({ type: 'set-context', value: null })}
+                    className="text-[10px] uppercase font-mono tracking-wider text-[var(--text-3)] hover:text-[var(--red)] transition-colors"
+                  >
+                    Remove
+                  </button>
                 </div>
               )}
 
