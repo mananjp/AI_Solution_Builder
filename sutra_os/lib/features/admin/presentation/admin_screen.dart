@@ -206,7 +206,9 @@ class AdminScreen extends ConsumerWidget {
                         ),
                       ),
                     ),
-                    error: (_, __) => const SizedBox(),
+                    // A failed stats fetch rendered nothing at all, so the
+                    // admin saw an empty grid with no indication of failure.
+                    error: (_, __) => _adminErrorCard('Metrics unavailable'),
                   ),
                 ),
               ),
@@ -343,15 +345,10 @@ class AdminScreen extends ConsumerWidget {
                             color: AppColors.blackButton,
                           ),
                         ),
-                        error: (_, __) => SutraCard(
-                          padding: const EdgeInsets.all(AppSpacing.md),
-                          child: Text(
-                            'Organization members endpoint online.',
-                            style: AppTextStyles.bodySmall(
-                              color: AppColors.lightTextSecondary,
-                            ),
-                          ),
-                        ),
+                        // This used to read "Organization members endpoint
+                        // online." on failure, telling the admin the exact
+                        // opposite of what happened.
+                        error: (_, __) => _adminErrorCard('Members unavailable'),
                       ),
                     ],
                   ),
@@ -422,14 +419,14 @@ class AdminScreen extends ConsumerWidget {
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            log.action,
+                                            log.description ?? log.action,
                                             style: AppTextStyles.bodyMedium(
                                               color: AppColors.lightTextPrimary,
                                               fontWeight: FontWeight.w600,
                                             ),
                                           ),
                                           Text(
-                                            'User: ${log.userEmail} • ${log.timestamp}',
+                                            '${log.action} • ${log.timestamp}',
                                             style: AppTextStyles.bodySmall(
                                               color: AppColors.lightTextSecondary,
                                               fontSize: 11,
@@ -439,10 +436,12 @@ class AdminScreen extends ConsumerWidget {
                                       ),
                                     ),
                                     Text(
-                                      log.ipAddress,
+                                      log.amountLabel,
                                       style: AppTextStyles.mono(
                                         fontSize: 10,
-                                        color: AppColors.lightTextMuted,
+                                        color: log.amount < 0
+                                            ? AppColors.statusErrorRed
+                                            : AppColors.statusLiveGreen,
                                       ),
                                     ),
                                   ],
@@ -457,15 +456,8 @@ class AdminScreen extends ConsumerWidget {
                             color: AppColors.blackButton,
                           ),
                         ),
-                        error: (_, __) => SutraCard(
-                          padding: const EdgeInsets.all(AppSpacing.md),
-                          child: Text(
-                            'Audit logging active.',
-                            style: AppTextStyles.bodySmall(
-                              color: AppColors.lightTextSecondary,
-                            ),
-                          ),
-                        ),
+                        error: (_, __) =>
+                            _adminErrorCard('Audit trail unavailable'),
                       ),
                     ],
                   ),
@@ -476,6 +468,29 @@ class AdminScreen extends ConsumerWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// A neutral failure notice. Deliberately says nothing is known about the
+  /// data rather than asserting the subsystem is healthy.
+  Widget _adminErrorCard(String message) {
+    return SutraCard(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Row(
+        children: [
+          const Icon(Icons.cloud_off_outlined,
+              size: 16, color: AppColors.statusErrorRed),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              message,
+              style: AppTextStyles.bodySmall(
+                color: AppColors.lightTextSecondary,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

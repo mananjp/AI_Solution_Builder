@@ -1,3 +1,5 @@
+import '../../../core/network/json_utils.dart';
+
 class UserModel {
   final String id;
   final String email;
@@ -29,13 +31,13 @@ class UserModel {
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
     return UserModel(
-      id: json['id']?.toString() ?? '',
-      email: json['email']?.toString() ?? '',
-      fullName: json['full_name']?.toString() ?? 'Sutra User',
-      role: json['role']?.toString() ?? 'member',
-      orgId: json['org_id']?.toString(),
-      isAnonymous: json['is_anonymous'] == true,
-      createdAt: json['created_at']?.toString(),
+      id: asId(json['id']),
+      email: pick(json, ['email'], asString, ''),
+      fullName: pick(json, ['full_name', 'name'], asString, 'Sutra User'),
+      role: pick(json, ['role'], asString, 'member'),
+      orgId: asStringOrNull(json['org_id']),
+      isAnonymous: asBool(json['is_anonymous']),
+      createdAt: asStringOrNull(json['created_at']),
     );
   }
 
