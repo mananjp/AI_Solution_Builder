@@ -2797,6 +2797,24 @@ backend/models.py, schemas.py, routers.py (full CRUD for every entity, FK checks
 backend/tests/ (acceptance tests = definition of done), spec.json, frontend/src/lib/types.ts.
 CRUD: `GET/POST /api/v1/{{plural}}`, `GET/PATCH/DELETE /api/v1/{{plural}}/{{id}}`, filter `?<ref>_id=`.
 
+## Deployment topology — this is a TWO-TIER app, not a single Next.js app
+The generated project deploys as two independent services plus a managed database. Never
+collapse this into one Next.js deployment and never put API logic in Next.js route handlers.
+- **frontend/** — Next.js 15 App Router → **Vercel**. `vercel.json` handles the SPA rewrite
+  that proxies `/api/v1/*` to the backend. Anything the browser must see is a
+  `NEXT_PUBLIC_*` build-time variable — those are inlined at build time, so changing one
+  requires a rebuild/redeploy, not just a restart.
+- **backend/** — FastAPI + SQLAlchemy → **Render** (Dockerfile at `backend/Dockerfile`,
+  root `Dockerfile` + `entrypoint.sh` for the combined image). Runtime secrets
+  (`DATABASE_URL`, `JWT_SECRET`) are server-side env vars; changing one is a restart, no rebuild.
+- **database** — managed **PostgreSQL** via `DATABASE_URL` (asyncpg). Local runs may fall back
+  to SQLite automatically; never hardcode a connection string.
+- Keep `vercel.json`, `render.yaml`, `infra/render.yaml`, `infra/docker-compose.yml` and both
+  Dockerfiles VALID — they are what the deploy pipeline and the user's `docker compose up`
+  depend on. Add service config there rather than inventing a new deploy path.
+- Read every variable from `os.environ` / `process.env` with a safe default. Never commit a
+  real secret and never inline a key in source.
+
 ## Your job
 1. **backend/actions.py** — replace every `raise HTTPException(501, ...)` with a real
    implementation of the rules below using the async SQLAlchemy `session`. Keep paths,
@@ -2807,16 +2825,45 @@ CRUD: `GET/POST /api/v1/{{plural}}`, `GET/PATCH/DELETE /api/v1/{{plural}}/{{id}}
    create one `page.tsx` per screen at `frontend/src/app/<route>/page.tsx` ("use client").
    Each page loads and mutates REAL data through the API (`@/lib/api`) and types (`@/lib/types`).
    QUALITY & MOTION: Web applications must have polished visual animations and feel alive.
-   - Use Framer Motion (`framer-motion`) and Skiper UI (`@skiper-ui` / `skipper-ui.com`).
-   - Import pre-bundled components from `@/components/ui/skiper-ui`:
-     `Link000`, `Link001` (animated hover underline & arrow), `SkiperCard` (spotlight hover & lift),
-     `SkiperButton` (motion press & glow), `SkiperBadge` (radar ping pulse), `SkiperCounter`,
-     and motion wrappers (`FadeIn`, `SlideUp`, `StaggerContainer`).
-   - You can also add additional components with `npx shadcn add @skiper-ui/<component>`.
-   - Add micro-animations: staggered card entrances (`motion.div`), hover elevation, slide-over
-     drawers with backdrop blur for modals/forms, dynamic status pill pulses, and smooth transitions.
-   Replace `{{/* __MODULE_LINKS__ */}}` in `src/app/page.tsx` with animated navigation to the screens.
+   UI: a shadcn/ui component library is PREINSTALLED. Compose it — do not hand-roll primitives.
+   - Import from `@/components/ui/<name>`: button, card (Card/CardHeader/CardTitle/
+     CardDescription/CardContent/CardFooter), input, label, textarea, select, checkbox, switch,
+     badge, table (Table/TableHeader/TableBody/TableRow/TableHead/TableCell), tabs, dialog,
+     dropdown-menu, alert, separator, skeleton, sonner (toasts).
+   - Need something else? INSTALL it rather than hand-rolling it:
+     `npx shadcn@latest add <name> --yes` from the `frontend` dir (the project is already
+     configured — components.json, the `@/components/ui` alias and the design tokens).
+     Useful additions: accordion, alert-dialog, avatar, breadcrumb, calendar, carousel, chart,
+     collapsible, command, drawer, form, hover-card, pagination, popover, progress, radio-group,
+     scroll-area, slider, tooltip. Never import a path under `@/components/ui` for a component
+     you have not actually installed.
+   - These premade components are yours to PERSONALISE. Pass className, tune variants and
+     restyle with the Tailwind tokens (bg-background, bg-card, bg-muted, text-muted-foreground,
+     bg-primary, bg-destructive, border-border) so the app looks designed for this product, not
+     default-library. Prefer composing over forking a file in `ui/`; if you do edit one, keep
+     every existing export so the other screens keep working.
+   - Animated primitives are preinstalled too: `@/components/ui/skiper-ui` (`Link000`, `Link001`,
+     `SkiperCard`, `SkiperButton`, `SkiperBadge`, `SkiperCounter`) plus `framer-motion` and
+     `lucide-react`. Use them as accents on top of the shadcn components, not instead of them.
+   - Motion: staggered card entrances (`motion.div`), hover elevation, slide-over drawers with
+     backdrop blur for modals/forms, animated status pills.
+   - Responsive and mobile-first at 375px: stack cards, or wrap tables in `overflow-x-auto` and
+     hide secondary columns on small screens. Every list screen needs a real empty state,
+     loading skeletons, and a create/edit form with validation.
+   Replace `{{/* __MODULE_LINKS__ */}}` in `src/app/page.tsx` with navigation to the screens.
 {screens}
+
+## Build on the scaffold — never ship it as-is
+The repository you are given is a starting point, not the deliverable. Implement what this spec
+asks for, in this codebase: real screens wired to the API, real domain logic in `actions.py`,
+real empty/loading/error states. Leaving stubs, `501`s, TODOs, placeholder copy or lorem ipsum
+is a failure, even when the tests happen to pass.
+
+The other half of that rule: **the scaffold may already implement part of the spec** — a
+template's CRUD, its auth, its components, a helper you would have written yourself. When that
+is true, treat it as already done: read it, keep it, wire it up, and do NOT rewrite, duplicate
+or "clean up" working code. Read before you write. Change only what the spec actually requires,
+and let the rest stand.
 
 ## Acceptance tests you must make pass
 {tests}

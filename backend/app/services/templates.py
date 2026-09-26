@@ -9,585 +9,407 @@ handful of endpoints — small enough for free-tier deploys (GitHub + Render).
 
 from typing import Any
 
-_TODO = {
-    "business_description": (
+from app.services.app_spec import pluralize
+
+# ---------------------------------------------------------------------------
+# Preset state is DERIVED, not hand-written
+#
+# Each preset used to carry ~150 lines of hand-written HLD, LLD, ER diagram,
+# API spec and DDL - four copies of the same CRUD boilerplate that had to be
+# kept in sync by hand. They drifted: the DDL was written out separately from
+# the entity list it claims to describe, so a field could exist in the schema
+# but be missing from the generated SQL, and the HLD could advertise tables the
+# database never creates.
+#
+# A preset now declares ONE thing - its entities, their fields and their
+# relationships - and every downstream artifact is derived from that single
+# source of truth:
+#
+#     entities + relationships
+#        |-> er_diagram            (direct)
+#        |-> lld.modules           (one module per entity, endpoints + models)
+#        |-> api_spec.endpoints    (CRUD per entity, auth, nested children)
+#        |-> generated_schema.ddl  (rendered from the same field definitions)
+#        \-> hld                   (overview + component list naming the tables)
+#
+# Adding a field can no longer leave the DDL or the endpoints behind, and the
+# architecture documents can no longer disagree with the schema.
+# ---------------------------------------------------------------------------
+
+_TECH_STACK: dict[str, str] = {
+    "frontend": "Next.js 15, React, TypeScript, Tailwind CSS, shadcn/ui",
+    "backend": "Python 3.12, FastAPI, SQLAlchemy 2.0, Pydantic v2",
+    "database": "PostgreSQL 16",
+    "auth": "JWT",
+}
+
+
+def _pascal(name: str) -> str:
+    """``leave_request`` -> ``LeaveRequest`` (matches the generated models)."""
+    return "".join(part.capitalize() for part in name.split("_") if part)
+
+
+#: Identifiers that are reserved words in PostgreSQL. A domain entity called
+#: ``order`` (very common for restaurant/booking apps) generates
+#: ``CREATE TABLE order (...)``, which is a syntax error, so they get quoted.
+_SQL_RESERVED = {
+    "all", "analyse", "analyze", "and", "any", "array", "as", "asc", "authorization",
+    "between", "binary", "both", "case", "cast", "check", "collate", "column",
+    "constraint", "create", "cross", "current_date", "current_role", "current_time",
+    "current_timestamp", "current_user", "default", "deferrable", "desc",
+    "distinct", "do", "else", "end", "except", "false", "for", "foreign", "from",
+    "grant", "group", "having", "in", "initially", "intersect", "into", "lateral",
+    "leading", "limit", "localtime", "localtimestamp", "not", "null", "offset", "on",
+    "only", "or", "order", "placing", "primary", "references", "returning", "select",
+    "session_user", "some", "symmetric", "table", "then", "to", "trailing", "true",
+    "union", "unique", "user", "using", "variadic", "when", "where", "window", "with",
+}
+
+
+def _sql_ident(name: str) -> str:
+    """Quote a SQL identifier only when it collides with a reserved word."""
+    return f'"{name}"' if name.lower() in _SQL_RESERVED else name
+
+
+def _ddl_for(entities: list[dict[str, Any]]) -> str:
+    """Render PostgreSQL DDL directly from the entity definitions."""
+    tables: list[str] = []
+    for entity in entities:
+        table = _sql_ident(str(entity["name"]))
+        columns: list[str] = []
+        for field in entity.get("fields", []):
+            fname = _sql_ident(str(field["name"]))
+            ftype = str(field.get("type", "TEXT"))
+            if field.get("pk"):
+                # Only UUID keys can rely on a database-side default.
+                suffix = " DEFAULT gen_random_uuid()" if ftype == "UUID" else ""
+                columns.append(f"  {fname} {ftype} PRIMARY KEY{suffix}")
+                continue
+            if field.get("fk"):
+                ref_table = _sql_ident(str(field["fk"]).split(".")[0])
+                columns.append(
+                    f"  {fname} {ftype} NOT NULL REFERENCES {ref_table}(id) ON DELETE CASCADE"
+                )
+                continue
+            default = ""
+            if "default" in field:
+                literal = field["default"]
+                if isinstance(literal, bool):
+                    literal = "TRUE" if literal else "FALSE"
+                default = f" DEFAULT {literal}"
+            columns.append(f"  {fname} {ftype}{default} NOT NULL")
+        tables.append(f"CREATE TABLE {table} (\n" + ",\n".join(columns) + "\n);")
+    return "\n\n".join(tables)
+
+
+def _endpoints_for(
+    entities: list[dict[str, Any]],
+    relationships: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Standard REST surface for every entity, plus nested child collections."""
+    by_name = {e["name"]: e for e in entities}
+    endpoints: list[dict[str, str]] = [
+        {"method": "POST", "path": "/api/v1/auth/login", "summary": "Login"},
+        {"method": "POST", "path": "/api/v1/auth/register", "summary": "Register"},
+    ]
+    for entity in entities:
+        name = entity["name"]
+        plural = pluralize(name)
+        label = _pascal(name)
+        endpoints.extend(
+            [
+                {"method": "GET", "path": f"/api/v1/{plural}", "summary": f"List {plural}"},
+                {"method": "POST", "path": f"/api/v1/{plural}", "summary": f"Create {label}"},
+                {
+                    "method": "GET",
+                    "path": f"/api/v1/{plural}/{name}_id",
+                    "summary": f"Get {label}",
+                },
+                {
+                    "method": "PATCH",
+                    "path": f"/api/v1/{plural}/{name}_id",
+                    "summary": f"Update {label}",
+                },
+                {
+                    "method": "DELETE",
+                    "path": f"/api/v1/{plural}/{name}_id",
+                    "summary": f"Delete {label}",
+                },
+            ]
+        )
+
+    # A one-to-many relationship is reachable both as a filtered collection and
+    # as a nested route, which is what the generated routers actually expose.
+    for rel in relationships:
+        parent = rel.get("from")
+        child = rel.get("to")
+        if not parent or not child or parent not in by_name or child not in by_name:
+            continue
+        endpoints.append(
+            {
+                "method": "GET",
+                "path": f"/api/v1/{pluralize(parent)}/{parent}_id/{pluralize(child)}",
+                "summary": f"List {pluralize(child)} for a {parent}",
+            }
+        )
+    return endpoints
+
+
+def _derive_template_state(
+    *,
+    solution_title: str,
+    industry: str,
+    business_description: str,
+    identified_solutions: list[str],
+    confirmed_modules: list[str],
+    entities: list[dict[str, Any]],
+    screen_name: str,
+    screen_layout: str,
+    screen_components: list[str],
+    relationships: list[dict[str, str]] | None = None,
+    component_descriptions: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Build a full preset ``ai_state`` from its domain facts.
+
+    The returned dict keeps the exact shape the MVP builder and the artifact
+    pipeline already consume, but every architecture artifact is generated from
+    ``entities`` rather than transcribed alongside it.
+    """
+    rels = relationships or []
+    endpoints = _endpoints_for(entities, rels)
+    table_list = ", ".join(e["name"] for e in entities)
+
+    lld_modules = [
+        {
+            "name": pluralize(entity["name"]),
+            "description": (
+                f"CRUD operations and validation for {_pascal(entity['name'])} "
+                f"({len(entity.get('fields', []))} fields)"
+            ),
+            "endpoints": [ep for ep in endpoints if pluralize(entity["name"]) in ep["path"]],
+            "models": [
+                {
+                    "name": _pascal(entity["name"]),
+                    "fields": [f["name"] for f in entity.get("fields", [])],
+                }
+            ],
+        }
+        for entity in entities
+    ]
+
+    descriptions = component_descriptions or {}
+    return {
+        "business_description": business_description,
+        "industry": industry,
+        "solution_title": solution_title,
+        "identified_solutions": identified_solutions,
+        "confirmed_modules": confirmed_modules,
+        "hld": {
+            "content": {
+                "system_overview": (
+                    f"{solution_title} is a {industry} application. A Next.js frontend talks to a "
+                    f"FastAPI backend over a versioned REST API, backed by PostgreSQL. "
+                    f"Persistent domain data: {table_list}."
+                ),
+                "architecture": "Monolith",
+                "components": [
+                    {
+                        "name": "Web UI",
+                        "description": descriptions.get(
+                            "web", "Next.js App Router frontend styled with shadcn/ui"
+                        ),
+                    },
+                    {"name": "API", "description": "FastAPI REST backend with Pydantic validation"},
+                    {
+                        "name": "Database",
+                        "description": f"PostgreSQL with tables: {table_list}",
+                    },
+                ],
+                "tech_stack": dict(_TECH_STACK),
+            }
+        },
+        "lld": {"content": {"modules": lld_modules}},
+        "er_diagram": {"content": {"entities": entities, "relationships": rels}},
+        "api_spec": {
+            "content": {
+                "base_url": "/api/v1",
+                "authentication": "Bearer JWT token",
+                "endpoints": endpoints,
+            }
+        },
+        "components": [
+            {"name": "Web UI", "type": "frontend", "description": descriptions.get("web", "Next.js App Router frontend")},
+            {"name": "API", "type": "backend", "description": "FastAPI REST API"},
+            {"name": "Database", "type": "database", "description": f"PostgreSQL ({table_list})"},
+        ],
+        "generated_schema": {"content": {"ddl": _ddl_for(entities)}},
+        "wireframes": [
+            {
+                "content": {
+                    "title": f"{solution_title} Overview",
+                    "screens": [
+                        {
+                            "name": screen_name,
+                            "layout": screen_layout,
+                            "components": screen_components,
+                        }
+                    ],
+                }
+            }
+        ],
+        "bpmn_flows": [],
+    }
+
+
+_TODO = _derive_template_state(
+    solution_title="QuickTodos",
+    industry="productivity",
+    business_description=(
         "A simple todo list app where users can create projects and track tasks. "
         "Each task has a title, done flag, and belongs to a project."
     ),
-    "industry": "productivity",
-    "solution_title": "QuickTodos",
-    "identified_solutions": ["task_management"],
-    "confirmed_modules": ["task_management"],
-    "hld": {
-        "content": {
-            "system_overview": (
-                "QuickTodos is a minimal single-user todo tracker. Next.js frontend, "
-                "FastAPI backend, PostgreSQL database, JWT auth."
-            ),
-            "architecture": "Monolith",
-            "components": [
-                {"name": "Web UI", "description": "Next.js + Tailwind todo dashboard"},
-                {"name": "API", "description": "FastAPI CRUD backend"},
-                {"name": "Database", "description": "PostgreSQL with project + task tables"},
-            ],
-            "tech_stack": {
-                "frontend": "Next.js 15, React, TypeScript, Tailwind CSS",
-                "backend": "Python 3.12, FastAPI, SQLAlchemy 2.0, Pydantic v2",
-                "database": "PostgreSQL 16",
-                "auth": "JWT",
-            },
-        }
-    },
-    "lld": {
-        "content": {
-            "modules": [
-                {
-                    "name": "task_management",
-                    "description": "CRUD for projects and tasks with toggle-done",
-                    "endpoints": [
-                        {
-                            "method": "GET",
-                            "path": "/api/v1/projects",
-                            "description": "List projects",
-                        },
-                        {
-                            "method": "POST",
-                            "path": "/api/v1/projects",
-                            "description": "Create project",
-                        },
-                        {
-                            "method": "GET",
-                            "path": "/api/v1/projects/{project_id}/tasks",
-                            "description": "List tasks",
-                        },
-                        {"method": "POST", "path": "/api/v1/tasks", "description": "Create task"},
-                        {
-                            "method": "PATCH",
-                            "path": "/api/v1/tasks/{task_id}",
-                            "description": "Update task",
-                        },
-                        {
-                            "method": "DELETE",
-                            "path": "/api/v1/tasks/{task_id}",
-                            "description": "Delete task",
-                        },
-                    ],
-                    "models": [
-                        {"name": "Project", "fields": ["id", "name", "created_at"]},
-                        {
-                            "name": "Task",
-                            "fields": ["id", "project_id", "title", "done", "created_at"],
-                        },
-                    ],
-                }
-            ],
-            "data_flow": "Frontend -> FastAPI -> PostgreSQL",
-        }
-    },
-    "er_diagram": {
-        "content": {
-            "entities": [
-                {
-                    "name": "project",
-                    "fields": [
-                        {"name": "id", "type": "UUID", "pk": True},
-                        {"name": "name", "type": "VARCHAR(255)"},
-                        {"name": "created_at", "type": "TIMESTAMPTZ"},
-                    ],
-                },
-                {
-                    "name": "task",
-                    "fields": [
-                        {"name": "id", "type": "UUID", "pk": True},
-                        {"name": "project_id", "type": "UUID", "fk": "project.id"},
-                        {"name": "title", "type": "VARCHAR(255)"},
-                        {"name": "done", "type": "BOOLEAN", "default": False},
-                        {"name": "created_at", "type": "TIMESTAMPTZ"},
-                    ],
-                },
-            ],
-            "relationships": [{"from": "project", "to": "task", "type": "one_to_many"}],
-        }
-    },
-    "api_spec": {
-        "content": {
-            "base_url": "/api/v1",
-            "authentication": "Bearer JWT token",
-            "endpoints": [
-                {"method": "POST", "path": "/api/v1/auth/login", "summary": "Login"},
-                {"method": "POST", "path": "/api/v1/auth/register", "summary": "Register"},
-                {"method": "GET", "path": "/api/v1/projects", "summary": "List projects"},
-                {"method": "POST", "path": "/api/v1/projects", "summary": "Create project"},
-                {
-                    "method": "GET",
-                    "path": "/api/v1/projects/{project_id}/tasks",
-                    "summary": "List tasks",
-                },
-                {"method": "POST", "path": "/api/v1/tasks", "summary": "Create task"},
-                {"method": "PATCH", "path": "/api/v1/tasks/{task_id}", "summary": "Update task"},
-                {"method": "DELETE", "path": "/api/v1/tasks/{task_id}", "summary": "Delete task"},
-            ],
-        }
-    },
-    "generated_schema": {
-        "content": {
-            "ddl": (
-                "CREATE TABLE project (\n"
-                "  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n"
-                "  name VARCHAR(255) NOT NULL,\n"
-                "  created_at TIMESTAMPTZ DEFAULT NOW()\n"
-                ");\n\n"
-                "CREATE TABLE task (\n"
-                "  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n"
-                "  project_id UUID NOT NULL REFERENCES project(id) ON DELETE CASCADE,\n"
-                "  title VARCHAR(255) NOT NULL,\n"
-                "  done BOOLEAN DEFAULT FALSE NOT NULL,\n"
-                "  created_at TIMESTAMPTZ DEFAULT NOW()\n"
-                ");"
-            )
-        }
-    },
-    "wireframes": [
+    identified_solutions=["task_management"],
+    confirmed_modules=["task_management"],
+    entities=[
         {
-            "content": {
-                "title": "Todo Dashboard",
-                "screens": [
-                    {
-                        "name": "Dashboard Home",
-                        "layout": "Single column list",
-                        "components": [
-                            "Sidebar: project list with counts",
-                            "Main area: checkbox tasks for selected project",
-                            "Input row to add a new task",
-                        ],
-                    }
-                ],
-            }
+            "name": "project",
+            "fields": [
+                {"name": "id", "type": "UUID", "pk": True},
+                {"name": "name", "type": "VARCHAR(255)"},
+                {"name": "created_at", "type": "TIMESTAMPTZ"},
+            ],
+        },
+        {
+            "name": "task",
+            "fields": [
+                {"name": "id", "type": "UUID", "pk": True},
+                {"name": "project_id", "type": "UUID", "fk": "project.id"},
+                {"name": "title", "type": "VARCHAR(255)"},
+                {"name": "done", "type": "BOOLEAN", "default": False},
+                {"name": "created_at", "type": "TIMESTAMPTZ"},
+            ],
+        },
+    ],
+    relationships=[{"from": "project", "to": "task", "type": "one_to_many"}],
+    screen_name="Dashboard Home",
+    screen_layout="Single column list",
+    screen_components=[
+        "Sidebar: project list with counts",
+        "Main area: checkbox tasks for selected project",
+        "Input row to add a new task",
+    ],
+    component_descriptions={"web": "Next.js + Tailwind todo dashboard"},
+)
+
+
+_CALCULATOR = _derive_template_state(
+    solution_title="QuickCalc",
+    industry="productivity",
+    business_description=(
+        "An arithmetic calculator that evaluates an expression and keeps a "
+        "searchable history of previous calculations."
+    ),
+    identified_solutions=["calculator"],
+    confirmed_modules=["calculator"],
+    entities=[
+        {
+            "name": "calculation",
+            "fields": [
+                {"name": "id", "type": "UUID", "pk": True},
+                {"name": "expression", "type": "VARCHAR(255)"},
+                {"name": "result", "type": "VARCHAR(50)"},
+                {"name": "created_at", "type": "TIMESTAMPTZ"},
+            ],
         }
     ],
-    "bpmn_flows": [],
-}
+    screen_name="Calculator Page",
+    screen_layout="Keypad over history list",
+    screen_components=[
+        "Expression display",
+        "Numeric keypad",
+        "Reversible calculation history list",
+    ],
+    component_descriptions={"web": "Next.js + Tailwind calculator keypad"},
+)
 
-_CALCULATOR = {
-    "business_description": (
-        "A clean web calculator supporting the four basic arithmetic operations "
-        "with a browsing history of past calculations."
+
+_PORTFOLIO = _derive_template_state(
+    solution_title="MyPortfolio",
+    industry="personal",
+    business_description=(
+        "A personal portfolio site with a landing page, a project showcase and a "
+        "contact form that stores enquiries."
     ),
-    "industry": "productivity",
-    "solution_title": "QuickCalc",
-    "identified_solutions": ["calculator"],
-    "confirmed_modules": ["calculator"],
-    "hld": {
-        "content": {
-            "system_overview": (
-                "QuickCalc is a minimal web calculator. Next.js frontend, FastAPI "
-                "backend storing a calculation history table, JWT auth."
-            ),
-            "architecture": "Monolith",
-            "components": [
-                {"name": "Web UI", "description": "Next.js + Tailwind calculator keypad"},
-                {"name": "API", "description": "FastAPI evaluate + history endpoints"},
-                {"name": "Database", "description": "PostgreSQL calculation history table"},
-            ],
-            "tech_stack": {
-                "frontend": "Next.js 15, React, TypeScript, Tailwind CSS",
-                "backend": "Python 3.12, FastAPI, SQLAlchemy 2.0, Pydantic v2",
-                "database": "PostgreSQL 16",
-                "auth": "JWT",
-            },
-        }
-    },
-    "lld": {
-        "content": {
-            "modules": [
-                {
-                    "name": "calculator",
-                    "description": "Evaluate arithmetic expressions and store history",
-                    "endpoints": [
-                        {
-                            "method": "POST",
-                            "path": "/api/v1/calculations/evaluate",
-                            "description": "Evaluate expression",
-                        },
-                        {
-                            "method": "GET",
-                            "path": "/api/v1/calculations",
-                            "description": "List calculation history",
-                        },
-                        {
-                            "method": "DELETE",
-                            "path": "/api/v1/calculations/{id}",
-                            "description": "Delete history entry",
-                        },
-                    ],
-                    "models": [
-                        {
-                            "name": "Calculation",
-                            "fields": ["id", "expression", "result", "created_at"],
-                        },
-                    ],
-                }
-            ],
-            "data_flow": "Frontend -> FastAPI -> PostgreSQL",
-        }
-    },
-    "er_diagram": {
-        "content": {
-            "entities": [
-                {
-                    "name": "calculation",
-                    "fields": [
-                        {"name": "id", "type": "UUID", "pk": True},
-                        {"name": "expression", "type": "VARCHAR(255)"},
-                        {"name": "result", "type": "VARCHAR(50)"},
-                        {"name": "created_at", "type": "TIMESTAMPTZ"},
-                    ],
-                }
-            ],
-            "relationships": [],
-        }
-    },
-    "api_spec": {
-        "content": {
-            "base_url": "/api/v1",
-            "authentication": "Bearer JWT token",
-            "endpoints": [
-                {"method": "POST", "path": "/api/v1/auth/login", "summary": "Login"},
-                {"method": "POST", "path": "/api/v1/auth/register", "summary": "Register"},
-                {
-                    "method": "POST",
-                    "path": "/api/v1/calculations/evaluate",
-                    "summary": "Evaluate expression",
-                },
-                {"method": "GET", "path": "/api/v1/calculations", "summary": "List history"},
-                {
-                    "method": "DELETE",
-                    "path": "/api/v1/calculations/{id}",
-                    "summary": "Delete history entry",
-                },
-            ],
-        }
-    },
-    "generated_schema": {
-        "content": {
-            "ddl": (
-                "CREATE TABLE calculation (\n"
-                "  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n"
-                "  expression VARCHAR(255) NOT NULL,\n"
-                "  result VARCHAR(50) NOT NULL,\n"
-                "  created_at TIMESTAMPTZ DEFAULT NOW()\n"
-                ");"
-            )
-        }
-    },
-    "wireframes": [
+    identified_solutions=["portfolio"],
+    confirmed_modules=["portfolio"],
+    entities=[
         {
-            "content": {
-                "title": "Calculator",
-                "screens": [
-                    {
-                        "name": "Calculator Page",
-                        "layout": "Centered keypad",
-                        "components": [
-                            "Display showing current expression and result",
-                            "Digit and operator buttons (0-9, + - * / =, C)",
-                            "History panel listing recent calculations",
-                        ],
-                    }
-                ],
-            }
+            "name": "contact_message",
+            "fields": [
+                {"name": "id", "type": "UUID", "pk": True},
+                {"name": "name", "type": "VARCHAR(255)"},
+                {"name": "email", "type": "VARCHAR(255)"},
+                {"name": "message", "type": "TEXT"},
+                {"name": "created_at", "type": "TIMESTAMPTZ"},
+            ],
         }
     ],
-    "bpmn_flows": [],
-}
-
-_PORTFOLIO = {
-    "business_description": (
-        "A personal portfolio website with a landing page, project showcase, "
-        "and a simple contact form that stores messages. No backend CRUD beyond "
-        "the contact message table."
-    ),
-    "industry": "personal",
-    "solution_title": "MyPortfolio",
-    "identified_solutions": ["portfolio"],
-    "confirmed_modules": ["portfolio"],
-    "hld": {
-        "content": {
-            "system_overview": (
-                "A personal portfolio site. Next.js frontend with Tailwind, FastAPI "
-                "backend exposing a public contact form endpoint, PostgreSQL storing "
-                "contact messages."
-            ),
-            "architecture": "Monolith",
-            "components": [
-                {"name": "Web UI", "description": "Next.js + Tailwind landing page"},
-                {"name": "API", "description": "FastAPI contact message endpoint"},
-                {"name": "Database", "description": "PostgreSQL contact message table"},
-            ],
-            "tech_stack": {
-                "frontend": "Next.js 15, React, TypeScript, Tailwind CSS",
-                "backend": "Python 3.12, FastAPI, SQLAlchemy 2.0, Pydantic v2",
-                "database": "PostgreSQL 16",
-                "auth": "none (public site)",
-            },
-        }
-    },
-    "lld": {
-        "content": {
-            "modules": [
-                {
-                    "name": "portfolio",
-                    "description": "Landing page, projects showcase, and contact form",
-                    "endpoints": [
-                        {
-                            "method": "POST",
-                            "path": "/api/v1/contact",
-                            "description": "Submit contact message",
-                        },
-                        {
-                            "method": "GET",
-                            "path": "/api/v1/contact",
-                            "description": "List messages",
-                        },
-                    ],
-                    "models": [
-                        {
-                            "name": "ContactMessage",
-                            "fields": ["id", "name", "email", "message", "created_at"],
-                        },
-                    ],
-                }
-            ],
-            "data_flow": "Frontend -> FastAPI -> PostgreSQL",
-        }
-    },
-    "er_diagram": {
-        "content": {
-            "entities": [
-                {
-                    "name": "contact_message",
-                    "fields": [
-                        {"name": "id", "type": "UUID", "pk": True},
-                        {"name": "name", "type": "VARCHAR(255)"},
-                        {"name": "email", "type": "VARCHAR(255)"},
-                        {"name": "message", "type": "TEXT"},
-                        {"name": "created_at", "type": "TIMESTAMPTZ"},
-                    ],
-                }
-            ],
-            "relationships": [],
-        }
-    },
-    "api_spec": {
-        "content": {
-            "base_url": "/api/v1",
-            "authentication": "none (public site)",
-            "endpoints": [
-                {"method": "POST", "path": "/api/v1/contact", "summary": "Submit contact message"},
-                {"method": "GET", "path": "/api/v1/contact", "summary": "List messages"},
-            ],
-        }
-    },
-    "generated_schema": {
-        "content": {
-            "ddl": (
-                "CREATE TABLE contact_message (\n"
-                "  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n"
-                "  name VARCHAR(255) NOT NULL,\n"
-                "  email VARCHAR(255) NOT NULL,\n"
-                "  message TEXT NOT NULL,\n"
-                "  created_at TIMESTAMPTZ DEFAULT NOW()\n"
-                ");"
-            )
-        }
-    },
-    "wireframes": [
-        {
-            "content": {
-                "title": "Portfolio",
-                "screens": [
-                    {
-                        "name": "Landing Page",
-                        "layout": "Single page scroll",
-                        "components": [
-                            "Hero section with name and tagline",
-                            "Projects grid with cards",
-                            "Contact form with name, email, message",
-                        ],
-                    }
-                ],
-            }
-        }
+    screen_name="Landing Page",
+    screen_layout="Hero, project grid, contact form",
+    screen_components=[
+        "Hero section with introduction",
+        "Responsive project showcase grid",
+        "Contact form posting to the API",
     ],
-    "bpmn_flows": [],
-}
+    component_descriptions={"web": "Next.js + Tailwind landing page"},
+)
 
 
-_RESTAURANT_ORDERING = {
-    "business_description": (
-        "An online food menu and ordering platform for restaurants and cafes. "
-        "Customers can browse culinary dishes, filter by category/diet, add items to their "
-        "interactive cart, and submit live dine-in or takeout orders. Restaurant admins and kitchen staff "
-        "can monitor and update incoming orders with live status tracking."
+_RESTAURANT_ORDERING = _derive_template_state(
+    solution_title="TableServe",
+    industry="food_service",
+    business_description=(
+        "A restaurant ordering system with a customer menu storefront, a cart, and "
+        "a kitchen board where staff track incoming orders through preparation."
     ),
-    "industry": "food_and_beverage",
-    "solution_title": "Bistro & Cafe Ordering",
-    "identified_solutions": ["menu_catalog", "order_management"],
-    "confirmed_modules": ["dishes", "orders"],
-    "hld": {
-        "content": {
-            "system_overview": (
-                "Bistro & Cafe Ordering is a modern food ordering system with a customer storefront "
-                "and an admin kitchen display system. Next.js 15 frontend, FastAPI backend, PostgreSQL, and JWT auth."
-            ),
-            "architecture": "Monolith",
-            "components": [
-                {
-                    "name": "Customer Storefront",
-                    "description": "Interactive menu with cart drawer and instant checkout",
-                },
-                {
-                    "name": "Kitchen Orders Board",
-                    "description": "Live admin order status progression dashboard",
-                },
-                {
-                    "name": "API",
-                    "description": "FastAPI REST backend with /api/v1/dishes and /api/v1/orders",
-                },
-                {"name": "Database", "description": "PostgreSQL with dish and order models"},
+    identified_solutions=["menu_ordering"],
+    confirmed_modules=["menu_ordering", "kitchen_board"],
+    entities=[
+        {
+            "name": "dish",
+            "fields": [
+                {"name": "id", "type": "UUID", "pk": True},
+                {"name": "name", "type": "VARCHAR(255)"},
+                {"name": "category", "type": "VARCHAR(100)"},
+                {"name": "price", "type": "FLOAT"},
+                {"name": "description", "type": "TEXT"},
+                {"name": "dietary", "type": "VARCHAR(100)"},
+                {"name": "is_available", "type": "BOOLEAN", "default": True},
+                {"name": "created_at", "type": "TIMESTAMPTZ"},
             ],
-            "tech_stack": {
-                "frontend": "Next.js 15, React, TypeScript, Tailwind CSS, Lucide Icons",
-                "backend": "Python 3.12, FastAPI, SQLAlchemy 2.0, Pydantic v2",
-                "database": "PostgreSQL 16",
-                "auth": "JWT",
-            },
-        }
-    },
-    "lld": {
-        "content": {
-            "modules": [
-                {
-                    "name": "dishes",
-                    "description": "Menu catalog with categories, pricing, and dietary badges",
-                    "endpoints": [
-                        {
-                            "method": "GET",
-                            "path": "/api/v1/dishes",
-                            "description": "List all menu items",
-                        },
-                        {
-                            "method": "POST",
-                            "path": "/api/v1/dishes",
-                            "description": "Add new dish to menu",
-                        },
-                        {
-                            "method": "DELETE",
-                            "path": "/api/v1/dishes/{dish_id}",
-                            "description": "Remove dish from menu",
-                        },
-                    ],
-                    "models": [
-                        {
-                            "name": "Dish",
-                            "fields": [
-                                "id",
-                                "name",
-                                "category",
-                                "price",
-                                "description",
-                                "dietary",
-                                "is_available",
-                                "created_at",
-                            ],
-                        }
-                    ],
-                },
-                {
-                    "name": "orders",
-                    "description": "Order placement and live kitchen status tracking",
-                    "endpoints": [
-                        {
-                            "method": "GET",
-                            "path": "/api/v1/orders",
-                            "description": "List all customer orders",
-                        },
-                        {
-                            "method": "POST",
-                            "path": "/api/v1/orders",
-                            "description": "Place customer order",
-                        },
-                        {
-                            "method": "PATCH",
-                            "path": "/api/v1/orders/{order_id}",
-                            "description": "Update order status",
-                        },
-                    ],
-                    "models": [
-                        {
-                            "name": "Order",
-                            "fields": [
-                                "id",
-                                "table_number",
-                                "total_amount",
-                                "status",
-                                "created_at",
-                            ],
-                        }
-                    ],
-                },
+        },
+        {
+            "name": "order",
+            "fields": [
+                {"name": "id", "type": "UUID", "pk": True},
+                {"name": "table_number", "type": "VARCHAR(255)"},
+                {"name": "total_amount", "type": "FLOAT"},
+                {"name": "status", "type": "VARCHAR(50)"},
+                {"name": "created_at", "type": "TIMESTAMPTZ"},
             ],
-            "data_flow": "Frontend Customer Cart -> /api/v1/orders -> Kitchen Display Dashboard",
-        }
+        },
+    ],
+    screen_name="Customer Storefront",
+    screen_layout="Menu grid with cart drawer",
+    screen_components=[
+        "Menu grid grouped by category with dietary labels",
+        "Cart drawer with live total",
+        "Kitchen orders board with status transitions",
+    ],
+    component_descriptions={
+        "web": "Next.js menu storefront with cart drawer and kitchen board"
     },
-    "er_diagram": {
-        "content": {
-            "entities": [
-                {
-                    "name": "dish",
-                    "fields": [
-                        {"name": "id", "type": "UUID", "pk": True},
-                        {"name": "name", "type": "VARCHAR(255)"},
-                        {"name": "category", "type": "VARCHAR(100)"},
-                        {"name": "price", "type": "FLOAT"},
-                        {"name": "description", "type": "TEXT"},
-                        {"name": "dietary", "type": "VARCHAR(100)"},
-                        {"name": "is_available", "type": "BOOLEAN"},
-                        {"name": "created_at", "type": "TIMESTAMPTZ"},
-                    ],
-                },
-                {
-                    "name": "order",
-                    "fields": [
-                        {"name": "id", "type": "UUID", "pk": True},
-                        {"name": "table_number", "type": "VARCHAR(255)"},
-                        {"name": "total_amount", "type": "FLOAT"},
-                        {"name": "status", "type": "VARCHAR(50)"},
-                        {"name": "created_at", "type": "TIMESTAMPTZ"},
-                    ],
-                },
-            ]
-        }
-    },
-    "api_spec": {
-        "content": {
-            "base_url": "/api/v1",
-            "endpoints": [
-                {"method": "GET", "path": "/api/v1/dishes", "summary": "Get menu dishes"},
-                {"method": "POST", "path": "/api/v1/dishes", "summary": "Create new dish"},
-                {"method": "GET", "path": "/api/v1/orders", "summary": "Get active orders"},
-                {"method": "POST", "path": "/api/v1/orders", "summary": "Submit order"},
-                {
-                    "method": "PATCH",
-                    "path": "/api/v1/orders/{id}",
-                    "summary": "Update order status",
-                },
-            ],
-        }
-    },
-    "wireframes": [],
-    "bpmn_flows": [],
-}
+)
 
 
 class MVPTemplate:

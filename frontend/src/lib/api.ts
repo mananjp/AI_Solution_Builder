@@ -20,7 +20,8 @@ import {
   MVPDeployPayload,
   MVPDeployResult,
   MVPDeployStatus,
-  MVPEnvPlan,
+    MVPEnvPlan,
+    MVPEnvUpdateResult,
   OpenCodeChatPayload,
   SystemResources,
   SocialProvidersResponse,
@@ -596,10 +597,26 @@ export const mvpApi = {
     });
   },
 
-  /** Required/optional env vars the finished build needs (UI-driven deploy prep). */
-  async envPlan(buildId: string): Promise<MVPEnvPlan> {
-    return request<MVPEnvPlan>(`/mvp/builds/${buildId}/env-plan`);
-  },
+    /** Required/optional env vars the finished build needs (UI-driven deploy prep). */
+    async envPlan(buildId: string): Promise<MVPEnvPlan> {
+      return request<MVPEnvPlan>(`/mvp/builds/${buildId}/env-plan`);
+    },
+
+    /**
+     * Edit env vars on an ALREADY-deployed build. Patches the live Render
+     * service(s) in place and restarts them, so a rotated secret or a changed
+     * DATABASE_URL no longer requires a full redeploy.
+     */
+    async updateEnv(
+      buildId: string,
+      data: { env: Record<string, string>; unset?: string[]; restart?: boolean }
+    ): Promise<MVPEnvUpdateResult> {
+      return request<MVPEnvUpdateResult>(`/mvp/builds/${buildId}/env`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
+    },
+
 
   /** Poll actual Render deploy state (never a fake "deployed"). */
   async deployStatus(buildId: string): Promise<MVPDeployStatus> {

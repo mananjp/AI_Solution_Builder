@@ -315,6 +315,19 @@ export interface MVPEnvPlan {
   injected?: Record<string, string>;
 }
 
+/** Result of patching env vars on an already-deployed build. */
+export interface MVPEnvUpdateResult {
+  updated: string[];
+  failed: { key: string; error: string }[];
+  restarted: number;
+  /**
+   * NEXT_PUBLIC_* values are inlined by Vercel at build time, so they cannot
+   * change on a running service - the user must redeploy for those to apply.
+   */
+  requires_redeploy: string[];
+  message: string;
+}
+
 export interface SystemResources {
   cpu_percent?: number | null;
   cpu_count?: number;
@@ -333,6 +346,8 @@ export interface MVPBuild {
   status: MVPBuildStatus;
   workspace_path: string;
   file_count: number;
+  app_name?: string | null;
+  created_at?: string | null;
   error_message?: string | null;
   repo_url?: string | null;
   render_service_url?: string | null;

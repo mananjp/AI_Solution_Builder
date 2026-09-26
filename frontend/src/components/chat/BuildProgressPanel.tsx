@@ -7,7 +7,7 @@ import { Skeleton } from '@/components/chat/Skeleton';
 import {
   TOTAL_MILESTONES,
   useProgressStalled,
-  useSmoothProgress,
+  useLiveProgress,
   type BuildProgress,
   type ChatState,
 } from '@/hooks/useChatSession';
@@ -77,16 +77,15 @@ export function BuildProgressPanel({
 }) {
   const progress: BuildProgress | null = state.progress;
   const active = state.streaming && Boolean(progress);
+  const steps = progress?.steps ?? [];
+  const activeIndex = steps.findIndex((s) => s.status === 'active');
   const elapsed = useElapsed(progress?.startedAt ?? null, active);
-  const shown = useSmoothProgress(progress?.target ?? 0, active);
+  const shown = useLiveProgress(progress?.target ?? 0, active, activeIndex === -1 ? 0 : activeIndex);
   const done = progress?.phase === 'completed' || (progress?.target ?? 0) >= 100;
   const stalled = useProgressStalled(progress?.target ?? 0, active && !done);
   const scaffoldPhase = progress ? SCAFFOLD_PHASES.has(progress.phase) : false;
 
   if (!active) return null;
-
-  const steps = progress?.steps ?? [];
-  const activeIndex = steps.findIndex((s) => s.status === 'active');
 
   return (
     <div className="space-y-4 animate-fade-in" role="status" aria-live="polite">

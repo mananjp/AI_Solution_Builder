@@ -342,6 +342,41 @@ class RenderDeployer:
             return "failed"
         return "building"
 
+    async def get_latest_deploy(self, service_id: str) -> dict[str, Any] | None:
+        """Return the most recent deploy object for a service.
+
+        Deploy status used to be read from a ``deploy_id`` captured at creation
+        time. That id can be missing (unified single-service deploys) or stale
+        (a newer deploy superseded it), and a missing id silently left the build
+        stuck in "building" forever. Falling back to the newest deploy means the
+        status always reflects what Render is actually doing right now.
+        """
+        if not service_id:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                resp = await client.get(
+                    f"{RENDER_API_BASE}/services/{service_id}/deploys",
+                    headers=self._headers,
+                    params={"limit": 1},
+                )
+            if resp.status_code != 200:
+                logger.info("Latest-deploy lookup failed for %s: HTTP %s", service_id, resp.status_code)
+                return None
+            entries = resp.json()
+            if isinstance(entries, list) and entries:
+                first = entries[0]
+                return first if isinstance(first, dict) else None
+            if isinstance(entries, dict):
+                # Render wraps collections as {"deploy": [...]} on some routes.
+                wrapped = entries.get("deploy") or entries.get("deploys")
+                if isinstance(wrapped, list) and wrapped and isinstance(wrapped[0], dict):
+                    return wrapped[0]
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logger.info("Latest-deploy lookup errored for %s: %s", service_id, exc)
+            return None
+
     async def check_deploy_status(
         self,
         service_id: str,
@@ -467,6 +502,64 @@ class RenderDeployer:
                 error_body,
             )
             return None
+
+    async def set_env_vars(
+        self, service_id: str, env_vars: list[dict[str, str]]
+    ) -> dict[str, Any]:
+        """Update env vars on a live service without clobbering unknown keys.
+
+        Render's bulk ``PUT /env-vars`` endpoint REPLACES the entire set, which
+        would silently delete every variable the platform did not send (Render's
+        own injected ones, anything the user set by hand in the dashboard).
+        So each key is written individually via ``PUT /env-vars/{key}``, which
+        upserts that single variable and leaves the rest of the service intact.
+        """
+        if not service_id:
+            return {"updated": [], "failed": [], "error": "missing service id"}
+
+        updated: list[str] = []
+        failed: list[dict[str, str]] = []
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            for ev in env_vars:
+                key = str(ev.get("key") or "").strip()
+                if not key:
+                    continue
+                try:
+                    resp = await client.put(
+                        f"{RENDER_API_BASE}/services/{service_id}/env-vars/{key}",
+                        headers=self._headers,
+                        json={"value": "" if ev.get("value") is None else str(ev["value"])},
+                    )
+                except Exception as exc:  # noqa: BLE001 - network/timeout per key
+                    failed.append({"key": key, "error": f"{type(exc).__name__}: {exc}"})
+                    continue
+
+                if resp.status_code in (200, 201):
+                    updated.append(key)
+                else:
+                    failed.append({"key": key, "error": f"HTTP {resp.status_code}: {resp.text[:200]}"})
+
+        if updated:
+            logger.info("Render env vars updated on %s: %s", service_id, updated)
+        if failed:
+            logger.warning("Render env var update failures on %s: %s", service_id, failed)
+        return {"updated": updated, "failed": failed}
+
+    async def delete_env_var(self, service_id: str, key: str) -> bool:
+        """Remove a single env var key from a service (used to unset a value)."""
+        if not service_id or not key:
+            return False
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                resp = await client.delete(
+                    f"{RENDER_API_BASE}/services/{service_id}/env-vars/{key}",
+                    headers=self._headers,
+                )
+            return resp.status_code in (200, 204)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Render env var delete failed on %s (%s): %s", service_id, key, exc)
+            return False
 
     async def deploy_repo(
         self,

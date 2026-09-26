@@ -285,16 +285,17 @@ class AppSpec(BaseModel):
 
 # ── LLM generation ──────────────────────────────────────────────────────
 
-SPEC_SYSTEM = """You design SMALL but REAL working apps. Output ONLY JSON matching the schema.
+SPEC_SYSTEM = """You design rich, production-grade working apps. Output ONLY JSON matching the schema.
 
 Hard rules:
-- Model the user's ACTUAL app. Do not default to a generic 'items/status' CRUD or todo app.
+- Model the user's ACTUAL domain. Never default to a generic 'items/status' CRUD or todo app, and never substitute a different industry's entities (an employee/HR request must not become products/orders).
+- Aim for a genuinely useful surface area: 3-6 entities with 3+ meaningful fields each, and a screen per entity. Do not pad with placeholder fields like "name"/"title"/"status" when a real attribute is obvious.
 - If the user asks for a landing page, portfolio, or showcase website, model realistic entities (e.g. leads, inquiries, contact_messages, subscribers, testimonials) and action (e.g. /actions/submit_inquiry, /actions/subscribe_newsletter) with appropriate screens (e.g. Landing Page at "/", Admin/Inquiries at "/inquiries").
 - Put the real logic in `actions` (calculations, state transitions, validation, conflict
   checks, aggregation). Each action has precise `rules` a developer can implement
   without guessing (formulas, edge cases, error codes: 400 invalid, 404 missing, 409 conflict).
 - If the app is genuinely pure CRUD, actions may be empty, but core_value must say so.
-- Entities: 1–6. Fields snake_case; refs are `<entity>_id` with type "ref".
+- Entities: 3–6. Fields snake_case; refs are `<entity>_id` with type "ref".
 - REST conventions that ALREADY exist for every entity (do not list them as actions):
   GET/POST /{plural}, GET/PATCH/DELETE /{plural}/{id}, GET /{plural}?<ref_field>=<id>.
   IDs are integers. Responses of CRUD = the object JSON (with "id").
@@ -302,8 +303,17 @@ Hard rules:
   Use `save` to capture ids, e.g. {"group_id": "id"}, then use "{group_id}" in later paths/bodies.
   Every action must be exercised by at least one test with a concrete numeric/string `expect`.
   Include at least one negative test (400/404/409).
-- Keep it small: this is an MVP a single agent writes in one pass.
-"""
+- Build the FULL app the user described. A high-end result has real entities with real attributes, a screen per entity, and domain actions wired to acceptance tests - do not deliberately under-build to keep the response small.
+
+UI quality (the generated frontend is judged on this):
+- A shadcn/ui component library is PREINSTALLED and ready to import from "@/components/ui/<name>": alert, badge, button, card (Card/CardHeader/CardTitle/CardDescription/CardContent/CardFooter), checkbox, dialog, dropdown-menu, input, label, select, separator, skeleton, sonner (toasts), switch, table (Table/TableHeader/TableBody/TableRow/TableHead/TableCell), tabs, textarea. Also available: "@/components/ui/skiper-ui" animated primitives, recharts for charts, lucide-react icons, framer-motion, react-hook-form, zod, and Tailwind design tokens (bg-background, bg-card, bg-muted, text-muted-foreground, bg-primary, bg-destructive, border-border, rounded-lg/md/sm).
+- Build screens by COMPOSING those premade components. A page assembled from Card + Table + Button + Badge + Input reads as a finished product; the same page hand-rolled from raw <div> elements reads as a wireframe. Do not re-implement a button, card, table, badge, input, modal or toast that already exists.
+- If you genuinely need a component that is NOT preinstalled, install it rather than hand-rolling it: run `npx shadcn@latest add <name> --yes` from the `frontend` directory (e.g. `npx shadcn@latest add accordion --yes`). The project is already configured for shadcn (components.json, "@/components/ui" alias, design tokens), so the CLI drops the component in with correct imports and theme support. Common useful additions: accordion, avatar, calendar, chart, command, drawer, form, hover-card, popover, progress, radio-group, scroll-area, slider, tooltip, carousel, pagination, breadcrumb, collapsible, aspect-ratio, alert-dialog. Never invent an import path under "@/components/ui" for a component you did not install. If installing is not possible in your environment, fall back to composing the preinstalled set plus a small local component - never block the build and never leave a dangling import.
+- The premade components are yours to PERSONALISE. Tweak them for the app's look - pass className, adjust variants, restyle via the Tailwind tokens - so the UI feels designed for this product rather than default-library. Prefer composing and passing className over forking a component file; only edit a component in "@/components/ui" when the app genuinely needs a new variant that composition cannot express, and keep every existing export intact so other screens keep working.
+- Every screen must be responsive, mobile-first, correct at 375px: stack cards, or use an overflow-x-auto table wrapper and hide secondary columns on small screens. Never ship a desktop-only grid that overflows horizontally.
+- Give every list screen real affordances: a search/filter input, a proper empty state, loading skeletons while fetching, and a create/edit form with validation - not a bare JSON dump.
+- Use lucide-react icons for navigation and primary actions, keep the type scale and spacing consistent, and do not hardcode one-off hex colours - use the design tokens so light and dark mode both work.
+- core_value must be a concrete sentence about what the app does beyond CRUD - never leave it empty."""
 
 
 def _spec_schema_hint() -> str:
@@ -369,6 +379,67 @@ def _context_from_state(
     return "\n\n".join(parts)
 
 
+_IRREGULAR_PLURALS: dict[str, str] = {
+    "person": "people",
+    "child": "children",
+    "man": "men",
+    "woman": "women",
+    "foot": "feet",
+    "tooth": "teeth",
+    "mouse": "mice",
+    "goose": "geese",
+    # Sibilant stems that double the final consonant instead of taking "es".
+    # These are lexical exceptions, not a rule - "bus"/"gas"/"lens" take "es".
+    "quiz": "quizzes",
+}
+
+# Suffixes that already end in a sibilant sound, so a singular noun needs "es"
+# rather than a bare "s" (dish -> dishes, box -> boxes).
+_ESCH_SUFFIXES: tuple[str, ...] = ("s", "x", "z", "ch", "sh")
+
+# A trailing "s" here is part of the singular stem, not a plural marker, so
+# these still need "es" (address -> addresses, campus -> campuses).
+_SINGULAR_S_ENDINGS: tuple[str, ...] = ("ss", "us", "is")
+
+# Richness budgets for the deterministic fallback. The previous caps (4
+# entities / 5 fields / 3 modules) truncated real ER diagrams down to a
+# two-entity toy, which is what made generated apps look thin even when the
+# upstream template and diagram were rich.
+#
+# _MAX_FALLBACK_ENTITIES is coupled to the Screen limit: the fallback emits one
+# screen per entity plus a dashboard, and AppSpec allows at most 6 screens, so
+# this must stay at 5 or validation fails.
+_MAX_FALLBACK_ENTITIES = 5
+_MAX_FALLBACK_FIELDS = 10
+_MAX_FALLBACK_MODULES = 5
+
+
+def pluralize(name: str) -> str:
+    """Return the plural form of an entity *name*.
+
+    Entity names arrive from ER diagrams and templates in both singular and
+    plural form. The previous inline rule appended "es" to anything already
+    ending in "s", which turned the plural "products" into "productses" and
+    "orders" into "orderses" - those became module names, routes and table
+    names, so the whole app was mislabelled. A name that is already plural is
+    now returned unchanged.
+    """
+    word = name.strip().lower()
+    if not word:
+        return name
+    if word in _IRREGULAR_PLURALS:
+        return _IRREGULAR_PLURALS[word]
+    if word.endswith(_SINGULAR_S_ENDINGS):
+        return f"{word}es"
+    if word.endswith(_ESCH_SUFFIXES):
+        return word if word.endswith("s") else f"{word}es"
+    if word.endswith("y") and len(word) > 1 and word[-2] not in "aeiou":
+        return f"{word[:-1]}ies"
+    if word.endswith("s"):
+        return word
+    return f"{word}s"
+
+
 def fallback_app_spec(
     ai_state: dict[str, Any],
     user_prompt: str = "",
@@ -398,12 +469,12 @@ def fallback_app_spec(
 
     entities: list[tuple[str, str, list[dict[str, Any]]]] = []
     if raw_entities:
-        for ent in raw_entities[:4]:
+        for ent in raw_entities[:_MAX_FALLBACK_ENTITIES]:
             if isinstance(ent, dict) and ent.get("name"):
                 ename = re.sub(r"[^a-zA-Z0-9_]+", "_", str(ent["name"]).lower()).strip("_")
-                eplural = ename + "s" if not ename.endswith("s") else ename + "es"
+                eplural = pluralize(ename)
                 fields = []
-                for f in ent.get("fields", [])[:5]:
+                for f in ent.get("fields", [])[:_MAX_FALLBACK_FIELDS]:
                     fname = f.get("name", "") if isinstance(f, dict) else str(f)
                     fname = re.sub(r"[^a-zA-Z0-9_]+", "_", fname.lower()).strip("_")
                     if fname and fname not in ("id", "created_at"):
@@ -415,9 +486,9 @@ def fallback_app_spec(
     if not entities:
         modules = ai_state.get("confirmed_modules") or ai_state.get("identified_solutions", [])
         if modules:
-            for m in modules[:3]:
+            for m in modules[:_MAX_FALLBACK_MODULES]:
                 ename = re.sub(r"[^a-zA-Z0-9_]+", "_", str(m).lower()).strip("_")
-                eplural = ename + "s" if not ename.endswith("s") else ename + "es"
+                eplural = pluralize(ename)
                 entities.append(
                     (
                         ename,
@@ -432,7 +503,11 @@ def fallback_app_spec(
         )
         if any(
             k in combined_text
-            for k in ("landing", "portfolio", "showcase", "website", "agency", "service")
+            # "website", "agency" and "service" were dropped as bare keywords:
+            # they appear in ordinary prose ("HR services", "customer service",
+            # "our agency site") and hijacked internal-tool requests into the
+            # inquiry/lead branch. Multi-word forms are specific enough.
+            for k in ("landing page", "landing", "portfolio", "showcase", "one-pager", "brochure")
         ):
             entities = [
                 (
@@ -441,6 +516,69 @@ def fallback_app_spec(
                     [{"name": "name", "type": "string"}, {"name": "email", "type": "string"}],
                 ),
                 ("lead", "leads", [{"name": "company", "type": "string"}]),
+            ]
+        elif any(
+            k in combined_text
+            for k in (
+                "employee",
+                "employees",
+                "hr",
+                "human resource",
+                "workforce",
+                "staff",
+                "payroll",
+                "department",
+                "attendance",
+                "leave",
+                "onboarding",
+                "hiring",
+            )
+        ):
+            # Checked before the commerce branch: an employee request that
+            # mentions "payroll" or "order" must never be read as e-commerce.
+            entities = [
+                (
+                    "employee",
+                    "employees",
+                    [
+                        {"name": "full_name", "type": "string"},
+                        {"name": "email", "type": "string"},
+                        {"name": "job_title", "type": "string"},
+                        {"name": "department", "type": "string"},
+                        {"name": "status", "type": "string"},
+                    ],
+                ),
+                (
+                    "department",
+                    "departments",
+                    [
+                        {"name": "name", "type": "string"},
+                        {"name": "head", "type": "string"},
+                        {"name": "location", "type": "string"},
+                    ],
+                ),
+                (
+                    "leave_request",
+                    "leave_requests",
+                    [
+                        {"name": "employee_name", "type": "string"},
+                        {"name": "leave_type", "type": "string"},
+                        {"name": "start_date", "type": "string"},
+                        {"name": "end_date", "type": "string"},
+                        {"name": "status", "type": "string"},
+                    ],
+                ),
+                (
+                    "attendance_record",
+                    "attendance_records",
+                    [
+                        {"name": "employee_name", "type": "string"},
+                        {"name": "date", "type": "string"},
+                        {"name": "check_in", "type": "string"},
+                        {"name": "check_out", "type": "string"},
+                        {"name": "status", "type": "string"},
+                    ],
+                ),
             ]
         elif any(
             k in combined_text for k in ("store", "shop", "ecommerce", "cart", "product", "retail")

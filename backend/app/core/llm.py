@@ -662,23 +662,75 @@ _DOMAINS: list[dict[str, Any]] = [
 ]
 
 
+# English idioms whose words collide with domain keywords. "in order to" is
+# extremely common in LLM-generated prose, and its bare "order" token otherwise
+# scores an exact hit for the e-commerce domain. That silently hijacked
+# unrelated requests - "manage your employees in order to track leave" was
+# detected as E-Commerce and built products/orders - so these phrases are
+# stripped before tokenizing.
+_DOMAIN_IDIOMS: tuple[str, ...] = (
+    "in order to",
+    "in order for",
+    "in order of",
+    "in order that",
+    "order of",
+    "sort of",
+    "kind of",
+)
+
+# Domain keywords that are also ordinary English/business words. They stay
+# usable, but an exact hit is worth less than a real domain noun, so filler
+# prose cannot outrank the actual subject of the request.
+_AMBIGUOUS_DOMAIN_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "order",
+        "orders",
+        "class",
+        "classes",
+        "member",
+        "members",
+        "record",
+        "records",
+        "service",
+        "services",
+        "staff",
+        "team",
+        "group",
+        "groups",
+        "type",
+        "card",
+        "cards",
+        "board",
+        "report",
+    }
+)
+_AMBIGUOUS_KEYWORD_PENALTY = 0.55
+
+
 def _detect_domain(user_text: str) -> dict[str, Any]:
     """Pick the domain that best matches *user_text* (fuzzy, misspelling-tolerant).
 
     Exact keyword matches win; otherwise the best normalized fuzzy match wins;
     otherwise the generic fallback domain is returned.
     """
-    tokens = [t for t in re.findall(r"[a-z0-9]+", user_text.lower()) if len(t) >= 2]
+    normalized = user_text.lower()
+    for idiom in _DOMAIN_IDIOMS:
+        normalized = normalized.replace(idiom, " ")
+    tokens = [t for t in re.findall(r"[a-z0-9]+", normalized) if len(t) >= 2]
 
     def _score_keyword(kw_norm: str) -> float:
         best = -1.0
         for tok in tokens:
             if kw_norm == tok:
-                return 2.0
-            if kw_norm in tok:
-                best = max(best, 1.5)
+                best = max(best, 2.0)
+            elif kw_norm in tok:
+                # Near-exact: a plural like "employees" must not lose to an
+                # unrelated word that happens to be an exact token match.
+                best = max(best, 1.9)
             elif len(kw_norm) >= 4 and difflib.SequenceMatcher(None, kw_norm, tok).ratio() >= 0.8:
                 best = max(best, 1.0)
+        if best > 0.0 and kw_norm in _AMBIGUOUS_DOMAIN_KEYWORDS:
+            best *= _AMBIGUOUS_KEYWORD_PENALTY
         return best
 
     best_domain: dict[str, Any] | None = None
@@ -730,7 +782,138 @@ def _mock_ai_developer(messages: list[Any]) -> dict[str, Any]:
     return {"content": content}
 
 
-_MOCK_SPEC_MARKER = "You design SMALL but REAL working apps"  # app_spec.SPEC_SYSTEM
+_MOCK_SPEC_MARKER = "You design rich, production-grade working apps"  # app_spec.SPEC_SYSTEM
+
+# Verbs that mark a phrase as a product name rather than a sentence, used when
+# deriving a title from a free-text request ("build me an Employee Management
+# System" -> "Employee Management System").
+_APP_NAME_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "app",
+        "application",
+        "build",
+        "building",
+        "create",
+        "design",
+        "for",
+        "generate",
+        "i",
+        "in",
+        "make",
+        "me",
+        "my",
+        "need",
+        "of",
+        "please",
+        "simple",
+        "small",
+        "system",
+        "that",
+        "the",
+        "this",
+        "to",
+        "want",
+        "website",
+        "with",
+    }
+)
+
+
+def _derive_app_name(user_text: str) -> str:
+    """Best-effort product name from a free-text request.
+
+    The offline agent used to hardcode "My App", so every offline build was
+    titled "My App" regardless of the request. Prefer an explicit
+    "<X> system/app/platform" phrase, then a capitalised phrase, then give up.
+    """
+    text = re.sub(r"\s+", " ", user_text).strip()
+    if not text:
+        return ""
+
+    m = re.search(
+        r"\b((?:[A-Za-z][\w&+.-]*\s+){0,4}?"
+        r"(?:system|app|application|platform|dashboard|portal|tracker|manager))\b",
+        text,
+        re.IGNORECASE,
+    )
+    if m:
+        # Strip only LEADING request verbs/articles so the title is the product,
+        # not the sentence: "Build an Employee Management System" -> "Employee
+        # Management System", "I need a todo app" -> "Todo App". The trailing
+        # head noun (System/App/Platform) is part of the name and is kept.
+        words = re.findall(r"[A-Za-z][\w&+.-]*", m.group(1))
+        while words and words[0].lower() in _APP_NAME_STOPWORDS:
+            words.pop(0)
+        if words:
+            candidate = " ".join(words)
+            return candidate[:1].upper() + candidate[1:]
+
+    # Fall back to the first meaningful words. A bare acronym is a good name on
+    # its own ("CRM"), so do not pad it with the words that followed it.
+    all_words: list[str] = re.findall(r"[A-Za-z][\w&+.-]*", text)
+    meaningful: list[str] = [w for w in all_words if w.lower() not in _APP_NAME_STOPWORDS]
+    if meaningful:
+        first: str = meaningful[0]
+        if first.isupper() and 2 <= len(first) <= 5:
+            return first
+        return " ".join(meaningful[:3])[:60]
+    return ""
+
+
+def _mock_domain_actions(entities: list[tuple[str, str]]) -> list[dict[str, Any]]:
+    """Generic domain actions so an offline build is not bare CRUD.
+
+    The offline agent emitted `"actions": []`, which produced a pure
+    record-listing app with no business logic. These are deliberately generic
+    and derived from whatever entities were detected, so they stay correct for
+    any domain instead of hardcoding one industry's rules.
+    """
+    if len(entities) < 2:
+        return []
+    (primary, primary_plural) = entities[0]
+    (related, related_plural) = entities[1]
+    return [
+        {
+            "name": f"{related}_summary",
+            "method": "GET",
+            "path": f"/actions/{related_plural}/summary",
+            "summary": f"Aggregate {primary_plural} grouped by {related}.",
+            "input_fields": [],
+            "rules": [
+                f"Group all {primary_plural} by their {related} reference.",
+                f'Return an object keyed by {related} name; each value is '
+                f'{{"total": <int count of {primary_plural}>, "names": [<{primary} name>]}}.',
+                "Return an empty object when there is no data.",
+                f"Return 404 if the {related} does not exist.",
+            ],
+            "output_example": {},
+        },
+        {
+            "name": f"create_{primary}_for_{related}",
+            "method": "POST",
+            "path": f"/actions/{primary_plural}",
+            "summary": f"Create a {primary} that must reference an existing {related}.",
+            "input_fields": [
+                {
+                    "name": f"{related}_id",
+                    "type": "int",
+                    "required": True,
+                    "description": f"Existing {related}",
+                }
+            ],
+            "rules": [
+                f"Look up {related} by {related}_id; return 400 if it does not exist.",
+                f"Return 404 if {related}_id is not a valid integer.",
+                f"Return 409 if a {primary} with the same natural key already exists for that {related}.",
+                f"Otherwise create the {primary}, attach {related}_id, "
+                f'return the created object including "id".',
+            ],
+            "output_example": {},
+        },
+    ]
 
 
 def _mock_app_spec(messages: list[Any]) -> dict[str, Any]:
@@ -873,14 +1056,16 @@ def _mock_app_spec(messages: list[Any]) -> dict[str, Any]:
         for name, plural in entities
     ]
 
+    domain_actions = _mock_domain_actions(entities)
+    action_names = [a["name"] for a in domain_actions]
     screens = [
         {
             "name": "dashboard",
             "route": "/",
             "purpose": "Overview of managed records",
             "uses_entities": [name for name, _ in entities],
-            "uses_actions": [],
-            "key_interactions": ["view records"],
+            "uses_actions": action_names,
+            "key_interactions": ["view records", "view summary"],
         },
         *[
             {
@@ -888,7 +1073,7 @@ def _mock_app_spec(messages: list[Any]) -> dict[str, Any]:
                 "route": f"/{plural}",
                 "purpose": f"Manage {plural}",
                 "uses_entities": [name],
-                "uses_actions": [],
+                "uses_actions": [a for a in action_names if name in a],
                 "key_interactions": ["create record", "edit record", "delete record"],
             }
             for name, plural in entities
@@ -948,12 +1133,15 @@ def _mock_app_spec(messages: list[Any]) -> dict[str, Any]:
     ]
 
     return {
-        "app_name": "My App",
+        "app_name": _derive_app_name(user_text) or domain["app_type"],
         "one_liner": f"A {domain['app_type']} based on your request",
-        "core_value": "",
+        "core_value": (
+            f"Tracks {', '.join(plural for _, plural in entities)} with domain rules, "
+            f"cross-entity validation and aggregate reporting, rather than plain record CRUD."
+        ),
         "assumptions": [],
         "entities": spec_entities,
-        "actions": [],
+        "actions": _mock_domain_actions(entities),
         "screens": screens,
         "acceptance_tests": acceptance_tests,
     }

@@ -308,6 +308,19 @@ class MVPEnvVarSpec(BaseModel):
     recommendation_kind: str = "none"  # "value" | "hint" | "none"
 
 
+class MVPEnvUpdateRequest(BaseModel):
+    """Body for editing env vars on an ALREADY-deployed build.
+
+    ``env`` is merged over the values saved at deploy time (keys not mentioned
+    are left untouched). ``unset`` removes keys entirely. ``restart`` triggers a
+    new Render deploy so the new values are actually picked up.
+    """
+
+    env: dict[str, str] = Field(default_factory=dict)
+    unset: list[str] = Field(default_factory=list)
+    restart: bool = True
+
+
 class MVPEnvPlanResponse(BaseModel):
     """Env vars required/optional by a finished build, plus auto-injections."""
 
@@ -332,6 +345,8 @@ class MVPBuildResponse(BaseModel):
     status: str
     workspace_path: str
     file_count: int = 0
+    app_name: str | None = None
+    created_at: datetime | None = None
     error_message: str | None = None
     repo_url: str | None = None
     render_service_url: str | None = None
