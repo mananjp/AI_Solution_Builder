@@ -72,6 +72,5 @@ def set_scanner_health(name: str, up: bool) -> None:
     SCANNER_HEALTH.labels(scanner=name).set(1 if up else 0)
 
 
-
 def metrics_response() -> Response:
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

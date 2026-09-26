@@ -13,8 +13,6 @@ Verifies:
 import asyncio
 import io
 import json
-import shutil
-import tempfile
 import zipfile
 from pathlib import Path
 
@@ -31,7 +29,6 @@ from app.services.legacy_repo.conflict_graph import ConflictGraphScheduler, Task
 from app.services.legacy_repo.credentials import CredentialValidator, mask_secret
 from app.services.legacy_repo.feature_extension import FeatureExtensionEngine
 from app.services.legacy_repo.modernizer import LegacyRepoModernizer
-from app.services.legacy_repo.validator import LegacyRepoValidator
 from main import app
 
 
@@ -83,7 +80,9 @@ def sample_legacy_repo(tmp_path: Path) -> Path:
     (assets_dir / "favicon.ico").write_bytes(b"\x00\x00\x01\x00")
 
     # 5. Existing env file with potential secret
-    (repo / ".env").write_text("DATABASE_URL=postgres://user:pass@localhost:5432/crm_db\nPORT=3000\n", encoding="utf-8")
+    (repo / ".env").write_text(
+        "DATABASE_URL=postgres://user:pass@localhost:5432/crm_db\nPORT=3000\n", encoding="utf-8"
+    )
 
     return repo
 
@@ -326,6 +325,7 @@ async def test_legacy_repo_modernizer_e2e(sample_legacy_repo: Path):
 async def test_legacy_repo_api_endpoints(sample_legacy_repo: Path):
     """Test /api/v1/legacy-repo HTTP endpoints."""
     import uuid
+
     from app.core.security import get_current_user
     from app.models.user import User
 
@@ -407,10 +407,11 @@ async def test_legacy_repo_api_endpoints(sample_legacy_repo: Path):
 
 def test_github_url_parsing_and_token_resolution():
     """Verify GitHub URL parsing and user profile token resolution."""
+    import uuid
+
     from app.api.legacy_repo import _parse_github_owner_repo, _resolve_github_token
     from app.core.secrets import encrypt_secret
     from app.models.user import User
-    import uuid
 
     # URL parsing
     o1, r1 = _parse_github_owner_repo("https://github.com/Ladnil03/rag-document-intelligence")
@@ -440,12 +441,12 @@ def test_github_url_parsing_and_token_resolution():
 @pytest.mark.asyncio
 async def test_modernize_fallback_and_upload_persistence(sample_legacy_repo: Path):
     """Verify that modernization falls back gracefully and uploaded archives persist for modernization."""
+    import uuid
+
+    import httpx
+
     from app.core.security import get_current_user
     from app.models.user import User
-    import uuid
-    import zipfile
-    import io
-    import httpx
 
     test_user = User(
         id=uuid.uuid4(),
@@ -464,10 +465,14 @@ async def test_modernize_fallback_and_upload_persistence(sample_legacy_repo: Pat
                     zf.write(file, file.relative_to(sample_legacy_repo))
         zip_bytes = zip_buf.getvalue()
 
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
             # 1. Analyze upload
             files = {"file": ("repo.zip", zip_bytes, "application/zip")}
-            up_resp = await client.post("/api/v1/legacy-repo/analyze-upload", files=files, headers=headers)
+            up_resp = await client.post(
+                "/api/v1/legacy-repo/analyze-upload", files=files, headers=headers
+            )
             assert up_resp.status_code == 200
             up_data = up_resp.json()
             extracted_path = up_data["root_path"]
@@ -499,9 +504,10 @@ async def test_modernize_fallback_and_upload_persistence(sample_legacy_repo: Pat
             )
             # Without github_repo_url and with non-existent path, expect 404
             assert demo_fallback.status_code == 404
-            err_msg = demo_fallback.json().get("error", {}).get("message") or demo_fallback.json().get("detail", "")
+            err_msg = demo_fallback.json().get("error", {}).get(
+                "message"
+            ) or demo_fallback.json().get("detail", "")
             assert "Target repository path does not exist" in err_msg
 
     finally:
         app.dependency_overrides.clear()
-

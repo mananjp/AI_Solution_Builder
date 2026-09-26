@@ -167,7 +167,9 @@ class RenderDeployer:
             if resp.status_code == 200:
                 data = resp.json()
                 if isinstance(data, dict):
-                    return data.get("postgres", data)
+                    res = data.get("postgres", data)
+                    if isinstance(res, dict):
+                        return res
             return None
 
     async def get_postgres_connection_string(
@@ -184,9 +186,15 @@ class RenderDeployer:
             if resp.status_code == 200:
                 info = resp.json()
                 if isinstance(info, dict):
-                    if internal and info.get("internalConnectionString"):
-                        return info["internalConnectionString"]
-                    return info.get("externalConnectionString") or info.get("internalConnectionString")
+                    val = (
+                        info.get("internalConnectionString")
+                        if internal and info.get("internalConnectionString")
+                        else (
+                            info.get("externalConnectionString")
+                            or info.get("internalConnectionString")
+                        )
+                    )
+                    return str(val) if isinstance(val, str) else None
             return None
 
     async def create_or_get_postgres(
@@ -216,7 +224,9 @@ class RenderDeployer:
             }
 
         # 2. Provision new PostgreSQL database on Render
-        clean_db = re.sub(r"[^a-zA-Z0-9_]", "_", database_name or name).lower().strip("_")[:26] or "app_db"
+        clean_db = (
+            re.sub(r"[^a-zA-Z0-9_]", "_", database_name or name).lower().strip("_")[:26] or "app_db"
+        )
         payload = {
             "name": name,
             "ownerId": owner_id,
@@ -361,7 +371,9 @@ class RenderDeployer:
                     params={"limit": 1},
                 )
             if resp.status_code != 200:
-                logger.info("Latest-deploy lookup failed for %s: HTTP %s", service_id, resp.status_code)
+                logger.info(
+                    "Latest-deploy lookup failed for %s: HTTP %s", service_id, resp.status_code
+                )
                 return None
             entries = resp.json()
             if isinstance(entries, list) and entries:
@@ -503,9 +515,7 @@ class RenderDeployer:
             )
             return None
 
-    async def set_env_vars(
-        self, service_id: str, env_vars: list[dict[str, str]]
-    ) -> dict[str, Any]:
+    async def set_env_vars(self, service_id: str, env_vars: list[dict[str, str]]) -> dict[str, Any]:
         """Update env vars on a live service without clobbering unknown keys.
 
         Render's bulk ``PUT /env-vars`` endpoint REPLACES the entire set, which
@@ -538,7 +548,9 @@ class RenderDeployer:
                 if resp.status_code in (200, 201):
                     updated.append(key)
                 else:
-                    failed.append({"key": key, "error": f"HTTP {resp.status_code}: {resp.text[:200]}"})
+                    failed.append(
+                        {"key": key, "error": f"HTTP {resp.status_code}: {resp.text[:200]}"}
+                    )
 
         if updated:
             logger.info("Render env vars updated on %s: %s", service_id, updated)
@@ -732,7 +744,9 @@ class RenderDeployer:
             *(backend_env_vars or []),
         ]
         if not user_db_url and db_info and db_info.get("connection_string"):
-            effective_backend_env.append({"key": "DATABASE_URL", "value": db_info["connection_string"]})
+            effective_backend_env.append(
+                {"key": "DATABASE_URL", "value": db_info["connection_string"]}
+            )
 
         # 1. Deploy / update backend service on port 8000
         backend_info = await self.create_or_update_service(
@@ -773,7 +787,9 @@ class RenderDeployer:
             owner_id=owner_id,
             repo_url=repo_url,
             branch=branch,
-            dockerfile_path="./frontend/Dockerfile" if dockerfile_path == "./Dockerfile" else dockerfile_path,
+            dockerfile_path="./frontend/Dockerfile"
+            if dockerfile_path == "./Dockerfile"
+            else dockerfile_path,
             docker_context="./frontend" if docker_context == "." else docker_context,
             env_vars=fe_env_vars,
         )
@@ -804,9 +820,8 @@ class RenderDeployer:
             }
         service_url = frontend_url or backend_url
         service_id = frontend_services.get("service_id") or backend_services.get("service_id")
-        dashboard_url = (
-            frontend_services.get("dashboard_url")
-            or backend_services.get("dashboard_url")
+        dashboard_url = frontend_services.get("dashboard_url") or backend_services.get(
+            "dashboard_url"
         )
 
         if service_url or (frontend_info or backend_info):

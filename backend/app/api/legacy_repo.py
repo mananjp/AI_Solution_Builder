@@ -5,20 +5,18 @@ Handles legacy codebase inspection, stack & architecture analysis, credential ve
 controlled parallel modernization, and feature extensions (AI Chatbot).
 """
 
-import io
 import json
 import logging
 import shutil
 import tempfile
-import zipfile
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse, Response
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
 from app.core.config import settings
 from app.core.secrets import decrypt_secret
@@ -42,7 +40,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/legacy-repo", tags=["Legacy Repository Modernizer"])
 
 
-def _resolve_github_token(payload_token: Optional[str], current_user: Optional[User]) -> Optional[str]:
+def _resolve_github_token(payload_token: str | None, current_user: User | None) -> str | None:
     """Resolve GitHub token from request payload, user profile settings (decrypted), or app environment."""
     if payload_token and payload_token.strip():
         return payload_token.strip()
@@ -84,7 +82,7 @@ def _parse_github_owner_repo(url: str) -> tuple[str, str]:
     return owner, repo
 
 
-async def _fetch_github_zipball(owner: str, repo: str, token: Optional[str] = None) -> bytes:
+async def _fetch_github_zipball(owner: str, repo: str, token: str | None = None) -> bytes:
     """Download repository zipball from GitHub with authentication and redirect preservation."""
     zip_url = f"https://api.github.com/repos/{owner}/{repo}/zipball"
     headers = {
@@ -99,13 +97,17 @@ async def _fetch_github_zipball(owner: str, repo: str, token: Optional[str] = No
             resp = await client.get(zip_url, headers=headers)
         except Exception as exc:
             logger.error("GitHub API request failed: %s", exc)
-            raise HTTPException(status_code=502, detail=f"Failed to connect to GitHub API: {str(exc)}")
+            raise HTTPException(
+                status_code=502, detail=f"Failed to connect to GitHub API: {str(exc)}"
+            ) from exc
 
         # Handle 302 Found redirecting to codeload.github.com
         if resp.status_code in (301, 302, 307, 308):
             redirect_url = resp.headers.get("Location")
             if not redirect_url:
-                raise HTTPException(status_code=502, detail="GitHub redirect missing Location header")
+                raise HTTPException(
+                    status_code=502, detail="GitHub redirect missing Location header"
+                )
 
             # Forward authorization header if domain is github.com / codeload.github.com
             redirect_headers = {"User-Agent": "AI-Solution-Builder"}
@@ -113,12 +115,15 @@ async def _fetch_github_zipball(owner: str, repo: str, token: Optional[str] = No
                 redirect_headers["Authorization"] = f"Bearer {token}"
 
             try:
-                redirect_resp = await client.get(redirect_url, headers=redirect_headers, follow_redirects=True)
+                redirect_resp = await client.get(
+                    redirect_url, headers=redirect_headers, follow_redirects=True
+                )
             except Exception as exc:
                 logger.error("GitHub codeload redirect download failed: %s", exc)
                 raise HTTPException(
-                    status_code=502, detail=f"Failed to download repository archive from GitHub: {str(exc)}"
-                )
+                    status_code=502,
+                    detail=f"Failed to download repository archive from GitHub: {str(exc)}",
+                ) from exc
 
             if redirect_resp.status_code != 200:
                 raise HTTPException(
@@ -207,7 +212,7 @@ def _ensure_demo_sample_repo() -> Path:
             "class App extends Component {\n"
             "    render() {\n"
             "        return (\n"
-            "            <div className=\"crm-container\">\n"
+            '            <div className="crm-container">\n'
             "                <h1>Legacy CRM Portal</h1>\n"
             "                <p>System Date: {moment().format('LL')}</p>\n"
             "            </div>\n"
@@ -238,13 +243,13 @@ async def analyze_legacy_repository(
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Inspect and analyze an existing legacy repository via local path or GitHub URL."""
-    target_dir: Optional[Path] = None
-    staging_dir: Optional[Path] = None
-    cleanup_temp = False
+    target_dir: Path | None = None
+    staging_dir: Path | None = None
 
     try:
         if payload.local_path:
             raw_path = payload.local_path.strip()
+            assert_safe_boundary(raw_path, action="analyze")
             if raw_path in ("sample_legacy_repo", "sample_legacy_crm", "demo", ""):
                 target_dir = _ensure_demo_sample_repo()
             else:
@@ -267,12 +272,13 @@ async def analyze_legacy_repository(
             zip_content = await _fetch_github_zipball(owner, repo, token)
 
             # Enforce threat scan on downloaded zipball before workspace extraction
-            await enforce_file(zip_content, filename=f"{owner}-{repo}.zip", source="legacy_repo.github")
+            await enforce_file(
+                zip_content, filename=f"{owner}-{repo}.zip", source="legacy_repo.github"
+            )
 
             temp_id = uuid4().hex[:10]
             staging_dir = Path(tempfile.gettempdir()) / f"legacy_gh_{owner}_{repo}_{temp_id}"
             target_dir = safe_extract_zip(zip_content, staging_dir)
-            cleanup_temp = True
         else:
             raise HTTPException(
                 status_code=400,
@@ -288,12 +294,12 @@ async def analyze_legacy_repository(
 
     except ScopeBoundaryViolation as sbv:
         logger.error("Scope boundary violation in legacy analyzer: %s", sbv)
-        raise HTTPException(status_code=403, detail=str(sbv))
+        raise HTTPException(status_code=403, detail=str(sbv)) from sbv
     except HTTPException:
         raise
     except Exception as exc:
         logger.exception("Legacy repository analysis failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         # Preserve staging_dir so the subsequent modernize call can reuse the extracted files without re-fetching
         pass
@@ -305,7 +311,7 @@ async def analyze_uploaded_repository_zip(
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Inspect and analyze an uploaded repository ZIP archive."""
-    staging_dir: Optional[Path] = None
+    staging_dir: Path | None = None
     try:
         max_bytes = 50 * 1024 * 1024
         contents = await file.read(max_bytes + 1)
@@ -315,7 +321,9 @@ async def analyze_uploaded_repository_zip(
         # Synchronous archive safety check (zip bomb, traversal, nesting)
         guard_archive(contents, source="legacy_repo.upload")
         # Multi-layer threat scan enforcement
-        await enforce_file(contents, filename=file.filename or "repo.zip", source="legacy_repo.upload")
+        await enforce_file(
+            contents, filename=file.filename or "repo.zip", source="legacy_repo.upload"
+        )
 
         temp_id = uuid4().hex[:10]
         staging_dir = Path(tempfile.gettempdir()) / f"legacy_upload_{temp_id}"
@@ -328,12 +336,12 @@ async def analyze_uploaded_repository_zip(
 
     except ScopeBoundaryViolation as sbv:
         logger.error("Scope boundary violation in legacy upload analyzer: %s", sbv)
-        raise HTTPException(status_code=403, detail=str(sbv))
+        raise HTTPException(status_code=403, detail=str(sbv)) from sbv
     except HTTPException:
         raise
     except Exception as exc:
         logger.exception("Legacy upload analysis failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         # Preserve staging_dir so the subsequent modernize call can operate on the uploaded codebase
         pass
@@ -357,7 +365,9 @@ async def validate_credential(
         )
 
     # Test connectivity
-    conn_ok, conn_msg = await CredentialValidator.test_connectivity(payload.key_name, payload.key_value)
+    conn_ok, conn_msg = await CredentialValidator.test_connectivity(
+        payload.key_name, payload.key_value
+    )
     return CredentialValidateResponse(
         key_name=payload.key_name,
         format_valid=True,
@@ -375,16 +385,19 @@ async def modernize_legacy_repository(
 ) -> ModernizeResponse:
     """Execute safe modernization and requested feature extensions (AI Chatbot)."""
     if not payload.local_path and not payload.github_repo_url:
-        raise HTTPException(status_code=400, detail="Must provide either local_path or github_repo_url")
+        raise HTTPException(
+            status_code=400, detail="Must provide either local_path or github_repo_url"
+        )
 
-    target_dir: Optional[Path] = None
-    staging_dir: Optional[Path] = None
+    target_dir: Path | None = None
+    staging_dir: Path | None = None
     cleanup_temp = False
 
     try:
         # 1. Check local path if provided and exists
         if payload.local_path:
             raw_path = payload.local_path.strip()
+            assert_safe_boundary(raw_path, action="modernize")
             if raw_path in ("sample_legacy_repo", "sample_legacy_crm", "demo", ""):
                 target_dir = _ensure_demo_sample_repo()
             else:
@@ -428,12 +441,12 @@ async def modernize_legacy_repository(
 
     except ScopeBoundaryViolation as sbv:
         logger.error("Scope boundary violation in legacy modernizer: %s", sbv)
-        raise HTTPException(status_code=403, detail=str(sbv))
+        raise HTTPException(status_code=403, detail=str(sbv)) from sbv
     except HTTPException:
         raise
     except Exception as exc:
         logger.exception("Modernization execution failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         if cleanup_temp:
             dir_to_remove = staging_dir if staging_dir and staging_dir.exists() else target_dir
@@ -445,9 +458,11 @@ async def modernize_legacy_repository(
 async def download_modernized_build(
     build_id: str,
     current_user: User = Depends(get_current_user),
-):
+) -> FileResponse:
     """Download the packaged modernized repository ZIP artifact."""
-    zip_path = Path(settings.MVP_BUILD_DIR).resolve() / "legacy_builds" / f"{build_id}_modernized.zip"
+    zip_path = (
+        Path(settings.MVP_BUILD_DIR).resolve() / "legacy_builds" / f"{build_id}_modernized.zip"
+    )
     if not zip_path.exists():
         raise HTTPException(status_code=404, detail="Modernized build artifact not found")
 

@@ -114,7 +114,9 @@ async def scan_file(data: bytes, *, filename: str, source: str) -> ScanResult:
 
     for scanner, res in zip(active_scanners, results, strict=False):
         if isinstance(res, Exception):
-            logger.warning("Scanner %s raised exception on file %s: %s", scanner.name, filename, res)
+            logger.warning(
+                "Scanner %s raised exception on file %s: %s", scanner.name, filename, res
+            )
             all_findings.append(
                 ScanFinding(
                     source=scanner.name,
@@ -261,7 +263,8 @@ def enforce(result: ScanResult, *, source: str) -> None:
     # Handle total scanner failure / unavailability
     has_error = any(f.verdict == ScanVerdict.ERROR for f in result.findings)
     has_non_error = any(
-        f.verdict in (ScanVerdict.CLEAN, ScanVerdict.MALICIOUS, ScanVerdict.SUSPICIOUS, ScanVerdict.UNKNOWN)
+        f.verdict
+        in (ScanVerdict.CLEAN, ScanVerdict.MALICIOUS, ScanVerdict.SUSPICIOUS, ScanVerdict.UNKNOWN)
         for f in result.findings
     )
 

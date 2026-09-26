@@ -20,14 +20,19 @@ import json
 import logging
 import re
 import tempfile
-import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 from sqlalchemy import desc, select
@@ -54,6 +59,7 @@ from app.schemas import (
     MVPDeployStatusResponse,
     MVPEnvPlanResponse,
     MVPEnvUpdateRequest,
+    MVPEnvVarSpec,
     MVPFileEntry,
     MVPQuickBuildRequest,
     MVPTemplateResponse,
@@ -103,6 +109,7 @@ def progress_payload(
         "message": message,
         "steps": steps,
     }
+
 
 logger = logging.getLogger(__name__)
 
@@ -225,10 +232,9 @@ async def execute_build_job(build_id: UUID) -> None:
 
             async def save_progress(active_idx: int, percentage: int, message: str) -> None:
                 """Write-through progress so the UI stepper never looks stuck."""
+                assert build is not None
                 local_cfg = dict(build.app_config or {})
-                local_cfg["progress"] = progress_payload(
-                    active_idx, message, percentage=percentage
-                )
+                local_cfg["progress"] = progress_payload(active_idx, message, percentage=percentage)
                 build.app_config = local_cfg
                 await db.commit()
                 await db.refresh(build)
@@ -820,7 +826,9 @@ async def chat_edit_build(
         ]
         target_rel = next((c for c in candidates if (local_dir / c).exists()), None)
         if not target_rel and rel_files:
-            target_rel = next((f for f in rel_files if f.endswith((".tsx", ".jsx", ".py"))), rel_files[0])
+            target_rel = next(
+                (f for f in rel_files if f.endswith((".tsx", ".jsx", ".py"))), rel_files[0]
+            )
 
     primary_content = ""
     if target_rel and (local_dir / target_rel).exists():
@@ -846,11 +854,11 @@ async def chat_edit_build(
             "{\n"
             '  "explanation": "A friendly 1-2 sentence explanation of what you updated.",\n'
             '  "files": [\n'
-            '    {\n'
+            "    {\n"
             '      "path": "relative/path/to/file.tsx",\n'
             '      "content": "Full updated code for the file"\n'
-            '    }\n'
-            '  ]\n'
+            "    }\n"
+            "  ]\n"
             "}\n"
             "Do NOT include any text outside the JSON object."
         )
@@ -863,10 +871,12 @@ async def chat_edit_build(
             f"```\n{primary_content[:12000]}\n```\n"
         )
 
-        resp = await llm.ainvoke([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt),
-        ])
+        resp = await llm.ainvoke(
+            [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_prompt),
+            ]
+        )
 
         raw_text = str(resp.content or "").strip()
         match = re.search(r"\{[\s\S]*\"files\"[\s\S]*\}", raw_text)
@@ -877,10 +887,12 @@ async def chat_edit_build(
             if isinstance(raw_files, list):
                 for f in raw_files:
                     if isinstance(f, dict) and f.get("path") and f.get("content"):
-                        updated_files_data.append({
-                            "path": str(f["path"]).replace("\\", "/").lstrip("/"),
-                            "content": str(f["content"]),
-                        })
+                        updated_files_data.append(
+                            {
+                                "path": str(f["path"]).replace("\\", "/").lstrip("/"),
+                                "content": str(f["content"]),
+                            }
+                        )
     except Exception as llm_err:
         logger.warning("LLM invocation during chat_edit encountered: %s", llm_err)
 
@@ -922,12 +934,14 @@ async def chat_edit_build(
             changes_made.append(f"updated branding to '{new_title}'")
 
         # 3. Add Announcement Banner
-        if any(w in payload.message.lower() for w in ["banner", "promo", "announcement", "discount"]):
+        if any(
+            w in payload.message.lower() for w in ["banner", "promo", "announcement", "discount"]
+        ):
             banner_html = (
-                '\n      {/* Promo Announcement Banner */}\n'
+                "\n      {/* Promo Announcement Banner */}\n"
                 '      <div className="bg-emerald-600 text-white text-xs font-semibold py-2 px-4 text-center tracking-wide shadow-sm flex items-center justify-center gap-2">\n'
-                '        <span>🎉 Special Offer: Enjoy 20% off all orders today! Use code SUTRA20</span>\n'
-                '      </div>\n'
+                "        <span>🎉 Special Offer: Enjoy 20% off all orders today! Use code SUTRA20</span>\n"
+                "      </div>\n"
             )
             if "<main" in new_content:
                 new_content = new_content.replace("<main", banner_html + "      <main", 1)
@@ -937,9 +951,11 @@ async def chat_edit_build(
                 changes_made.append("added promotional announcement banner")
 
         # 4. Add Reviews / Ratings Section
-        if any(w in payload.message.lower() for w in ["review", "rating", "testimonial", "feedback"]):
+        if any(
+            w in payload.message.lower() for w in ["review", "rating", "testimonial", "feedback"]
+        ):
             reviews_html = (
-                '\n      {/* Customer Reviews & Ratings Section */}\n'
+                "\n      {/* Customer Reviews & Ratings Section */}\n"
                 '      <section className="py-12 px-6 bg-slate-50 border-t border-slate-200 mt-12">\n'
                 '        <div className="max-w-5xl mx-auto">\n'
                 '          <h3 className="text-xl font-bold text-slate-800 mb-6 text-center">Customer Reviews & Ratings</h3>\n'
@@ -948,30 +964,27 @@ async def chat_edit_build(
                 '              <div className="text-amber-500 mb-2">★★★★★</div>\n'
                 '              <p className="text-sm text-slate-600 mb-3">"Exceptional quality and seamless service! Highly recommended."</p>\n'
                 '              <span className="text-xs font-semibold text-slate-900">— Sarah Jenkins</span>\n'
-                '            </div>\n'
+                "            </div>\n"
                 '            <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-100">\n'
                 '              <div className="text-amber-500 mb-2">★★★★★</div>\n'
                 '              <p className="text-sm text-slate-600 mb-3">"Fast, intuitive, and beautifully designed. 10/10 experience."</p>\n'
                 '              <span className="text-xs font-semibold text-slate-900">— David Miller</span>\n'
-                '            </div>\n'
+                "            </div>\n"
                 '            <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-100">\n'
                 '              <div className="text-amber-500 mb-2">★★★★★</div>\n'
                 '              <p className="text-sm text-slate-600 mb-3">"Game changer for our daily workflow. Outstanding product."</p>\n'
                 '              <span className="text-xs font-semibold text-slate-900">— Elena Rostova</span>\n'
-                '            </div>\n'
-                '          </div>\n'
-                '        </div>\n'
-                '      </section>\n'
+                "            </div>\n"
+                "          </div>\n"
+                "        </div>\n"
+                "      </section>\n"
             )
             if "</main>" in new_content:
                 new_content = new_content.replace("</main>", reviews_html + "    </main>")
                 changes_made.append("added verified customer reviews & testimonials section")
 
         if not changes_made:
-            new_content = (
-                f"// Updated based on request: {payload.message}\n"
-                + new_content
-            )
+            new_content = f"// Updated based on request: {payload.message}\n" + new_content
             changes_made.append("applied requested updates to codebase")
 
         explanation = f"I've updated `{target_rel}`: " + ", ".join(changes_made) + "."
@@ -1006,13 +1019,17 @@ async def chat_edit_build(
 
     cfg = dict(build.app_config or {})
     hist = list(cfg.get("chat_history") or [])
-    hist.append({"role": "user", "content": payload.message, "timestamp": datetime.now(UTC).isoformat()})
-    hist.append({
-        "role": "assistant",
-        "content": explanation,
-        "updated_files": [a.path for a in applied],
-        "timestamp": datetime.now(UTC).isoformat(),
-    })
+    hist.append(
+        {"role": "user", "content": payload.message, "timestamp": datetime.now(UTC).isoformat()}
+    )
+    hist.append(
+        {
+            "role": "assistant",
+            "content": explanation,
+            "updated_files": [a.path for a in applied],
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+    )
     cfg["chat_history"] = hist
     build.app_config = cfg
 
@@ -1057,13 +1074,31 @@ def _generate_sandbox_preview_html(build: MVPBuild, page_code: str, css_code: st
 
     transformed = page_code
     transformed = re.sub(r"['\"]use client['\"];?", "", transformed)
-    transformed = re.sub(r"import\s+React\s*,\s*\{([^}]+)\}\s+from\s+['\"]react['\"];?", r"const {\1} = React;", transformed)
+    transformed = re.sub(
+        r"import\s+React\s*,\s*\{([^}]+)\}\s+from\s+['\"]react['\"];?",
+        r"const {\1} = React;",
+        transformed,
+    )
     transformed = re.sub(r"import\s+React\s+from\s+['\"]react['\"];?", "", transformed)
-    transformed = re.sub(r"import\s+\{([^}]+)\}\s+from\s+['\"]react['\"];?", r"const {\1} = React;", transformed)
-    transformed = re.sub(r"import\s+\{([^}]+)\}\s+from\s+['\"]lucide-react['\"];?", r"const {\1} = window.LucideIcons;", transformed)
+    transformed = re.sub(
+        r"import\s+\{([^}]+)\}\s+from\s+['\"]react['\"];?", r"const {\1} = React;", transformed
+    )
+    transformed = re.sub(
+        r"import\s+\{([^}]+)\}\s+from\s+['\"]lucide-react['\"];?",
+        r"const {\1} = window.LucideIcons;",
+        transformed,
+    )
     transformed = re.sub(r"import\s+\*\s+as\s+\w+\s+from\s+['\"][^'\"]+['\"];?", "", transformed)
-    transformed = re.sub(r"import\s+Link\s+from\s+['\"]next/link['\"];?", "const Link = window.NextLink;", transformed)
-    transformed = re.sub(r"import\s+Image\s+from\s+['\"]next/image['\"];?", "const Image = (props) => React.createElement('img', props);", transformed)
+    transformed = re.sub(
+        r"import\s+Link\s+from\s+['\"]next/link['\"];?",
+        "const Link = window.NextLink;",
+        transformed,
+    )
+    transformed = re.sub(
+        r"import\s+Image\s+from\s+['\"]next/image['\"];?",
+        "const Image = (props) => React.createElement('img', props);",
+        transformed,
+    )
     transformed = re.sub(r"import\s+['\"][^'\"]+\.css['\"];?", "", transformed)
     transformed = re.sub(r"import\s+[^;]+from\s+['\"][^'\"]+['\"];?", "", transformed)
 
@@ -1181,6 +1216,7 @@ async def preview_build(
 
     html = _generate_sandbox_preview_html(build, page_code, css_code)
     return HTMLResponse(content=html)
+
 
 @router.get("/builds/{build_id}/download")
 async def download_build(
@@ -1393,15 +1429,11 @@ async def deploy_build(
             frontend_svc = services.get("frontend") or {}
             render_service_id = r_res.get("service_id")
             frontend_url = (
-                r_res.get("frontend_url")
-                or r_res.get("service_url")
-                or frontend_svc.get("url")
+                r_res.get("frontend_url") or r_res.get("service_url") or frontend_svc.get("url")
             )
             backend_url = r_res.get("backend_url") or backend_svc.get("url")
             render_service_url = frontend_url
-            render_dashboard_url = r_res.get("dashboard_url") or frontend_svc.get(
-                "dashboard_url"
-            )
+            render_dashboard_url = r_res.get("dashboard_url") or frontend_svc.get("dashboard_url")
             render_deploy_status = r_res.get("render_deploy_status", "building")
             if r_res.get("deploy_url"):
                 render_deploy_url = r_res["deploy_url"]
@@ -1475,11 +1507,13 @@ async def deploy_status(
     # synthesising an entry here the loop below had nothing to poll and the build
     # reported "building" forever even after Render had it live.
     if not services:
-        unified_id = str(deploy_state.get("service_id") or app_config.get("render_service_id") or "")
+        unified_id = str(
+            deploy_state.get("service_id") or app_config.get("render_service_id") or ""
+        )
         if unified_id:
             services = {
                 "backend": {
-                    "name": f"{build.repo_name or 'app'}-web",
+                    "name": f"{app_config.get('repo_name') or getattr(build, 'repo_name', None) or 'app'}-web",
                     "service_id": unified_id,
                     "deploy_id": deploy_state.get("deploy_id"),
                     "url": app_config.get("backend_url") or app_config.get("frontend_url"),
@@ -1613,9 +1647,7 @@ async def update_build_env(
             )
         )
         if frontend_id:
-            targets.append(
-                (frontend_id, [{"key": k, "value": v} for k, v in incoming.items()])
-            )
+            targets.append((frontend_id, [{"key": k, "value": v} for k, v in incoming.items()]))
     elif unified_id:
         targets.append((unified_id, [{"key": k, "value": v} for k, v in incoming.items()]))
     else:
@@ -1649,7 +1681,9 @@ async def update_build_env(
                     updated.append(key)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Env update failed for build %s: %s", build_id, exc)
-        raise HTTPException(status_code=502, detail=f"Render rejected the env update: {exc}") from exc
+        raise HTTPException(
+            status_code=502, detail=f"Render rejected the env update: {exc}"
+        ) from exc
 
     # Persist so the env-plan editor shows the new values without a redeploy.
     saved_env = {**(app_config.get("env") or {}), **incoming}
@@ -1721,7 +1755,7 @@ async def env_plan(
     if backend_url and isinstance(backend_url, str):
         injected["NEXT_PUBLIC_API_URL"] = backend_url
     return MVPEnvPlanResponse(
-        env=seeded,
+        env=[MVPEnvVarSpec.model_validate(x) for x in seeded],
         app_name=app_config.get("app_name"),
         injected=injected,
     )
@@ -1756,9 +1790,7 @@ def _sandbox_context(build: MVPBuild, solution: Solution, ai_state: dict[str, An
         names = []
         for e in entities[:40]:
             if isinstance(e, dict):
-                f_names = [
-                    f.get("name") for f in e.get("fields", []) if isinstance(f, dict)
-                ]
+                f_names = [f.get("name") for f in e.get("fields", []) if isinstance(f, dict)]
                 names.append(
                     f"{e.get('name')}({', '.join(n for n in f_names if isinstance(n, str))})"
                 )
@@ -1822,8 +1854,9 @@ def _extract_sandbox_answer(raw: object) -> str:
         return raw
     if isinstance(raw, dict):
         for key in ("message", "content", "text"):
-            if isinstance(raw.get(key), str):
-                return raw[key]
+            val = raw.get(key)
+            if isinstance(val, str):
+                return val
     return str(raw)
 
 
@@ -1844,10 +1877,10 @@ async def _run_sandbox_agent(
                 f"{'User' if h.role in ('user', 'human') else 'Assistant'}: {h.content[:2000]}"
                 for h in history[-8:]
             )
-            instruction = (
-                f"{sys_prompt}\n\nConversation so far:\n{transcript}\n\nUser: {message}"
+            instruction = f"{sys_prompt}\n\nConversation so far:\n{transcript}\n\nUser: {message}"
+            raw = await builder.send_message(
+                session_id, instruction, seed=str(build.solution_id), timeout=60
             )
-            raw = await builder.send_message(session_id, instruction, seed=str(build.solution_id), timeout=60)
             answer = _extract_sandbox_answer(raw)
             if answer and answer != "Mock response":
                 return answer[:8000]
@@ -1878,10 +1911,10 @@ async def _run_sandbox_agent(
             answer = str(resp.content)
     if not answer or answer == "Mock response":
         return (
-            "I'm running live inside your preview. This app is **{title}**. "
+            f"I'm running live inside your preview. This app is **{solution.title}**. "
             "Ask me anything about what it does, its data model, its API, or how "
             "the backend and frontend connect and deploy."
-        ).format(title=solution.title)
+        )
     return answer[:8000]
 
 
@@ -1891,7 +1924,7 @@ async def sandbox_chat(
     payload: SandboxChatRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> StreamingResponse:
+) -> EventSourceResponse:
     """Live Q&A agent for the sandbox preview of a finished build (SSE)."""
     build = await _get_build_for_user(db, build_id, current_user)
     solution = await _get_solution_for_user(db, build.solution_id, current_user)

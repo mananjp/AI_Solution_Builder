@@ -1,15 +1,9 @@
 """Tests for ML detection and dual-architecture generation (Next.js fullstack vs Unified Container)."""
 
-import json
-import shutil
-import tempfile
 from pathlib import Path
-
-import pytest
 
 from app.services.app_spec import (
     AcceptanceTest,
-    Action,
     AppSpec,
     Entity,
     Screen,
@@ -31,8 +25,14 @@ def test_detect_ml_requirements_detects_frameworks():
     assert "Random Forest" in frameworks
 
     # Regular apps without local ML models
-    assert detect_ml_requirements("A project management tool with Kanban boards and milestones")[0] is False
-    assert detect_ml_requirements("A support ticketing system that calls the OpenAI chat API")[0] is False
+    assert (
+        detect_ml_requirements("A project management tool with Kanban boards and milestones")[0]
+        is False
+    )
+    assert (
+        detect_ml_requirements("A support ticketing system that calls the OpenAI chat API")[0]
+        is False
+    )
 
 
 def test_app_spec_defaults_to_next_fullstack_when_no_ml():
@@ -59,8 +59,12 @@ def test_app_spec_defaults_to_next_fullstack_when_no_ml():
                 description="create",
                 steps=[TestStep(method="POST", path="/tasks", body={"title": "Test"})],
             ),
-            AcceptanceTest(name="t2", description="list", steps=[TestStep(method="GET", path="/tasks")]),
-            AcceptanceTest(name="t3", description="del", steps=[TestStep(method="DELETE", path="/tasks/1")]),
+            AcceptanceTest(
+                name="t2", description="list", steps=[TestStep(method="GET", path="/tasks")]
+            ),
+            AcceptanceTest(
+                name="t3", description="del", steps=[TestStep(method="DELETE", path="/tasks/1")]
+            ),
         ],
     )
     assert spec.architecture == "next_fullstack"
@@ -90,10 +94,18 @@ def test_app_spec_auto_selects_unified_container_when_ml_present():
             AcceptanceTest(
                 name="t1",
                 description="create",
-                steps=[TestStep(method="POST", path="/photos", body={"url": "http://example.com/p.jpg"})],
+                steps=[
+                    TestStep(
+                        method="POST", path="/photos", body={"url": "http://example.com/p.jpg"}
+                    )
+                ],
             ),
-            AcceptanceTest(name="t2", description="list", steps=[TestStep(method="GET", path="/photos")]),
-            AcceptanceTest(name="t3", description="del", steps=[TestStep(method="DELETE", path="/photos/1")]),
+            AcceptanceTest(
+                name="t2", description="list", steps=[TestStep(method="GET", path="/photos")]
+            ),
+            AcceptanceTest(
+                name="t3", description="del", steps=[TestStep(method="DELETE", path="/photos/1")]
+            ),
         ],
     )
     assert spec.architecture == "unified_container"
@@ -108,7 +120,11 @@ def test_write_generated_produces_next_route_handlers_and_dockerfile(tmp_path: P
         one_liner="Appointment booking platform",
         core_value="Manages calendars and bookings",
         entities=[
-            Entity(name="booking", plural="bookings", fields=[SpecField(name="customer", type="string")])
+            Entity(
+                name="booking",
+                plural="bookings",
+                fields=[SpecField(name="customer", type="string")],
+            )
         ],
         actions=[],
         screens=[
@@ -126,8 +142,12 @@ def test_write_generated_produces_next_route_handlers_and_dockerfile(tmp_path: P
                 description="create",
                 steps=[TestStep(method="POST", path="/bookings", body={"customer": "Alice"})],
             ),
-            AcceptanceTest(name="t2", description="list", steps=[TestStep(method="GET", path="/bookings")]),
-            AcceptanceTest(name="t3", description="del", steps=[TestStep(method="DELETE", path="/bookings/1")]),
+            AcceptanceTest(
+                name="t2", description="list", steps=[TestStep(method="GET", path="/bookings")]
+            ),
+            AcceptanceTest(
+                name="t3", description="del", steps=[TestStep(method="DELETE", path="/bookings/1")]
+            ),
         ],
     )
     write_generated(tmp_path, spec)
@@ -135,7 +155,9 @@ def test_write_generated_produces_next_route_handlers_and_dockerfile(tmp_path: P
     # 1. Next.js Route Handlers
     assert (tmp_path / "frontend" / "src" / "app" / "api" / "v1" / "health" / "route.ts").exists()
     assert (tmp_path / "frontend" / "src" / "app" / "api" / "v1" / "bookings" / "route.ts").exists()
-    assert (tmp_path / "frontend" / "src" / "app" / "api" / "v1" / "bookings" / "[id]" / "route.ts").exists()
+    assert (
+        tmp_path / "frontend" / "src" / "app" / "api" / "v1" / "bookings" / "[id]" / "route.ts"
+    ).exists()
     assert (tmp_path / "frontend" / "src" / "lib" / "db.ts").exists()
 
     # 2. Node.js single-stage Dockerfile

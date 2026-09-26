@@ -2,14 +2,18 @@
 AI Solution Builder — Pydantic Schemas for Legacy Repository Modernization
 """
 
-from typing import Any, Optional
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
 class LegacyRepoAnalyzeRequest(BaseModel):
-    github_repo_url: Optional[str] = Field(None, description="Public or private GitHub repository URL (e.g. https://github.com/org/repo)")
-    github_token: Optional[str] = Field(None, description="Optional GitHub Personal Access Token")
-    local_path: Optional[str] = Field(None, description="Local repository path on disk")
+    github_repo_url: str | None = Field(
+        None,
+        description="Public or private GitHub repository URL (e.g. https://github.com/org/repo)",
+    )
+    github_token: str | None = Field(None, description="Optional GitHub Personal Access Token")
+    local_path: str | None = Field(None, description="Local repository path on disk")
 
 
 class CredentialValidateRequest(BaseModel):
@@ -27,11 +31,15 @@ class CredentialValidateResponse(BaseModel):
 
 
 class ModernizeRequest(BaseModel):
-    local_path: Optional[str] = Field(None, description="Local path to repository")
-    github_repo_url: Optional[str] = Field(None, description="GitHub repository URL")
-    github_token: Optional[str] = Field(None, description="Optional GitHub Personal Access Token")
-    requested_features: list[str] = Field(default_factory=lambda: ["ai_chatbot"], description="Features to add")
-    credentials: dict[str, str] = Field(default_factory=dict, description="Dictionary of API credentials")
+    local_path: str | None = Field(None, description="Local path to repository")
+    github_repo_url: str | None = Field(None, description="GitHub repository URL")
+    github_token: str | None = Field(None, description="Optional GitHub Personal Access Token")
+    requested_features: list[str] = Field(
+        default_factory=lambda: ["ai_chatbot"], description="Features to add"
+    )
+    credentials: dict[str, str] = Field(
+        default_factory=dict, description="Dictionary of API credentials"
+    )
 
 
 class ModernizeResponse(BaseModel):

@@ -1229,7 +1229,7 @@ export interface SecurityScanItem {
     source: string;
     verdict: string;
     reason: string;
-    detail: Record<string, any>;
+    detail: Record<string, unknown>;
   }>;
   scanned_bytes: number;
   from_cache: boolean;

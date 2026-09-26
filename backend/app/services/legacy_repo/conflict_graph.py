@@ -11,7 +11,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +27,11 @@ class TaskWorkstream:
     files_to_modify: list[str]
     dependencies: list[str] = field(default_factory=list)
     status: str = "pending"  # "pending" | "running" | "completed" | "failed" | "serialized_wait"
-    execute_fn: Optional[Callable[[], Awaitable[Any]]] = None
+    execute_fn: Callable[[], Awaitable[Any]] | None = None
     result: Any = None
-    error: Optional[str] = None
-    started_at: Optional[str] = None
-    completed_at: Optional[str] = None
+    error: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -75,24 +75,28 @@ class ConflictGraphScheduler:
         norm_files = {f.replace("\\", "/").lower() for f in files}
         self.active_files.difference_update(norm_files)
 
-    def _record_event(self, event_type: str, task: TaskWorkstream, details: Optional[str] = None) -> None:
-        self.execution_timeline.append({
-            "timestamp": datetime.now(UTC).isoformat(),
-            "event": event_type,
-            "task_id": task.task_id,
-            "task_name": task.name,
-            "workstream": task.workstream,
-            "files": task.files_to_modify,
-            "details": details,
-        })
+    def _record_event(
+        self, event_type: str, task: TaskWorkstream, details: str | None = None
+    ) -> None:
+        self.execution_timeline.append(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "event": event_type,
+                "task_id": task.task_id,
+                "task_name": task.name,
+                "workstream": task.workstream,
+                "files": task.files_to_modify,
+                "details": details,
+            }
+        )
 
     async def execute_all(
-        self, progress_callback: Optional[Callable[[dict[str, Any]], Awaitable[None]]] = None
+        self, progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None
     ) -> dict[str, Any]:
         """Execute all tasks using safe parallel dispatch with conflict serialization."""
         completed_tasks: set[str] = set()
-        running_tasks: set[asyncio.Task] = set()
-        task_id_to_async_task: dict[str, asyncio.Task] = {}
+        running_tasks: set[asyncio.Task[Any]] = set()
+        task_id_to_async_task: dict[str, asyncio.Task[Any]] = {}
         semaphore = asyncio.Semaphore(self.max_concurrency)
 
         async def _run_single(task: TaskWorkstream) -> None:
@@ -143,7 +147,8 @@ class ConflictGraphScheduler:
         while len(completed_tasks) < len(self.tasks):
             # Find tasks ready to run (dependencies satisfied and not already started)
             ready_tasks = [
-                t for t in self.tasks.values()
+                t
+                for t in self.tasks.values()
                 if t.status in ("pending", "serialized_wait")
                 and t.task_id not in task_id_to_async_task
                 and all(dep in completed_tasks for dep in t.dependencies)

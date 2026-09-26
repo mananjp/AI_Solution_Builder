@@ -6,10 +6,13 @@ Covers database, Redis, JWT auth, pluggable LLM providers, rate limiting,
 and storage paths.
 """
 
+import logging
 from typing import Any
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 # Placeholder values that must never be used as the JWT signing key in production.
 _PLACEHOLDER_SECRETS = {

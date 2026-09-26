@@ -377,7 +377,7 @@ async def test_send_build_prompt_400(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_abort_session_tolerates_failure(monkeypatch):
-    def _client():
+    def _client(*args, **kwargs):
         async def handler(request: httpx.Request) -> Response:
             raise httpx.ConnectError("down")
 
@@ -392,10 +392,10 @@ async def test_abort_session_tolerates_failure(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_run_build_success(monkeypatch, tmp_path):
-    async def _sess(t):
+    async def _sess(t, **kwargs):
         return "sess-1"
 
-    async def _send(sid, p):
+    async def _send(sid, p, **kwargs):
         return {"info": {"error": None}}
 
     def _scaffold(build_dir, *, app_title, inject_modules, **kwargs):
@@ -405,7 +405,12 @@ async def test_run_build_success(monkeypatch, tmp_path):
 
     async def _mock_verify(workspace_dir, **kwargs):
         verified_calls.append(workspace_dir)
-        return []
+        return {
+            "verified": True,
+            "repair_turns": 0,
+            "errors": [],
+            "tests": {"passed": 1, "failed": 0},
+        }
 
     monkeypatch.setattr(settings, "MVP_BUILD_DIR", str(tmp_path))
     monkeypatch.setattr(builder, "health", _true)
@@ -439,15 +444,15 @@ async def test_run_build_sidecar_down(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_run_build_aborts_on_prompt_failure(monkeypatch, tmp_path):
-    async def _sess(t):
+    async def _sess(t, **kwargs):
         return "sess-1"
 
-    async def _boom(sid, p):
+    async def _boom(sid, p, **kwargs):
         raise builder.MVPBuilderError("prompt failed")
 
     calls: list[str] = []
 
-    async def _abort(sid):
+    async def _abort(sid, **kwargs):
         calls.append(sid)
 
     monkeypatch.setattr(settings, "MVP_BUILD_DIR", str(tmp_path))
@@ -504,8 +509,8 @@ def test_restaurant_template_registered_and_builds_state():
     assert tpl is not None
     assert tpl.slug == "restaurant_ordering"
     state = tpl.build_ai_state()
-    assert "dishes" in state["confirmed_modules"]
-    assert "orders" in state["confirmed_modules"]
+    assert "menu_ordering" in state["confirmed_modules"]
+    assert "kitchen_board" in state["confirmed_modules"]
 
 
 def test_apply_restaurant_template_files(tmp_path):

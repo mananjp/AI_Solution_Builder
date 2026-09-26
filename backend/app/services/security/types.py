@@ -65,9 +65,7 @@ def worst_verdict(findings: Sequence[ScanFinding]) -> ScanVerdict:
 
     Returns ScanVerdict.CLEAN if no non-error findings exist.
     """
-    candidates = [
-        f.verdict for f in findings if f.verdict != ScanVerdict.ERROR
-    ]
+    candidates = [f.verdict for f in findings if f.verdict != ScanVerdict.ERROR]
     if not candidates:
         return ScanVerdict.CLEAN
     return max(candidates, key=lambda v: _SEVERITY_ORDER.get(v, 0))

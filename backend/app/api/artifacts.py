@@ -424,9 +424,7 @@ async def get_artifact_image(
     artifact, _solution = await _verify_artifact_access(artifact_id, current_user, db)
 
     if not is_image_artifact(artifact.artifact_type):
-        raise HTTPException(
-            status_code=404, detail="Artifact does not contain a generated image"
-        )
+        raise HTTPException(status_code=404, detail="Artifact does not contain a generated image")
 
     content = artifact.content or {}
     image_meta = content.get("image")

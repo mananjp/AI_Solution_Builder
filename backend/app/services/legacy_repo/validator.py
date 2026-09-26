@@ -7,12 +7,10 @@ captures build/test errors, analyzes root causes, and applies minimal targeted f
 
 import asyncio
 import logging
-import os
 import py_compile
-import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from app.services.legacy_repo.boundary import assert_safe_boundary
 
@@ -26,7 +24,9 @@ class LegacyRepoValidator:
         self.root = assert_safe_boundary(repo_dir, action="validate")
         self.stack = tech_stack
 
-    async def validate_all(self, *, check_build: bool = True, max_repair_turns: int = 2) -> dict[str, Any]:
+    async def validate_all(
+        self, *, check_build: bool = True, max_repair_turns: int = 2
+    ) -> dict[str, Any]:
         """Run full battery of checks: Syntax, Security, Preserved Features, New Features, and Build."""
         checks: list[dict[str, Any]] = []
         repair_log: list[dict[str, Any]] = []
@@ -48,7 +48,11 @@ class LegacyRepoValidator:
         checks.append(new_feat_result)
 
         # 5. Production Build / Test Harness Check
-        build_result = {"name": "Build & Test Verification", "passed": True, "details": "Skipped or static validation"}
+        build_result = {
+            "name": "Build & Test Verification",
+            "passed": True,
+            "details": "Skipped or static validation",
+        }
         if check_build:
             build_result = await self._run_stack_build_or_tests()
             checks.append(build_result)
@@ -57,13 +61,17 @@ class LegacyRepoValidator:
             turns = 0
             while not build_result["passed"] and turns < max_repair_turns:
                 turns += 1
-                fix_applied = await self._attempt_auto_repair(build_result.get("error_trace", ""))
+                fix_applied = await self._attempt_auto_repair(
+                    str(build_result.get("error_trace", "") or "")
+                )
                 if fix_applied:
-                    repair_log.append({
-                        "turn": turns,
-                        "fix": fix_applied,
-                        "timestamp": asyncio.get_event_loop().time(),
-                    })
+                    repair_log.append(
+                        {
+                            "turn": turns,
+                            "fix": fix_applied,
+                            "timestamp": asyncio.get_event_loop().time(),
+                        }
+                    )
                     # Re-run build
                     build_result = await self._run_stack_build_or_tests()
                 else:
@@ -105,9 +113,18 @@ class LegacyRepoValidator:
                 try:
                     txt = f.read_text(encoding="utf-8", errors="ignore")
                     if "gsk_" in txt and ".env" not in f.name:
-                        issues.append(f"Potential hardcoded Groq API key in {f.relative_to(self.root)}")
-                    if "sk-" in txt and ".env" not in f.name and "sk-ant" not in txt and "ask-" not in txt:
-                        issues.append(f"Potential hardcoded OpenAI API key in {f.relative_to(self.root)}")
+                        issues.append(
+                            f"Potential hardcoded Groq API key in {f.relative_to(self.root)}"
+                        )
+                    if (
+                        "sk-" in txt
+                        and ".env" not in f.name
+                        and "sk-ant" not in txt
+                        and "ask-" not in txt
+                    ):
+                        issues.append(
+                            f"Potential hardcoded OpenAI API key in {f.relative_to(self.root)}"
+                        )
                 except Exception:
                     pass
 
@@ -115,7 +132,9 @@ class LegacyRepoValidator:
         return {
             "name": "Security & Secrets Isolation",
             "passed": passed,
-            "details": "All secrets isolated in .env and protected by .gitignore" if passed else "; ".join(issues),
+            "details": "All secrets isolated in .env and protected by .gitignore"
+            if passed
+            else "; ".join(issues),
         }
 
     # ── Syntax Check ──────────────────────────────────────────────────────
@@ -137,7 +156,9 @@ class LegacyRepoValidator:
         return {
             "name": "Syntax & Import Integrity",
             "passed": passed,
-            "details": f"Verified {len(py_files)} Python source files without syntax errors" if passed else "; ".join(errors[:5]),
+            "details": f"Verified {len(py_files)} Python source files without syntax errors"
+            if passed
+            else "; ".join(errors[:5]),
         }
 
     # ── Preserved Features Check ──────────────────────────────────────────
@@ -145,7 +166,14 @@ class LegacyRepoValidator:
     def _check_preserved_features(self) -> dict[str, Any]:
         """Verify original manifests, configs, and assets remain intact."""
         preserved_items = []
-        for name in ("package.json", "requirements.txt", "Dockerfile", "README.md", "src", "public"):
+        for name in (
+            "package.json",
+            "requirements.txt",
+            "Dockerfile",
+            "README.md",
+            "src",
+            "public",
+        ):
             target = self.root / name
             if target.exists():
                 preserved_items.append(name)
@@ -179,7 +207,9 @@ class LegacyRepoValidator:
         return {
             "name": "AI Chatbot Extension Verification",
             "passed": passed,
-            "details": f"Detected active extension components: {', '.join(found_extensions)}" if passed else "No extension components found",
+            "details": f"Detected active extension components: {', '.join(found_extensions)}"
+            if passed
+            else "No extension components found",
         }
 
     # ── Build & Test Harness ──────────────────────────────────────────────
@@ -187,13 +217,16 @@ class LegacyRepoValidator:
     async def _run_stack_build_or_tests(self) -> dict[str, Any]:
         """Execute stack-specific build or test command."""
         is_python = "Python" in self.stack.get("languages", [])
-        is_node = "JavaScript" in self.stack.get("languages", []) or "TypeScript" in self.stack.get("languages", [])
 
         # If Python with tests/ directory
         if is_python and (self.root / "tests").exists():
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    sys.executable, "-m", "pytest", "tests", "-q",
+                    sys.executable,
+                    "-m",
+                    "pytest",
+                    "tests",
+                    "-q",
                     cwd=str(self.root),
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
@@ -207,7 +240,12 @@ class LegacyRepoValidator:
                     "error_trace": stderr.decode("utf-8", errors="ignore"),
                 }
             except Exception as e:
-                return {"name": "Python Test Suite", "passed": False, "details": str(e), "error_trace": str(e)}
+                return {
+                    "name": "Python Test Suite",
+                    "passed": False,
+                    "details": str(e),
+                    "error_trace": str(e),
+                }
 
         return {
             "name": "Production Static Verification",
@@ -217,7 +255,7 @@ class LegacyRepoValidator:
 
     # ── Self-Healing Auto-Repair ──────────────────────────────────────────
 
-    async def _attempt_auto_repair(self, error_trace: str) -> Optional[str]:
+    async def _attempt_auto_repair(self, error_trace: str) -> str | None:
         """Analyze build/test error and apply minimal targeted repair."""
         if not error_trace:
             return None

@@ -17,7 +17,9 @@ logger = logging.getLogger(__name__)
 class FeatureExtensionEngine:
     """Injects requested capabilities into existing backend and frontend frameworks."""
 
-    def __init__(self, repo_dir: Path | str, tech_stack: dict[str, Any], entry_points: dict[str, Any]):
+    def __init__(
+        self, repo_dir: Path | str, tech_stack: dict[str, Any], entry_points: dict[str, Any]
+    ):
         self.root = assert_safe_boundary(repo_dir, action="extend features in")
         self.stack = tech_stack
         self.entry_points = entry_points
@@ -39,8 +41,12 @@ class FeatureExtensionEngine:
         fe_entry_str = str(self.entry_points.get("frontend_entry") or "")
 
         is_python_be = "Python" in self.stack.get("languages", []) or be_entry_str.endswith(".py")
-        is_node_be = "JavaScript" in self.stack.get("languages", []) or "TypeScript" in self.stack.get("languages", [])
-        is_react_fe = bool(self.stack.get("frontend_framework")) or fe_entry_str.endswith((".tsx", ".jsx"))
+        is_node_be = "JavaScript" in self.stack.get(
+            "languages", []
+        ) or "TypeScript" in self.stack.get("languages", [])
+        is_react_fe = bool(self.stack.get("frontend_framework")) or fe_entry_str.endswith(
+            (".tsx", ".jsx")
+        )
 
         # 1. Backend Service Extension
         if is_python_be:
@@ -108,10 +114,10 @@ async def generate_chat_response(messages: List[Dict[str, str]], system_prompt: 
         "Authorization": f"Bearer {{api_key}}",
         "Content-Type": "application/json"
     }}
-    
+
     # Provider endpoint
     endpoint = "https://api.groq.com/openai/v1/chat/completions" if "groq" in PROVIDER.lower() else "https://api.openai.com/v1/chat/completions"
-    
+
     payload = {{
         "model": MODEL if "groq" in PROVIDER.lower() else "gpt-4o-mini",
         "messages": effective_messages,
@@ -137,7 +143,7 @@ async def generate_chat_response(messages: List[Dict[str, str]], system_prompt: 
         modified.append(rel_chat)
 
         # Check if FastAPI or Flask router can be added
-        fastapi_route_code = '''
+        fastapi_route_code = """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Optional
@@ -159,7 +165,7 @@ async def chat_endpoint(payload: ChatPayload):
         return {"response": reply, "status": "success"}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-'''
+"""
         router_path = target_dir / "chat_router.py"
         router_path.write_text(fastapi_route_code, encoding="utf-8")
         rel_router = str(router_path.relative_to(self.root)).replace("\\", "/")
@@ -297,7 +303,7 @@ module.exports = router;
         components_dir.mkdir(parents=True, exist_ok=True)
 
         widget_file = components_dir / "AIChatbotWidget.tsx"
-        widget_code = f'''"use client";
+        widget_code = f""""use client";
 
 import React, {{ useState, useRef, useEffect }} from 'react';
 
@@ -483,7 +489,7 @@ export default function AIChatbotWidget() {{
     </div>
   );
 }}
-'''
+"""
         widget_file.write_text(widget_code, encoding="utf-8")
         rel_w = str(widget_file.relative_to(self.root)).replace("\\", "/")
         modified.append(rel_w)
@@ -502,7 +508,7 @@ export default function AIChatbotWidget() {{
         public_dir.mkdir(parents=True, exist_ok=True)
 
         widget_js = public_dir / "ai_chat_widget.js"
-        code = f'''// Standalone AI Chat Widget for Legacy Applications
+        code = f"""// Standalone AI Chat Widget for Legacy Applications
 (function() {{
   const chatButton = document.createElement('button');
   chatButton.innerHTML = '✨ Ask AI';
@@ -510,6 +516,6 @@ export default function AIChatbotWidget() {{
   document.body.appendChild(chatButton);
   chatButton.onclick = () => alert("AI Chatbot endpoint available at {chat_route_prefix}");
 }})();
-'''
+"""
         widget_js.write_text(code, encoding="utf-8")
         return [str(widget_js.relative_to(self.root)).replace("\\", "/")]

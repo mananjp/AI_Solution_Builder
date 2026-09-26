@@ -9,16 +9,14 @@ Drives safe, incremental legacy modernization and feature extensions:
 - Full validation & zero-regression verification
 """
 
-import asyncio
 import io
 import logging
-import os
 import shutil
 import zipfile
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Optional
-from uuid import UUID, uuid4
+from typing import Any
+from uuid import uuid4
 
 from app.core.config import settings
 from app.services.legacy_repo.analyzer import LegacyRepoAnalyzer
@@ -38,7 +36,7 @@ class LegacyRepoModernizer:
         self,
         target_dir: Path | str,
         *,
-        build_id: Optional[str] = None,
+        build_id: str | None = None,
         create_isolated_copy: bool = True,
     ):
         original_path = assert_safe_boundary(target_dir, action="modernize")
@@ -46,14 +44,18 @@ class LegacyRepoModernizer:
 
         if create_isolated_copy:
             # Build inside configured MVP_BUILD_DIR or local .data workspace
-            base_workspace = Path(settings.MVP_BUILD_DIR).resolve() / "legacy_builds" / self.build_id
+            base_workspace = (
+                Path(settings.MVP_BUILD_DIR).resolve() / "legacy_builds" / self.build_id
+            )
             base_workspace.mkdir(parents=True, exist_ok=True)
             # Copy source repository to isolated workspace, strictly ignoring sutra_os and forbidden folders
             shutil.copytree(
                 original_path,
                 base_workspace,
                 dirs_exist_ok=True,
-                ignore=lambda d, names: [n for n in names if n in ("sutra_os", ".git", "node_modules", "venv", ".venv")],
+                ignore=lambda d, names: [
+                    n for n in names if n in ("sutra_os", ".git", "node_modules", "venv", ".venv")
+                ],
             )
             self.work_dir = assert_safe_boundary(base_workspace, action="work within")
         else:
@@ -62,9 +64,9 @@ class LegacyRepoModernizer:
     async def modernize(
         self,
         *,
-        requested_features: Optional[list[str]] = None,
-        credentials: Optional[dict[str, str]] = None,
-        progress_cb: Optional[Callable[[dict[str, Any]], Awaitable[None]]] = None,
+        requested_features: list[str] | None = None,
+        credentials: dict[str, str] | None = None,
+        progress_cb: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         """Execute the end-to-end modernization & feature extension workflow."""
         requested = requested_features or ["ai_chatbot"]
@@ -78,11 +80,13 @@ class LegacyRepoModernizer:
         assets = analysis["assets_inventory"]
 
         if progress_cb:
-            await progress_cb({
-                "stage": "analysis_completed",
-                "message": f"Identified stack: {', '.join(tech_stack.get('languages', []))} ({tech_stack.get('frontend_framework') or tech_stack.get('backend_framework') or 'Generic'})",
-                "analysis": analysis,
-            })
+            await progress_cb(
+                {
+                    "stage": "analysis_completed",
+                    "message": f"Identified stack: {', '.join(tech_stack.get('languages', []))} ({tech_stack.get('frontend_framework') or tech_stack.get('backend_framework') or 'Generic'})",
+                    "analysis": analysis,
+                }
+            )
 
         # Step 2: Credential Provisioning & Hygiene
         masked_creds: dict[str, str] = {}
@@ -96,11 +100,13 @@ class LegacyRepoModernizer:
         modified_files_record: list[str] = []
 
         # ── Workstream 1: Modernization Tasks ─────────────────────────────────
-        async def task_env_hygiene():
+        async def task_env_hygiene() -> str:
             # Ensure .env.example and .gitignore exist
             gi = self.work_dir / ".gitignore"
             if not gi.exists():
-                gi.write_text(".env\n.env.local\nnode_modules/\n__pycache__/\n*.pyc\n", encoding="utf-8")
+                gi.write_text(
+                    ".env\n.env.local\nnode_modules/\n__pycache__/\n*.pyc\n", encoding="utf-8"
+                )
                 modified_files_record.append(".gitignore")
 
             ex = self.work_dir / ".env.example"
@@ -121,7 +127,7 @@ class LegacyRepoModernizer:
             )
         )
 
-        async def task_missing_infra():
+        async def task_missing_infra() -> str:
             # Add Dockerfile / docker-compose if not present
             df = self.work_dir / "Dockerfile"
             if not df.exists():
@@ -130,13 +136,13 @@ class LegacyRepoModernizer:
                     df.write_text(
                         "FROM python:3.11-slim\nWORKDIR /app\nCOPY requirements.txt .\n"
                         "RUN pip install --no-cache-dir -r requirements.txt\nCOPY . .\n"
-                        "EXPOSE 8000\nCMD [\"python\", \"main.py\"]\n",
+                        'EXPOSE 8000\nCMD ["python", "main.py"]\n',
                         encoding="utf-8",
                     )
                 else:
                     df.write_text(
                         "FROM node:20-alpine\nWORKDIR /app\nCOPY package*.json ./\n"
-                        "RUN npm install\nCOPY . .\nEXPOSE 3000\nCMD [\"npm\", \"start\"]\n",
+                        'RUN npm install\nCOPY . .\nEXPOSE 3000\nCMD ["npm", "start"]\n',
                         encoding="utf-8",
                     )
                 modified_files_record.append("Dockerfile")
@@ -161,9 +167,12 @@ class LegacyRepoModernizer:
             be_entry_str = str(entry_points.get("backend_entry") or "")
             fe_entry_str = str(entry_points.get("frontend_entry") or "")
 
-            async def task_chat_backend():
+            async def task_chat_backend() -> str:
                 is_py = "Python" in tech_stack.get("languages", []) or be_entry_str.endswith(".py")
-                chat_model = getattr(settings, "GROQ_MODEL_NAME", "openai/gpt-oss-120b") or "openai/gpt-oss-120b"
+                chat_model = (
+                    getattr(settings, "GROQ_MODEL_NAME", "openai/gpt-oss-120b")
+                    or "openai/gpt-oss-120b"
+                )
                 if is_py:
                     files = engine._inject_python_chat_service(provider="groq", model=chat_model)
                 else:
@@ -183,8 +192,10 @@ class LegacyRepoModernizer:
                 )
             )
 
-            async def task_chat_ui():
-                is_react = bool(tech_stack.get("frontend_framework")) or fe_entry_str.endswith((".tsx", ".jsx"))
+            async def task_chat_ui() -> str:
+                is_react = bool(tech_stack.get("frontend_framework")) or fe_entry_str.endswith(
+                    (".tsx", ".jsx")
+                )
                 if is_react:
                     files = engine._inject_react_chat_ui(chat_route_prefix="/api/chat")
                 else:
@@ -198,7 +209,11 @@ class LegacyRepoModernizer:
                     name="AI Chatbot UI Component",
                     workstream="feature_extension",
                     description="Add responsive, animated floating chatbot component to frontend",
-                    files_to_modify=["src/components/AIChatbotWidget.tsx", "components/AIChatbotWidget.tsx", "public/ai_chat_widget.js"],
+                    files_to_modify=[
+                        "src/components/AIChatbotWidget.tsx",
+                        "components/AIChatbotWidget.tsx",
+                        "public/ai_chat_widget.js",
+                    ],
                     dependencies=[],
                     execute_fn=task_chat_ui,
                 )
@@ -215,7 +230,9 @@ class LegacyRepoModernizer:
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
             for p in self.work_dir.rglob("*"):
-                if any(x in ("node_modules", "venv", ".venv", ".git", "__pycache__") for x in p.parts):
+                if any(
+                    x in ("node_modules", "venv", ".venv", ".git", "__pycache__") for x in p.parts
+                ):
                     continue
                 if p.is_file():
                     zf.write(p, p.relative_to(self.work_dir))

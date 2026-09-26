@@ -68,7 +68,9 @@ def url_identifier(url: str) -> str:
     return base64.urlsafe_b64encode(url.strip().encode("utf-8")).decode("ascii").rstrip("=")
 
 
-def _extract_allowlisted_details(attrs: dict[str, Any], allowed_keys: tuple[str, ...]) -> dict[str, Any]:
+def _extract_allowlisted_details(
+    attrs: dict[str, Any], allowed_keys: tuple[str, ...]
+) -> dict[str, Any]:
     """Filter attributes dictionary to allowlisted fields only."""
     return {k: attrs[k] for k in allowed_keys if k in attrs}
 
@@ -146,7 +148,9 @@ async def lookup_file(sha256: str, api_key: str | None = None) -> ScanResult:
             duration_ms=round(duration, 2),
         )
     elif resp.status_code != 200:
-        logger.warning("VirusTotal file query returned HTTP %d: %s", resp.status_code, resp.text[:100])
+        logger.warning(
+            "VirusTotal file query returned HTTP %d: %s", resp.status_code, resp.text[:100]
+        )
         return ScanResult(
             verdict=ScanVerdict.ERROR,
             findings=(
@@ -316,7 +320,9 @@ async def poll_analysis(analysis_id: str, api_key: str | None = None) -> dict[st
     async with httpx.AsyncClient(timeout=settings.VIRUSTOTAL_TIMEOUT) as client:
         resp = await client.get(url, headers=headers)
         if resp.status_code != 200:
-            raise VirusTotalError(f"Poll analysis failed ({resp.status_code})", status_code=resp.status_code)
+            raise VirusTotalError(
+                f"Poll analysis failed ({resp.status_code})", status_code=resp.status_code
+            )
         body = cast(dict[str, Any], resp.json())
         return cast(dict[str, Any], body.get("data", {}).get("attributes", {}))
 

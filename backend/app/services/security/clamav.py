@@ -81,7 +81,9 @@ class ClamAVScanner:
             )
         except Exception as exc:
             duration = (time.perf_counter() - start_time) * 1000
-            logger.warning("ClamAV connect failed (%s:%s): %s", settings.CLAMAV_HOST, settings.CLAMAV_PORT, exc)
+            logger.warning(
+                "ClamAV connect failed (%s:%s): %s", settings.CLAMAV_HOST, settings.CLAMAV_PORT, exc
+            )
             return ScanResult(
                 verdict=ScanVerdict.ERROR,
                 findings=(

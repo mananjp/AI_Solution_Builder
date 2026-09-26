@@ -14,7 +14,6 @@ import {
   Shield,
   ShieldAlert,
   Activity,
-  FileText,
   Upload,
   Loader2,
   AlertTriangle,
@@ -39,7 +38,15 @@ export default function AdminGovernancePage() {
   const [securityConfig, setSecurityConfig] = useState<SecurityConfig | null>(null);
   const [securityScans, setSecurityScans] = useState<SecurityScanItem[]>([]);
   const [testFileLoading, setTestFileLoading] = useState(false);
-  const [testScanResult, setTestScanResult] = useState<any>(null);
+  const [testScanResult, setTestScanResult] = useState<{
+    error?: string;
+    filename?: string;
+    verdict?: string;
+    findings?: Array<{ source?: string; verdict?: string; reason?: string }>;
+    sha256?: string;
+    duration_ms?: number;
+    from_cache?: boolean;
+  } | null>(null);
   const testFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -453,8 +460,9 @@ export default function AdminGovernancePage() {
               try {
                 const res = await securityApi.scanFile(file);
                 setTestScanResult(res);
-              } catch (err: any) {
-                setTestScanResult({ error: err.message || 'Scan error' });
+              } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : 'Scan error';
+                setTestScanResult({ error: message });
               } finally {
                 setTestFileLoading(false);
               }
@@ -502,10 +510,10 @@ export default function AdminGovernancePage() {
                   Verdict: {testScanResult.verdict?.toUpperCase() || 'UNKNOWN'}
                 </span>
               </div>
-              {testScanResult.findings?.length > 0 && (
+              {Boolean(testScanResult.findings && testScanResult.findings.length > 0) && testScanResult.findings && (
                 <div className="space-y-1 pt-1 border-t border-[var(--border)]">
                   <span className="text-[10px] uppercase font-bold text-[var(--text-3)]">Findings:</span>
-                  {testScanResult.findings.map((f: any, idx: number) => (
+                  {testScanResult.findings.map((f, idx: number) => (
                     <div key={idx} className="font-mono text-[11px] text-[var(--red)] flex items-center gap-2">
                       <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                       <span>[{f.source}] {f.reason} ({f.verdict})</span>

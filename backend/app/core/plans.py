@@ -54,9 +54,7 @@ def ensure_default_plans_sync(conn: Connection) -> None:
     surrounding ``engine.begin()`` transaction flushes the writes on commit.
     """
     for spec in _plan_rows():
-        exists = conn.execute(
-            select(Plan.id).where(Plan.name == spec["name"])
-        ).scalar_one_or_none()
+        exists = conn.execute(select(Plan.id).where(Plan.name == spec["name"])).scalar_one_or_none()
         if exists is None:
             conn.execute(insert(Plan).values(**spec))
 

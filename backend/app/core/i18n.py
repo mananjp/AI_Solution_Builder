@@ -198,7 +198,7 @@ def detect_indic_script(text: str) -> str:
 
     counts: dict[str, int] = {
         "gu": 0,  # 0x0A80 - 0x0AFF Gujarati
-        "dev": 0, # 0x0900 - 0x097F Devanagari (Hindi / Marathi)
+        "dev": 0,  # 0x0900 - 0x097F Devanagari (Hindi / Marathi)
         "bn": 0,  # 0x0980 - 0x09FF Bengali / Assamese
         "pa": 0,  # 0x0A00 - 0x0A7F Gurmukhi (Punjabi)
         "or": 0,  # 0x0B00 - 0x0B7F Odia
@@ -352,4 +352,3 @@ async def translate_text(text: str, target_lang: str) -> str:
         logger.warning("Translation to %s failed: %s", target, err)
 
     return text
-

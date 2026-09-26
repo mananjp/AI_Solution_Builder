@@ -619,9 +619,6 @@ async def _verify_solution_access(db: AsyncSession, solution_id: UUID, user: Use
     )
     solution = result.scalar_one_or_none()
     if not solution:
-        res_direct = await db.execute(select(Solution).where(Solution.id == solution_id))
-        solution = res_direct.scalar_one_or_none()
-    if not solution:
         raise HTTPException(status_code=404, detail="Solution not found")
     return solution
 
@@ -974,10 +971,10 @@ def _spec_description_markdown(ai_state: dict[str, Any], solution: Any) -> str:
         out.extend(f"- {t.get('name', '')}: {t.get('description', '')}" for t in tests)
 
     out.append("## Architecture & Stack")
+    out.append(f"- **Architecture:** {spec.get('architecture', 'next_fullstack')}")
     out.append(
-        f"- **Architecture:** {spec.get('architecture', 'next_fullstack')}"
+        "- **Backend:** FastAPI + SQLAlchemy 2.0 + PostgreSQL, REST API with Pydantic validation"
     )
-    out.append("- **Backend:** FastAPI + SQLAlchemy 2.0 + PostgreSQL, REST API with Pydantic validation")
     out.append("- **Frontend:** Next.js App Router, responsive component-driven UI")
     if spec.get("has_ml_model"):
         out.append(f"- **ML:** {', '.join(spec.get('ml_frameworks') or ['ML'])}")
@@ -991,16 +988,16 @@ def _spec_description_markdown(ai_state: dict[str, Any], solution: Any) -> str:
 def chat_progress(phase: str, step: int, percentage: int, message: str) -> dict[str, Any]:
     """Progress payload for the persisted build row."""
     done = phase == "completed" or percentage >= 100
-    active = len(_CHAT_BUILD_STEPS) - 1 if done else min(
-        max(_CHAT_STEP_INDEX.get(phase, 0), 0), len(_CHAT_BUILD_STEPS) - 1
+    active = (
+        len(_CHAT_BUILD_STEPS) - 1
+        if done
+        else min(max(_CHAT_STEP_INDEX.get(phase, 0), 0), len(_CHAT_BUILD_STEPS) - 1)
     )
     steps = [
         {
             **s,
             "status": (
-                "completed"
-                if done or i < active
-                else ("active" if i == active else "pending")
+                "completed" if done or i < active else ("active" if i == active else "pending")
             ),
         }
         for i, s in enumerate(_CHAT_BUILD_STEPS)
@@ -1034,19 +1031,9 @@ async def chat(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> EventSourceResponse:
-    """Chat directly with OpenCode; streaming SSE response."""
-    # Eager ownership check; gracefully fall back to fresh session if solution was purged or uncommitted
-    content_language: str = getattr(request.state, "language", "en")
+    # Eager ownership check
     if payload.solution_id:
-        try:
-            await _verify_solution_access(db, payload.solution_id, current_user)
-        except Exception as exc:
-            logger.warning(
-                "Requested solution_id %s inaccessible (%s); starting fresh session",
-                payload.solution_id,
-                exc,
-            )
-            payload.solution_id = None
+        await _verify_solution_access(db, payload.solution_id, current_user)
 
     async def event_generator() -> AsyncIterator[dict[str, Any]]:
         try:
@@ -1055,22 +1042,14 @@ async def chat(
             async with async_session_factory() as stream_db:
                 solution = None
                 if payload.solution_id:
-                    try:
-                        solution = await _verify_solution_access(
-                            stream_db, payload.solution_id, current_user
-                        )
-                        if payload.app_name and solution.title in (
-                            "Custom App Build",
-                            "Custom App",
-                        ):
-                            solution.title = payload.app_name
-                    except Exception as exc:
-                        logger.warning(
-                            "Could not load solution_id %s in stream_db (%s); creating fresh",
-                            payload.solution_id,
-                            exc,
-                        )
-                        solution = None
+                    solution = await _verify_solution_access(
+                        stream_db, payload.solution_id, current_user
+                    )
+                    if payload.app_name and solution.title in (
+                        "Custom App Build",
+                        "Custom App",
+                    ):
+                        solution.title = payload.app_name
 
                 if solution is None:
                     workspace = await _get_or_create_workspace(stream_db, current_user)
@@ -1654,7 +1633,10 @@ async def chat(
                                     78,
                                     "Illustrating product visuals from the domain specification...",
                                 )
-                                async def _image_progress(done: int, total: int, title: str) -> None:
+
+                                async def _image_progress(
+                                    done: int, total: int, title: str
+                                ) -> None:
                                     """Stream per-image progress out of the illustration phase."""
                                     nonlocal mvp_build
                                     pct = 78 + int(10 * (done / max(total, 1)))
@@ -1835,7 +1817,9 @@ async def chat(
                                 "build_id": str(build_id),
                                 "build_number": build_number,
                                 "file_count": len(files),
-                                "files": [{"path": p, "size": 0, "is_dir": False} for p in rel_files],
+                                "files": [
+                                    {"path": p, "size": 0, "is_dir": False} for p in rel_files
+                                ],
                             }
 
                             yield await emit_progress(

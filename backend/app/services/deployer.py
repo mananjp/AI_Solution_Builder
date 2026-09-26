@@ -11,7 +11,6 @@ import asyncio
 import contextlib
 import json
 import logging
-import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any

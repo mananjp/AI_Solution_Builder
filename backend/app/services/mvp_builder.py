@@ -28,9 +28,9 @@ import secrets
 import shutil
 import time
 import zipfile
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from collections.abc import Awaitable, Callable
 
 if TYPE_CHECKING:
     from app.services.app_spec import AppSpec
@@ -45,8 +45,19 @@ logger = logging.getLogger(__name__)
 _IGNORED = {".git", "node_modules", "__pycache__", ".next", ".venv", "venv", "dist", "build"}
 
 _TEXT_SUFFIXES = {
-    ".py", ".ts", ".tsx", ".js", ".jsx", ".env", ".yml", ".yaml", ".toml",
-    ".json", ".sh", ".md", ".prisma",
+    ".py",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".env",
+    ".yml",
+    ".yaml",
+    ".toml",
+    ".json",
+    ".sh",
+    ".md",
+    ".prisma",
 }
 
 # Human descriptions for well-known environment variables so the env-required UI
@@ -266,9 +277,7 @@ def env_plan_with_current(
 ) -> list[dict[str, Any]]:
     """Merge previously saved env values + known deployed URLs into a plan."""
     saved = dict(saved_env or {})
-    injected = (
-        {"NEXT_PUBLIC_API_URL": backend_url} if backend_url else {}
-    )
+    injected = {"NEXT_PUBLIC_API_URL": backend_url} if backend_url else {}
     for entry in plan:
         key = entry["key"]
         entry["current"] = saved.get(key) or injected.get(key)
@@ -331,10 +340,10 @@ def _auth_hint(status_code: int) -> str | None:
     """Return an actionable error message for auth-related sidecar failures."""
     if status_code in (401, 403):
         return (
-            "LLM provider rejected the credentials (HTTP {status}). Make sure OPENCODE_ZEN_API_KEY "
+            f"LLM provider rejected the credentials (HTTP {status_code}). Make sure OPENCODE_ZEN_API_KEY "
             "(default model opencode/big-pickle) is set in the sidecar env, or set "
             "OPENCODE_MODEL to a groq/* model and provide GROQ_API_KEY."
-        ).format(status=status_code)
+        )
     return None
 
 
@@ -488,15 +497,24 @@ async def health_info() -> dict[str, Any]:
             )
             info["latency_ms"] = elapsed_ms
 
+            def _extract_model(p: str, d: Any) -> Any:
+                if not isinstance(d, dict):
+                    return None
+                if p == "/config":
+                    agent_val = d.get("agent")
+                    agent_model = agent_val.get("model") if isinstance(agent_val, dict) else None
+                    return d.get("model") or agent_model
+                if p == "/api/model/default":
+                    return d.get("model") or d.get("id")
+                if p == "/api/config":
+                    return d.get("model") or d.get("defaultModel")
+                return None
+
             model = None
-            for cfg_path, parser in (
-                ("/config", lambda d: (d.get("model") or ((d.get("agent") or {}).get("model")) if isinstance(d, dict) else None)),
-                ("/api/model/default", lambda d: (d.get("model") or d.get("id")) if isinstance(d, dict) else None),
-                ("/api/config", lambda d: (d.get("model") or d.get("defaultModel")) if isinstance(d, dict) else None),
-            ):
+            for cfg_path in ("/config", "/api/model/default", "/api/config"):
                 cfg = await client.get(cfg_path, timeout=3.0)
                 if cfg.status_code == 200:
-                    model = parser(cfg.json()) or None
+                    model = _extract_model(cfg_path, cfg.json()) or None
                     if model:
                         break
             info["model"] = model
@@ -523,15 +541,21 @@ async def round_trip_ping(timeout: int = 90) -> dict[str, Any]:
             "fix": _fix_for_error(exc),
         }
     try:
-        resp = await send_message(session_id, "Reply with exactly: OK", agent="build", timeout=timeout)
+        resp = await send_message(
+            session_id, "Reply with exactly: OK", agent="build", timeout=timeout
+        )
         blob = json.dumps(resp, default=str)[:2000]
         echoed = "OK" in blob
         return {
             "ok": echoed,
             "session_id": session_id,
             "latency_ms": round((time.monotonic() - start) * 1000),
-            "error": None if echoed else f"Sidecar replied but did not echo OK (response truncated: {blob[:300]})",
-            "fix": None if echoed else "The sidecar is up but the model isn't responding sanely — check OPENCODE_MODEL and sidecar logs (`[opencode]` lines).",
+            "error": None
+            if echoed
+            else f"Sidecar replied but did not echo OK (response truncated: {blob[:300]})",
+            "fix": None
+            if echoed
+            else "The sidecar is up but the model isn't responding sanely — check OPENCODE_MODEL and sidecar logs (`[opencode]` lines).",
         }
     except Exception as exc:
         return {
@@ -552,9 +576,7 @@ def _fix_for_error(exc: Exception) -> str:
         return "Sidecar unreachable: is the opencode container running?\n  docker compose up -d opencode   (local)  ·  see README 'OpenCode sidecar' (Render/Fly)"
     if "404" in lowered or "not found" in lowered:
         return "The endpoint does not exist on this opencode version — upgrade the sidecar to @opencode/cli@1.18.31."
-    return (
-        "See sidecar logs:\n  docker compose logs -f opencode        (local)\n  render logs ai-solution-builder-builder   (Render)"
-    )
+    return "See sidecar logs:\n  docker compose logs -f opencode        (local)\n  render logs ai-solution-builder-builder   (Render)"
 
 
 async def diagnose() -> dict[str, Any]:
@@ -596,15 +618,23 @@ async def diagnose() -> dict[str, Any]:
     configured_url = (settings.OPENCODE_SERVER_URL or "").strip()
     if not configured_url:
         checks.append(
-            {"status": "warn", "label": "OPENCODE_SERVER_URL configured", "detail": "defaulting to http://127.0.0.1:4096", "fix": "Set OPENCODE_SERVER_URL in .env/deploy settings.", }
+            {
+                "status": "warn",
+                "label": "OPENCODE_SERVER_URL configured",
+                "detail": "defaulting to http://127.0.0.1:4096",
+                "fix": "Set OPENCODE_SERVER_URL in .env/deploy settings.",
+            }
         )
     else:
         checks.append(
-            {"status": "ok" if configured_url in _candidate_urls() else "warn",
-             "label": "OPENCODE_SERVER_URL configured",
-             "detail": f"configured={configured_url}",
-             "fix": None if configured_url in _candidate_urls() else "URL is filtered out (contains 'ai-solution-builder-builder') — update it to the sidecar address.",
-             }
+            {
+                "status": "ok" if configured_url in _candidate_urls() else "warn",
+                "label": "OPENCODE_SERVER_URL configured",
+                "detail": f"configured={configured_url}",
+                "fix": None
+                if configured_url in _candidate_urls()
+                else "URL is filtered out (contains 'ai-solution-builder-builder') — update it to the sidecar address.",
+            }
         )
 
     zen_key = (settings.OPENCODE_ZEN_API_KEY or "").strip()
@@ -614,8 +644,16 @@ async def diagnose() -> dict[str, Any]:
         {
             "status": "ok" if llm_key else "warn",
             "label": "LLM API key for code generation (backend)",
-            "detail": "GROQ_API_KEY present" if groq_key else ("OPENCODE_ZEN_API_KEY present (model opencode/* required)" if zen_key else "the default model opencode/big-pickle needs OPENCODE_ZEN_API_KEY (or set OPENCODE_MODEL to a groq/* model with GROQ_API_KEY)"),
-            "fix": None if llm_key else "Set OPENCODE_ZEN_API_KEY in the service that runs opencode (or override OPENCODE_MODEL to a groq/* model with GROQ_API_KEY).",
+            "detail": "GROQ_API_KEY present"
+            if groq_key
+            else (
+                "OPENCODE_ZEN_API_KEY present (model opencode/* required)"
+                if zen_key
+                else "the default model opencode/big-pickle needs OPENCODE_ZEN_API_KEY (or set OPENCODE_MODEL to a groq/* model with GROQ_API_KEY)"
+            ),
+            "fix": None
+            if llm_key
+            else "Set OPENCODE_ZEN_API_KEY in the service that runs opencode (or override OPENCODE_MODEL to a groq/* model with GROQ_API_KEY).",
         }
     )
 
@@ -658,7 +696,7 @@ async def create_session(title: str, seed: str = "") -> str:
     base_url = _pick_base_url(seed=seed)
     async with _client(base_url=base_url) as client:
         resp = None
-        for path in (f"/session", f"/api/session"):
+        for path in ("/session", "/api/session"):
             resp = await client.post(path, json={"title": title})
             if resp.status_code not in (404, 501):
                 break
@@ -718,16 +756,12 @@ async def send_message(
         return result
 
 
-async def send_build_prompt(
-    session_id: str, prompt: str, *, seed: str = ""
-) -> dict[str, Any]:
+async def send_build_prompt(session_id: str, prompt: str, *, seed: str = "") -> dict[str, Any]:
     """Send the MVP build prompt and wait for the full assistant response."""
     return await send_message(session_id, prompt, seed=seed)
 
 
-async def abort_session(
-    session_id: str, *, seed: str = "", base_url: str | None = None
-) -> None:
+async def abort_session(session_id: str, *, seed: str = "", base_url: str | None = None) -> None:
     """Abort a running session (best-effort)."""
     try:
         resolved = base_url or _pick_base_url(seed=seed, session_id=session_id)
@@ -2509,7 +2543,9 @@ class AgentRunner:
         for f in ent.get("fields", []):
             f_type = str(f.get("type", "") if isinstance(f, dict) else "").upper()
             if "INT" in f_type or any(t in f_type for t in ("FLOAT", "DOUBLE", "DECIMAL")):
-                num_ent = re.sub(r"[^a-zA-Z0-9_]+", "_", str(ent.get("name", "")).lower()).strip("_")
+                num_ent = re.sub(r"[^a-zA-Z0-9_]+", "_", str(ent.get("name", "")).lower()).strip(
+                    "_"
+                )
                 num_field = re.sub(
                     r"[^a-zA-Z0-9_]+",
                     "_",
@@ -2676,7 +2712,11 @@ def scaffold_build(
             # Generate spec.json and acceptance test harness for verification
             try:
                 from app.services.app_spec import fallback_app_spec
-                from app.services.spec_codegen import CONFTEST, gen_acceptance_tests, gen_actions_stub
+                from app.services.spec_codegen import (
+                    CONFTEST,
+                    gen_acceptance_tests,
+                    gen_actions_stub,
+                )
 
                 fallback_spec = fallback_app_spec(ai_state, app_title)
                 be = root / "backend"

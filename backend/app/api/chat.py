@@ -104,9 +104,7 @@ async def _persist_artifacts(
     max_version = await _artifact_version_map(db, solution.id)
 
     def add(artifact_type: str, title: str, content: dict[str, Any], content_text: str) -> None:
-        _queue_artifact(
-            db, solution.id, max_version, artifact_type, title, content, content_text
-        )
+        _queue_artifact(db, solution.id, max_version, artifact_type, title, content, content_text)
 
     for artifact_type in ARTIFACT_TYPES:
         artifact_data = final_state.get(artifact_type)

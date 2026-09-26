@@ -125,16 +125,20 @@ async def get_current_user(
     return user
 
 
-async def require_admin(
-    current_user: User = Depends(get_current_user),
-) -> User:
-    """Dependency that only admits users with an admin role."""
-
-    if current_user.role not in ("admin", "owner", "superadmin"):
+def check_admin(user: User) -> None:
+    """Validate that the given user possesses elevated administrator rights."""
+    if user.role not in ("admin", "owner", "superadmin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required",
         )
+
+
+async def require_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Dependency that only admits users with an admin role."""
+    check_admin(current_user)
     return current_user
 
 
@@ -209,12 +213,3 @@ def require_permission(permission: str) -> Any:
         return current_user
 
     return _check
-
-
-def require_admin(user: User) -> None:
-    """Validate that the given user possesses elevated administrator rights."""
-    if user.role not in ("admin", "superadmin", "owner"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Elevated administrator role required"
-        )
-

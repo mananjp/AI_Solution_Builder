@@ -200,9 +200,8 @@ def detect_ml_requirements(data: Any) -> tuple[bool, list[str]]:
     text_lower = text.lower()
     found: list[str] = []
     for kw, label in ML_KEYWORDS.items():
-        if re.search(r"\b" + re.escape(kw) + r"\b", text_lower):
-            if label not in found:
-                found.append(label)
+        if re.search(r"\b" + re.escape(kw) + r"\b", text_lower) and label not in found:
+            found.append(label)
 
     return len(found) > 0, found
 

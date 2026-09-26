@@ -19,8 +19,6 @@ import {
   Lock,
   Play,
   Wrench,
-  Shield,
-  ShieldAlert,
 } from 'lucide-react';
 import {
   legacyRepoApi,

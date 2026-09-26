@@ -297,47 +297,49 @@ def gen_analytics_router(spec: AppSpec) -> str:
     else:
         trend_block = "\n    trend = []\n"
 
-    return "\n".join([
-        '"""Analytics router -- GENERATED from spec.json."""',
-        "",
-        "from __future__ import annotations",
-        "",
-        "from fastapi import APIRouter",
-        "from sqlalchemy import func, select",
-        "",
-        "try:",
-        "    from . import models",
-        "    from .deps import SessionDep",
-        "except (ImportError, ValueError):",
-        "    try:",
-        "        from deps import SessionDep",
-        "        import models",
-        "    except (ImportError, ValueError):",
-        "        from app.database import SessionDep",
-        "        from . import models",
-        "",
-        'router = APIRouter(prefix="/analytics", tags=["analytics"])',
-        "",
-        '@router.get("/summary")',
-        "async def summary(session: SessionDep) -> dict:",
-        "    agg_q = select(",
-        f"        func.count(models.{c}.id).label('count'),",
-        f"        func.sum(models.{c}.{field}).label('total'),",
-        f"        func.avg(models.{c}.{field}).label('average'),",
-        "    )",
-        "    row = (await session.execute(agg_q)).one()",
-        trend_block,
-        "    return {",
-        "        'available': True,",
-        f"        'entity': '{target.entity.name}',",
-        f"        'metric': '{target.metric_field.name}',",
-        "        'count': int(row.count or 0),",
-        "        'total': float(row.total or 0),",
-        "        'average': float(row.average or 0),",
-        "        'trend': trend,",
-        "    }",
-        "",
-    ])
+    return "\n".join(
+        [
+            '"""Analytics router -- GENERATED from spec.json."""',
+            "",
+            "from __future__ import annotations",
+            "",
+            "from fastapi import APIRouter",
+            "from sqlalchemy import func, select",
+            "",
+            "try:",
+            "    from . import models",
+            "    from .deps import SessionDep",
+            "except (ImportError, ValueError):",
+            "    try:",
+            "        from deps import SessionDep",
+            "        import models",
+            "    except (ImportError, ValueError):",
+            "        from app.database import SessionDep",
+            "        from . import models",
+            "",
+            'router = APIRouter(prefix="/analytics", tags=["analytics"])',
+            "",
+            '@router.get("/summary")',
+            "async def summary(session: SessionDep) -> dict:",
+            "    agg_q = select(",
+            f"        func.count(models.{c}.id).label('count'),",
+            f"        func.sum(models.{c}.{field}).label('total'),",
+            f"        func.avg(models.{c}.{field}).label('average'),",
+            "    )",
+            "    row = (await session.execute(agg_q)).one()",
+            trend_block,
+            "    return {",
+            "        'available': True,",
+            f"        'entity': '{target.entity.name}',",
+            f"        'metric': '{target.metric_field.name}',",
+            "        'count': int(row.count or 0),",
+            "        'total': float(row.total or 0),",
+            "        'average': float(row.average or 0),",
+            "        'trend': trend,",
+            "    }",
+            "",
+        ]
+    )
 
 
 def gen_routers(spec: AppSpec) -> str:
@@ -383,7 +385,9 @@ async def ready(session: SessionDep) -> dict[str, str]:
 '''
     body = "".join(_crud(spec, e) for e in spec.entities)
     extra_routers = "\n\nrouter.include_router(actions_router)\n"
-    extra_routers += "if analytics_router is not None:\n    router.include_router(analytics_router)\n"
+    extra_routers += (
+        "if analytics_router is not None:\n    router.include_router(analytics_router)\n"
+    )
     return head + body + extra_routers
 
 
@@ -1311,11 +1315,13 @@ def _gen_entity_page(spec: AppSpec, entity: Entity, route: str) -> str:
         key = js_key(f.name)
         headers.append(f'<TableHead className="px-3 py-2">{label}</TableHead>')
         if f.type == "bool":
-            cells.append(f'<TableCell className="px-3 py-2">{{row.{f.name} ? "Yes" : "No"}}</TableCell>')
+            cells.append(
+                f'<TableCell className="px-3 py-2">{{row.{f.name} ? "Yes" : "No"}}</TableCell>'
+            )
             assigns.append(f"      body[{key}] = form[{key}] === true;")
             form_fields.append(
                 '<div className="flex items-center gap-2">\n'
-                f'          <Checkbox id={key} '
+                f"          <Checkbox id={key} "
                 f"checked={{field({key}) === true}} "
                 f"onCheckedChange={{(v) => set({key}, v === true)}} />\n"
                 f'          <Label htmlFor={key} className="cursor-pointer">{label}</Label>\n'
@@ -1327,11 +1333,11 @@ def _gen_entity_page(spec: AppSpec, entity: Entity, route: str) -> str:
             )
             form_fields.append(
                 '<div className="flex flex-col gap-2">\n'
-                f'          <Label htmlFor={key}>{label}</Label>\n'
-                f"          <Select value={{String(field({key}) ?? \"\")}} "
+                f"          <Label htmlFor={key}>{label}</Label>\n"
+                f'          <Select value={{String(field({key}) ?? "")}} '
                 f"onValueChange={{(v) => set({key}, v)}}>\n"
                 f"            <SelectTrigger id={key}>\n"
-                f"              <SelectValue placeholder=\"Select {label.lower()}\" />\n"
+                f'              <SelectValue placeholder="Select {label.lower()}" />\n'
                 "            </SelectTrigger>\n"
                 "            <SelectContent>\n"
                 f"            {options}\n"
@@ -1359,15 +1365,14 @@ def _gen_entity_page(spec: AppSpec, entity: Entity, route: str) -> str:
                     )
             form_fields.append(
                 '<div className="flex flex-col gap-2">\n'
-                f'          <Label htmlFor={key}>{label}</Label>\n'
+                f"          <Label htmlFor={key}>{label}</Label>\n"
                 f'          <Input id={key} type="{input_type}" '
-                f"value={{String(field({key}) ?? \"\")}} "
+                f'value={{String(field({key}) ?? "")}} '
                 f"onChange={{(e) => set({key}, e.target.value)}} />\n"
                 "        </div>"
             )
             cells.append(
-                f'<TableCell className="px-3 py-2">'
-                f'{{String(row.{f.name} ?? "—")}}</TableCell>'
+                f'<TableCell className="px-3 py-2">{{String(row.{f.name} ?? "—")}}</TableCell>'
             )
 
     page = _ENTITY_PAGE_TSX

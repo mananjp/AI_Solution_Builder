@@ -9,7 +9,6 @@ and securely persists to target workspace .env without committing or hardcoding 
 import logging
 import re
 from pathlib import Path
-from typing import Any, Optional
 
 import httpx
 
@@ -25,7 +24,7 @@ KEY_PATTERNS = {
 }
 
 
-def mask_secret(secret: Optional[str]) -> str:
+def mask_secret(secret: str | None) -> str:
     """Return masked representation of a secret, e.g. ••••••••••••abcd."""
     if not secret:
         return "••••"
@@ -49,7 +48,10 @@ class CredentialValidator:
         pattern = KEY_PATTERNS.get(key_name)
         if pattern:
             if not pattern.match(clean_val):
-                return False, f"Invalid format for {key_name}. Key does not match standard provider pattern."
+                return (
+                    False,
+                    f"Invalid format for {key_name}. Key does not match standard provider pattern.",
+                )
             return True, f"Format valid for {key_name}"
 
         # Generic API key check
@@ -114,7 +116,10 @@ class CredentialValidator:
                     return False, f"Gemini API returned HTTP {resp.status_code}"
 
                 # Unknown provider, format is valid
-                return True, f"Format verified for {key_name} (live ping not available for this provider)"
+                return (
+                    True,
+                    f"Format verified for {key_name} (live ping not available for this provider)",
+                )
 
         except Exception as exc:
             logger.warning("Connection test failed for %s: %s", key_name, exc)
@@ -156,11 +161,15 @@ class CredentialValidator:
             replaced = False
             for idx, line in enumerate(existing_lines):
                 stripped = line.strip()
-                if stripped and not stripped.startswith("#") and "=" in stripped:
-                    if stripped.split("=", 1)[0].strip() == key:
-                        existing_lines[idx] = new_line
-                        replaced = True
-                        break
+                if (
+                    stripped
+                    and not stripped.startswith("#")
+                    and "=" in stripped
+                    and stripped.split("=", 1)[0].strip() == key
+                ):
+                    existing_lines[idx] = new_line
+                    replaced = True
+                    break
             if not replaced:
                 existing_lines.append(new_line)
 

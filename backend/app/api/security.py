@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import get_current_user, require_admin
+from app.core.security import check_admin, get_current_user
 from app.models.scan import ScanRecord
 from app.models.user import User
 from app.services.legacy_repo.credentials import mask_secret
@@ -33,15 +33,19 @@ _vt_probe = VirusTotalScanner()
 
 @router.get("/scans")
 async def list_scans(
-    verdict: str | None = Query(None, description="Filter by verdict (clean, suspicious, malicious, etc.)"),
-    source: str | None = Query(None, description="Filter by source (upload.document, export.zip, etc.)"),
+    verdict: str | None = Query(
+        None, description="Filter by verdict (clean, suspicious, malicious, etc.)"
+    ),
+    source: str | None = Query(
+        None, description="Filter by source (upload.document, export.zip, etc.)"
+    ),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """List recent threat scan audit records with optional filtering."""
-    require_admin(current_user)
+    check_admin(current_user)
 
     stmt = select(ScanRecord).order_by(desc(ScanRecord.created_at))
     if verdict:
@@ -88,9 +92,11 @@ async def get_scan_stats(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Aggregate threat scan platform statistics."""
-    require_admin(current_user)
+    check_admin(current_user)
 
-    verdicts_stmt = select(ScanRecord.verdict, func.count(ScanRecord.id)).group_by(ScanRecord.verdict)
+    verdicts_stmt = select(ScanRecord.verdict, func.count(ScanRecord.id)).group_by(
+        ScanRecord.verdict
+    )
     verdict_rows = (await db.execute(verdicts_stmt)).all()
     verdict_counts = {row[0]: row[1] for row in verdict_rows}
 
@@ -102,7 +108,9 @@ async def get_scan_stats(
     cache_hits = (
         await db.execute(select(func.count(ScanRecord.id)).where(ScanRecord.from_cache == True))  # noqa: E712
     ).scalar() or 0
-    total_bytes = (await db.execute(select(func.coalesce(func.sum(ScanRecord.scanned_bytes), 0)))).scalar() or 0
+    total_bytes = (
+        await db.execute(select(func.coalesce(func.sum(ScanRecord.scanned_bytes), 0)))
+    ).scalar() or 0
 
     return {
         "total_scans": total_scans,
@@ -119,7 +127,7 @@ async def get_scanner_config(
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Inspect threat scanner configuration status and layer availability."""
-    require_admin(current_user)
+    check_admin(current_user)
 
     return {
         "security_scan_enabled": settings.SECURITY_SCAN_ENABLED,
@@ -148,7 +156,9 @@ async def get_scanner_config(
                 "acknowledged_tos": settings.VIRUSTOTAL_ACK_TOS,
                 "live": _vt_probe.available(),
                 "api_key_configured": bool(settings.VIRUSTOTAL_API_KEY.strip()),
-                "api_key_masked": mask_secret(settings.VIRUSTOTAL_API_KEY) if settings.VIRUSTOTAL_API_KEY else "",
+                "api_key_masked": mask_secret(settings.VIRUSTOTAL_API_KEY)
+                if settings.VIRUSTOTAL_API_KEY
+                else "",
                 "rpm_limit": settings.VIRUSTOTAL_RPM,
                 "daily_limit": settings.VIRUSTOTAL_DAILY,
             },
@@ -162,7 +172,7 @@ async def admin_scan_file(
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """On-demand scan of an uploaded file by an administrator without blocking."""
-    require_admin(current_user)
+    check_admin(current_user)
 
     filename = file.filename or "unknown.bin"
     max_bytes = 50 * 1024 * 1024

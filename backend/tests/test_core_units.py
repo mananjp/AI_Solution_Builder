@@ -579,7 +579,9 @@ async def test_ensure_default_plans_sync_runs_under_connection(db_engine) -> Non
     async with db_engine.begin() as conn:
         count = (
             await conn.execute(
-                select(func.count()).select_from(Plan).where(Plan.name.in_([p[0] for p in DEFAULT_PLANS]))  # type: ignore[type-var]
+                select(func.count())
+                .select_from(Plan)
+                .where(Plan.name.in_([p[0] for p in DEFAULT_PLANS]))  # type: ignore[type-var]
             )
         ).scalar_one()
     assert count == len(DEFAULT_PLANS)
@@ -590,7 +592,9 @@ async def test_ensure_default_plans_sync_runs_under_connection(db_engine) -> Non
     async with db_engine.begin() as conn:
         count = (
             await conn.execute(
-                select(func.count()).select_from(Plan).where(Plan.name.in_([p[0] for p in DEFAULT_PLANS]))  # type: ignore[type-var]
+                select(func.count())
+                .select_from(Plan)
+                .where(Plan.name.in_([p[0] for p in DEFAULT_PLANS]))  # type: ignore[type-var]
             )
         ).scalar_one()
     assert count == len(DEFAULT_PLANS)

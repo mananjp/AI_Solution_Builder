@@ -17,7 +17,7 @@ def _patch_sidecar(monkeypatch, response_text="I added the inventory API."):
     async def _health():
         return True
 
-    async def _create(title):
+    async def _create(title, **kwargs):
         created["count"] += 1
         return "sess-abc"
 

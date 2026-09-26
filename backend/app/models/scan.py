@@ -28,7 +28,9 @@ class ScanRecord(Base):
     source: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
     verdict: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
     findings: Mapped[list[dict[str, Any]]] = mapped_column(
-        JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=list
+        JSONB().with_variant(JSON(), "sqlite"),  # type: ignore[no-untyped-call]
+        nullable=False,
+        default=list,
     )
     scanned_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     from_cache: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

@@ -13,10 +13,9 @@ Performs a comprehensive, deep-inspection of an existing/outdated codebase:
 
 import json
 import logging
-import os
 import re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from app.services.legacy_repo.boundary import assert_safe_boundary
 
@@ -42,9 +41,23 @@ IGNORED_DIRS = {
 }
 
 ASSET_EXTENSIONS = {
-    ".png", ".jpg", ".jpeg", ".svg", ".ico", ".webp", ".gif",
-    ".woff", ".woff2", ".ttf", ".otf", ".eot",
-    ".mp3", ".wav", ".ogg", ".mp4", ".webm",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".svg",
+    ".ico",
+    ".webp",
+    ".gif",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".otf",
+    ".eot",
+    ".mp3",
+    ".wav",
+    ".ogg",
+    ".mp4",
+    ".webm",
 }
 
 
@@ -92,20 +105,52 @@ class LegacyRepoAnalyzer:
         test_files: list[str] = []
 
         manifest_patterns = {
-            "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
-            "requirements.txt", "Pipfile", "pyproject.toml", "setup.py", "poetry.lock",
-            "pom.xml", "build.gradle", "settings.gradle",
-            "composer.json", "composer.lock", "Gemfile", "Gemfile.lock",
-            "go.mod", "go.sum", "Cargo.toml", "Cargo.lock",
+            "package.json",
+            "package-lock.json",
+            "yarn.lock",
+            "pnpm-lock.yaml",
+            "requirements.txt",
+            "Pipfile",
+            "pyproject.toml",
+            "setup.py",
+            "poetry.lock",
+            "pom.xml",
+            "build.gradle",
+            "settings.gradle",
+            "composer.json",
+            "composer.lock",
+            "Gemfile",
+            "Gemfile.lock",
+            "go.mod",
+            "go.sum",
+            "Cargo.toml",
+            "Cargo.lock",
         }
 
         config_patterns = {
-            "docker-compose.yml", "docker-compose.yaml", "Dockerfile",
-            "render.yaml", "fly.toml", "vercel.json", "netlify.toml",
-            "tsconfig.json", "jsconfig.json", "webpack.config.js", "vite.config.ts", "vite.config.js",
-            "next.config.js", "next.config.ts", "next.config.mjs",
-            ".babelrc", "babel.config.js", "tailwind.config.js", "tailwind.config.ts",
-            "alembic.ini", "prisma/schema.prisma", ".env.example", ".env",
+            "docker-compose.yml",
+            "docker-compose.yaml",
+            "Dockerfile",
+            "render.yaml",
+            "fly.toml",
+            "vercel.json",
+            "netlify.toml",
+            "tsconfig.json",
+            "jsconfig.json",
+            "webpack.config.js",
+            "vite.config.ts",
+            "vite.config.js",
+            "next.config.js",
+            "next.config.ts",
+            "next.config.mjs",
+            ".babelrc",
+            "babel.config.js",
+            "tailwind.config.js",
+            "tailwind.config.ts",
+            "alembic.ini",
+            "prisma/schema.prisma",
+            ".env.example",
+            ".env",
         }
 
         for path in self.root.rglob("*"):
@@ -121,7 +166,11 @@ class LegacyRepoAnalyzer:
                 name = path.name
                 if name in manifest_patterns or path.name.endswith(".lock"):
                     manifests.append(rel_str)
-                elif name in config_patterns or name.startswith("tsconfig") or name.startswith(".env"):
+                elif (
+                    name in config_patterns
+                    or name.startswith("tsconfig")
+                    or name.startswith(".env")
+                ):
                     config_files.append(rel_str)
                 elif name.lower().startswith("readme") or name.endswith(".md"):
                     doc_files.append(rel_str)
@@ -168,7 +217,9 @@ class LegacyRepoAnalyzer:
             elif (self.root / "pnpm-lock.yaml").exists():
                 stack["package_manager"] = "pnpm"
 
-            if (self.root / "tsconfig.json").exists() or any(f.endswith(".ts") or f.endswith(".tsx") for f in structure.get("sample_files", [])):
+            if (self.root / "tsconfig.json").exists() or any(
+                f.endswith(".ts") or f.endswith(".tsx") for f in structure.get("sample_files", [])
+            ):
                 stack["languages"].append("TypeScript")
 
             try:
@@ -182,9 +233,13 @@ class LegacyRepoAnalyzer:
                 elif "react" in deps:
                     stack["frontend_framework"] = f"React ({deps.get('react', 'unknown')})"
                 elif "vue" in deps or "nuxt" in deps:
-                    stack["frontend_framework"] = f"Vue/Nuxt ({deps.get('vue', deps.get('nuxt', 'unknown'))})"
+                    stack["frontend_framework"] = (
+                        f"Vue/Nuxt ({deps.get('vue', deps.get('nuxt', 'unknown'))})"
+                    )
                 elif "@angular/core" in deps:
-                    stack["frontend_framework"] = f"Angular ({deps.get('@angular/core', 'unknown')})"
+                    stack["frontend_framework"] = (
+                        f"Angular ({deps.get('@angular/core', 'unknown')})"
+                    )
                 elif "svelte" in deps:
                     stack["frontend_framework"] = "Svelte"
 
@@ -335,9 +390,15 @@ class LegacyRepoAnalyzer:
 
         # Check frontend entry
         fe_candidates = [
-            "src/app/page.tsx", "src/pages/index.tsx", "pages/index.js",
-            "src/App.tsx", "src/App.js", "src/main.tsx", "src/main.ts",
-            "index.html", "public/index.html",
+            "src/app/page.tsx",
+            "src/pages/index.tsx",
+            "pages/index.js",
+            "src/App.tsx",
+            "src/App.js",
+            "src/main.tsx",
+            "src/main.ts",
+            "index.html",
+            "public/index.html",
         ]
         for c in fe_candidates:
             if (self.root / c).exists():
@@ -346,8 +407,17 @@ class LegacyRepoAnalyzer:
 
         # Check backend entry
         be_candidates = [
-            "main.py", "app.py", "server.py", "wsgi.py", "asgi.py", "backend/main.py",
-            "src/server.ts", "src/index.ts", "server.js", "index.js", "app.js",
+            "main.py",
+            "app.py",
+            "server.py",
+            "wsgi.py",
+            "asgi.py",
+            "backend/main.py",
+            "src/server.ts",
+            "src/index.ts",
+            "server.js",
+            "index.js",
+            "app.js",
         ]
         for c in be_candidates:
             if (self.root / c).exists():
@@ -464,9 +534,24 @@ class LegacyRepoAnalyzer:
             "moment": "Deprecated. Replace with date-fns or native Intl / Temporal.",
             "babel-preset-es2015": "Obsolete. Replace with @babel/preset-env.",
             "node-sass": "Deprecated. Replace with dart-sass (sass).",
-            "express": lambda v: "Very old Express version (< 4.18)" if v and v.startswith(("^1", "^2", "^3", "1.", "2.", "3.")) else None,
-            "react": lambda v: "Legacy React (< 18). Lacks modern concurrent features & server components." if v and any(v.startswith(x) for x in ["^15", "^16", "15.", "16."]) else None,
-            "next": lambda v: "Legacy Next.js (< 13). Pages router only, lacks App Router." if v and any(v.startswith(x) for x in ["^9", "^10", "^11", "^12", "9.", "10.", "11.", "12."]) else None,
+            "express": lambda v: (
+                "Very old Express version (< 4.18)"
+                if v and v.startswith(("^1", "^2", "^3", "1.", "2.", "3."))
+                else None
+            ),
+            "react": lambda v: (
+                "Legacy React (< 18). Lacks modern concurrent features & server components."
+                if v and any(v.startswith(x) for x in ["^15", "^16", "15.", "16."])
+                else None
+            ),
+            "next": lambda v: (
+                "Legacy Next.js (< 13). Pages router only, lacks App Router."
+                if v
+                and any(
+                    v.startswith(x) for x in ["^9", "^10", "^11", "^12", "9.", "10.", "11.", "12."]
+                )
+                else None
+            ),
         }
 
         for pkg, info in deprecated_npm.items():
@@ -474,15 +559,25 @@ class LegacyRepoAnalyzer:
                 ver = npm_deps[pkg]
                 reason = info(ver) if callable(info) else info
                 if reason:
-                    outdated_deps.append({"package": pkg, "current_version": ver, "reason": reason})
+                    outdated_deps.append(
+                        {"package": pkg, "current_version": str(ver), "reason": str(reason)}
+                    )
 
         # Analyze Python dependencies
         py_deps = tech_stack.get("manifest_dependencies", {}).get("python", {})
         deprecated_py = {
             "urllib2": "Python 2 legacy library. Replace with httpx or requests.",
             "simplejson": "Legacy. Native json module is standard in Python 3.",
-            "django": lambda v: "Outdated Django (< 3.2)." if v and v.startswith(("1.", "2.", "3.0", "3.1")) else None,
-            "fastapi": lambda v: "Old FastAPI (< 0.90)." if v and v.startswith("0.") and int(v.split(".")[1]) < 90 else None,
+            "django": lambda v: (
+                "Outdated Django (< 3.2)."
+                if v and v.startswith(("1.", "2.", "3.0", "3.1"))
+                else None
+            ),
+            "fastapi": lambda v: (
+                "Old FastAPI (< 0.90)."
+                if v and v.startswith("0.") and int(v.split(".")[1]) < 90
+                else None
+            ),
         }
 
         for pkg, info in deprecated_py.items():
@@ -490,17 +585,25 @@ class LegacyRepoAnalyzer:
                 ver = py_deps[pkg]
                 reason = info(ver) if callable(info) else info
                 if reason:
-                    outdated_deps.append({"package": pkg, "current_version": ver, "reason": reason})
+                    outdated_deps.append(
+                        {"package": pkg, "current_version": str(ver), "reason": str(reason)}
+                    )
 
         # Scan code files for patterns (var, callback hell, hardcoded secrets, etc.)
-        secret_pattern = re.compile(r"""(?:api_key|secret|password|bearer|auth_token)\s*=\s*['\"][a-zA-Z0-9_\-]{16,}['\"]""", re.IGNORECASE)
+        secret_pattern = re.compile(
+            r"""(?:api_key|secret|password|bearer|auth_token)\s*=\s*['\"][a-zA-Z0-9_\-]{16,}['\"]""",
+            re.IGNORECASE,
+        )
         var_pattern = re.compile(r"\bvar\s+[a-zA-Z0-9_]+\s*=")
 
         code_extensions = {".js", ".jsx", ".ts", ".tsx", ".py"}
         scanned_count = 0
 
         for path in self.root.rglob("*"):
-            if any(part in IGNORED_DIRS for part in path.parts) or path.suffix not in code_extensions:
+            if (
+                any(part in IGNORED_DIRS for part in path.parts)
+                or path.suffix not in code_extensions
+            ):
                 continue
             if scanned_count > 100:  # Sample bounded set
                 break
@@ -513,19 +616,23 @@ class LegacyRepoAnalyzer:
                 # Check hardcoded secrets
                 sec_match = secret_pattern.search(text)
                 if sec_match:
-                    security_findings.append({
-                        "file": rel_str,
-                        "type": "Hardcoded secret pattern detected",
-                        "recommendation": "Extract to environment variables (.env)",
-                    })
+                    security_findings.append(
+                        {
+                            "file": rel_str,
+                            "type": "Hardcoded secret pattern detected",
+                            "recommendation": "Extract to environment variables (.env)",
+                        }
+                    )
 
                 # Check var keyword in JS
                 if path.suffix in (".js", ".jsx") and var_pattern.search(text):
-                    legacy_patterns.append({
-                        "file": rel_str,
-                        "type": "Legacy 'var' declarations",
-                        "recommendation": "Modernize to const/let",
-                    })
+                    legacy_patterns.append(
+                        {
+                            "file": rel_str,
+                            "type": "Legacy 'var' declarations",
+                            "recommendation": "Modernize to const/let",
+                        }
+                    )
 
             except Exception:
                 continue
@@ -533,7 +640,10 @@ class LegacyRepoAnalyzer:
         # Check missing infrastructure
         if not (self.root / ".env.example").exists() and (self.root / ".env").exists():
             missing_infra.append("Missing .env.example template file")
-        if not (self.root / "Dockerfile").exists() and not (self.root / "docker-compose.yml").exists():
+        if (
+            not (self.root / "Dockerfile").exists()
+            and not (self.root / "docker-compose.yml").exists()
+        ):
             missing_infra.append("Missing containerization (Dockerfile / docker-compose.yml)")
         if not (self.root / ".github").exists():
             missing_infra.append("Missing CI/CD workflow configuration (.github/workflows)")
@@ -557,7 +667,9 @@ class LegacyRepoAnalyzer:
             "reusable_configs": structure.get("configs", []),
             "existing_tests": structure.get("tests", []),
             "reusable_models": [
-                f for f in structure.get("sample_files", []) if "model" in f.lower() or "schema" in f.lower()
+                f
+                for f in structure.get("sample_files", [])
+                if "model" in f.lower() or "schema" in f.lower()
             ],
             "preservation_policy": "Strict zero-regression policy: existing business logic, routes, and assets remain active and untouched unless specifically upgraded.",
         }
@@ -571,68 +683,81 @@ class LegacyRepoAnalyzer:
         plan: list[dict[str, Any]] = []
 
         # Phase 1: Security & Secrets Isolation
-        plan.append({
-            "phase": 1,
-            "title": "Security & Credential Hygiene",
-            "goal": "Isolate all secrets into .env, ensure .env.example is provisioned, ensure .gitignore guards secrets.",
-            "actions": [
-                "Audit codebase for hardcoded credentials",
-                "Ensure .gitignore has .env and .env.local",
-                "Generate .env.example with masked placeholders",
-            ],
-            "safety_level": "Safe (non-breaking)",
-        })
+        plan.append(
+            {
+                "phase": 1,
+                "title": "Security & Credential Hygiene",
+                "goal": "Isolate all secrets into .env, ensure .env.example is provisioned, ensure .gitignore guards secrets.",
+                "actions": [
+                    "Audit codebase for hardcoded credentials",
+                    "Ensure .gitignore has .env and .env.local",
+                    "Generate .env.example with masked placeholders",
+                ],
+                "safety_level": "Safe (non-breaking)",
+            }
+        )
 
         # Phase 2: Controlled Dependency Upgrade
         outdated = debt.get("outdated_dependencies", [])
-        dep_actions = [f"Evaluate safe upgrade for {d['package']} ({d.get('reason', '')})" for d in outdated[:5]]
+        dep_actions = [
+            f"Evaluate safe upgrade for {d['package']} ({d.get('reason', '')})"
+            for d in outdated[:5]
+        ]
         if not dep_actions:
             dep_actions = ["Validate manifest dependency integrity and lockfiles"]
 
-        plan.append({
-            "phase": 2,
-            "title": "Targeted Dependency Modernization",
-            "goal": "Update deprecated packages without breaking backward compatibility.",
-            "actions": dep_actions,
-            "safety_level": "Tested (verify test suite after changes)",
-        })
+        plan.append(
+            {
+                "phase": 2,
+                "title": "Targeted Dependency Modernization",
+                "goal": "Update deprecated packages without breaking backward compatibility.",
+                "actions": dep_actions,
+                "safety_level": "Tested (verify test suite after changes)",
+            }
+        )
 
         # Phase 3: Infrastructure Repair
         missing = debt.get("missing_infrastructure", [])
         infra_actions = missing if missing else ["Verify local build configuration"]
-        plan.append({
-            "phase": 3,
-            "title": "Missing Infrastructure Provisioning",
-            "goal": "Equip the repository with modern developer tooling, Docker containerization, and env hygiene.",
-            "actions": infra_actions,
-            "safety_level": "Additive (no impact on existing runtime)",
-        })
+        plan.append(
+            {
+                "phase": 3,
+                "title": "Missing Infrastructure Provisioning",
+                "goal": "Equip the repository with modern developer tooling, Docker containerization, and env hygiene.",
+                "actions": infra_actions,
+                "safety_level": "Additive (no impact on existing runtime)",
+            }
+        )
 
         # Phase 4: Feature Extension
-        plan.append({
-            "phase": 4,
-            "title": "Requested Feature Extension (e.g. AI Chatbot)",
-            "goal": "Integrate AI services directly into existing backend routes and frontend UI without creating parallel architectures.",
-            "actions": [
-                "Inject backend AI service endpoint using existing framework (FastAPI/Express/Flask)",
-                "Add animated Chatbot UI component matching existing design tokens",
-                "Configure LLM credentials (Groq/OpenAI) securely via .env",
-            ],
-            "safety_level": "Additive (preserves existing routes)",
-        })
+        plan.append(
+            {
+                "phase": 4,
+                "title": "Requested Feature Extension (e.g. AI Chatbot)",
+                "goal": "Integrate AI services directly into existing backend routes and frontend UI without creating parallel architectures.",
+                "actions": [
+                    "Inject backend AI service endpoint using existing framework (FastAPI/Express/Flask)",
+                    "Add animated Chatbot UI component matching existing design tokens",
+                    "Configure LLM credentials (Groq/OpenAI) securely via .env",
+                ],
+                "safety_level": "Additive (preserves existing routes)",
+            }
+        )
 
         # Phase 5: Verification & Zero-Regression Validation
-        plan.append({
-            "phase": 5,
-            "title": "Dual-Track Verification & Final Build",
-            "goal": "Run acceptance tests for both legacy features (A, B, C) and new feature (D), ensuring production build passes.",
-            "actions": [
-                "Execute unit/integration test suite",
-                "Verify existing routes respond correctly",
-                "Verify new chatbot streaming endpoint",
-                "Validate production bundle build",
-            ],
-            "safety_level": "Strict validation gate",
-        })
+        plan.append(
+            {
+                "phase": 5,
+                "title": "Dual-Track Verification & Final Build",
+                "goal": "Run acceptance tests for both legacy features (A, B, C) and new feature (D), ensuring production build passes.",
+                "actions": [
+                    "Execute unit/integration test suite",
+                    "Verify existing routes respond correctly",
+                    "Verify new chatbot streaming endpoint",
+                    "Validate production bundle build",
+                ],
+                "safety_level": "Strict validation gate",
+            }
+        )
 
         return plan
