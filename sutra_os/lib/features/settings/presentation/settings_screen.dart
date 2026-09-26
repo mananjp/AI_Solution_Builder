@@ -21,21 +21,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _githubController = TextEditingController();
   final _renderController = TextEditingController();
   bool _isSaving = false;
-  bool _initialized = false;
 
   @override
   void dispose() {
     _githubController.dispose();
     _renderController.dispose();
     super.dispose();
-  }
-
-  void _loadExistingCredentials(Map<String, dynamic> settings) {
-    if (!_initialized) {
-      _githubController.text = settings['github_token']?.toString() ?? '';
-      _renderController.text = settings['render_api_key']?.toString() ?? '';
-      _initialized = true;
-    }
   }
 
   Future<void> _saveCredentials() async {
@@ -51,24 +42,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     setState(() => _isSaving = true);
     final repo = ref.read(settingsRepositoryProvider);
-    final success = await repo.saveCredentials(
-      githubToken: _githubController.text,
-      renderApiKey: _renderController.text,
-    );
 
-    if (mounted) {
-      setState(() => _isSaving = false);
-      ref.invalidate(userSettingsProvider);
+    try {
+      await repo.saveCredentials(
+        githubToken: _githubController.text,
+        renderApiKey: _renderController.text,
+      );
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            success
-                ? 'Credentials securely encrypted & persisted.'
-                : 'Credentials saved locally in active session.',
-          ),
-          duration: const Duration(seconds: 2),
+        const SnackBar(
+          content: Text('Credentials securely encrypted & persisted.'),
+          duration: Duration(seconds: 2),
         ),
       );
+    } catch (e) {
+      // Previously any failure still reported success.
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not save credentials: $e'),
+          backgroundColor: AppColors.statusErrorRed,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -77,12 +75,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final authState = ref.watch(authControllerProvider);
     final user = authState.user;
     final isGuest = user?.isGuest ?? false;
-    final settingsAsync = ref.watch(userSettingsProvider);
-
-    settingsAsync.whenData((settings) {
-      _loadExistingCredentials(settings);
-    });
-
     return Scaffold(
       backgroundColor: AppColors.lightBackground,
       body: SafeArea(

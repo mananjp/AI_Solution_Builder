@@ -3,12 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/network/api_exceptions.dart';
+import '../../../core/network/json_utils.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/status_chip.dart';
 import '../../../core/widgets/sutra_button.dart';
 import '../../../core/widgets/sutra_card.dart';
+import '../../../core/widgets/voice_input_button.dart';
 import '../data/workspace_repository.dart';
 import '../domain/workspace_models.dart';
 import 'workspace_providers.dart';
@@ -54,6 +57,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    // Load existing conversation history if available
+    Future.microtask(_loadConversationHistory);
   }
 
   @override
@@ -64,27 +69,86 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen>
     _chatScrollController.dispose();
     super.dispose();
   }
+  Future<void> _loadConversationHistory() async {
+    final solutionId = ref.read(activeSolutionIdProvider);
+    if (solutionId == null) return;
+    try {
+      final detail = await ref.read(solutionDetailProvider(solutionId).future);
+      final history = detail.conversationHistory;
+      if (history != null && history.isNotEmpty && mounted) {
+        setState(() {
+          _chatMessages.clear();
+          _chatMessages.add(ChatMessageItem(
+            sender: 'Sutra Orchestrator',
+            text:
+                'Welcome to Sutra OS. I dissect product requirements into verified domain models, PostgreSQL schemas, and deployable OpenAPI microservices.\n\nDescribe your target architecture below or upload your PRD/spec to trigger autonomous synthesis.',
+            isOrchestrator: true,
+            timestamp: 'NOW',
+          ));
+          for (final msg in history) {
+            if (msg is Map<String, dynamic>) {
+              final role = msg['role']?.toString() ?? 'user';
+              final content = msg['content']?.toString() ?? '';
+              if (content.isNotEmpty) {
+                _chatMessages.add(ChatMessageItem(
+                  sender: role == 'assistant' ? 'Sutra Orchestrator' : 'Architect',
+                  text: content,
+                  isOrchestrator: role == 'assistant',
+                  timestamp: '',
+                ));
+              }
+            }
+          }
+        });
+        _scrollToBottom();
+      }
+    } catch (_) {
+      // No existing history, keep welcome message
+    }
+  }
+
+  /// Restores the welcome banner and re-pulls history when the active blueprint
+  /// changes, so messages from a previous solution never leak into the new one.
+  void _resetChatForSolution(String? solutionId) {
+    if (!mounted) return;
+    setState(() {
+      _chatMessages
+        ..clear()
+        ..add(ChatMessageItem(
+          sender: 'Sutra Orchestrator',
+          text:
+              'Welcome to Sutra OS. I dissect product requirements into verified domain models, PostgreSQL schemas, and deployable OpenAPI microservices.\n\nDescribe your target architecture below or upload your PRD/spec to trigger autonomous synthesis.',
+          isOrchestrator: true,
+          timestamp: 'NOW',
+        ));
+    });
+    if (solutionId != null) {
+      _loadConversationHistory();
+    }
+  }
 
   Future<void> _pickAndUploadFile() async {
     try {
-      final pickedFiles = await FilePicker.pickFiles(
+      final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf', 'docx', 'doc', 'csv', 'txt', 'json', 'md'],
+        withData: true,
       );
 
-      if (pickedFiles.isEmpty) return;
+      if (result == null || result.files.isEmpty) return;
 
-      final pickedFile = pickedFiles.first;
+      final pickedFile = result.files.first;
       setState(() => _isUploadingFile = true);
 
-      final bytes = await pickedFile.readAsBytes();
-      final len = pickedFile.lengthSync() ?? await pickedFile.length() ?? bytes.length;
+      final bytes = pickedFile.bytes;
+      final filePath = pickedFile.path;
+      final len = pickedFile.size;
 
       final repo = ref.read(workspaceRepositoryProvider);
       await repo.uploadDocument(
         filename: pickedFile.name,
         bytes: bytes,
-        filePath: pickedFile.path,
+        filePath: filePath,
       );
 
       final sizeKb = (len / 1024).round();
@@ -107,7 +171,10 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ingestion notice: Ingested for offline synthesis.')),
+          SnackBar(
+            content: Text('Upload failed: ${e.toString().length > 100 ? e.toString().substring(0, 100) : e.toString()}'),
+            backgroundColor: AppColors.statusErrorRed,
+          ),
         );
       }
     } finally {
@@ -143,7 +210,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen>
     } catch (e) {
       if (mounted) {
         setState(() {
-          _urlFetchStatus = 'Parsed API / spec from $url.';
+          _urlFetchStatus = 'Error: ${e.toString().length > 80 ? e.toString().substring(0, 80) : e.toString()}';
         });
       }
     } finally {
@@ -158,6 +225,17 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen>
   Future<void> _sendMessage() async {
     final text = _chatController.text.trim();
     if (text.isEmpty || _isSendingChat) return;
+
+    final activeSolutionId = ref.read(activeSolutionIdProvider);
+    if (activeSolutionId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Create or select a blueprint before dispatching agents.'),
+          backgroundColor: AppColors.statusErrorRed,
+        ),
+      );
+      return;
+    }
 
     _chatController.clear();
     setState(() {
@@ -175,14 +253,15 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen>
     _scrollToBottom();
 
     try {
-      final activeSolutionId = ref.read(activeSolutionIdProvider) ?? 'sol_default';
       final repo = ref.read(workspaceRepositoryProvider);
       final res = await repo.sendChatMessage(
         solutionId: activeSolutionId,
         message: text,
       );
 
-      final reply = res['response'] as String? ??
+      final reply = asStringOrNull(res['response']) ??
+          asStringOrNull(res['message']) ??
+          asStringOrNull(res['reply']) ??
           'Architectural requirements analyzed. State machine verified and data models mapped to relational entities.';
 
       if (mounted) {
@@ -197,15 +276,18 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen>
           );
         });
         _scrollToBottom();
+
+        // Refresh solution detail to pick up any new artifacts generated
+        invalidateSolutionScoped(ref, activeSolutionId);
       }
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
         setState(() {
           _chatMessages.add(
             ChatMessageItem(
               sender: 'Sutra Orchestrator',
               text:
-                  'Requirements ingested. The synthesis engine has registered the domain boundaries. You can view the synthesized schemas in the "Build Artifacts" tab.',
+                  'Connection issue: ${e.toString().length > 120 ? e.toString().substring(0, 120) : e.toString()}. The server may be warming up — please retry in a moment.',
               isOrchestrator: true,
               timestamp: 'Just now',
             ),
@@ -240,6 +322,15 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen>
     final solutionDetailAsync = activeSolutionId != null
         ? ref.watch(solutionDetailProvider(activeSolutionId))
         : null;
+
+    // The active solution is chosen asynchronously (and can change when the
+    // user switches blueprints), so history has to reload on change. Loading it
+    // once in initState caught it while the id was still null.
+    ref.listen(activeSolutionIdProvider, (prev, next) {
+      if (prev != next) {
+        _resetChatForSolution(next);
+      }
+    });
 
     return Scaffold(
       backgroundColor: AppColors.lightBackground,
@@ -336,7 +427,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen>
                   _buildOrchestratorTab(),
 
                   // Tab 3: Build Artifacts
-                  _buildArtifactsTab(solutionDetailAsync),
+                  _buildArtifactsTab(solutionDetailAsync, activeSolutionId),
                 ],
               ),
             ),
@@ -882,6 +973,17 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen>
                 ),
               ),
 
+              VoiceInputButton(
+                disabled: _isSendingChat,
+                onTranscribed: (text, lang) {
+                  final cur = _chatController.text.trim();
+                  setState(() {
+                    _chatController.text = cur.isEmpty ? text : '$cur\n$text';
+                  });
+                },
+              ),
+              const SizedBox(width: AppSpacing.xs),
+
               // Dark Square Send Button with Arrow Icon
               GestureDetector(
                 onTap: _isSendingChat ? null : _sendMessage,
@@ -950,7 +1052,10 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen>
   // ==========================================
   // PANEL 3: BUILD ARTIFACTS
   // ==========================================
-  Widget _buildArtifactsTab(AsyncValue<SolutionDetailModel>? solutionDetailAsync) {
+  Widget _buildArtifactsTab(
+    AsyncValue<SolutionDetailModel>? solutionDetailAsync,
+    String? activeSolutionId,
+  ) {
     if (solutionDetailAsync == null) {
       return _buildAwaitingSynthesis();
     }
@@ -962,7 +1067,9 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen>
           strokeWidth: 2,
         ),
       ),
-      error: (_, __) => _buildAwaitingSynthesis(),
+      // A failed load used to fall through to "Awaiting Synthesis", which reads
+      // as an empty project rather than a broken request.
+      error: (error, _) => _buildLoadFailure(activeSolutionId, error),
       data: (solution) {
         final ddl = solution.dbSchemaSql;
         final openapi = solution.apiSpecOpenapi;
@@ -1110,6 +1217,56 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen>
           ),
         );
       },
+    );
+  }
+
+  Widget _buildLoadFailure(String? solutionId, Object error) {
+    final message = error is ApiException
+        ? error.message
+        : 'Could not load this blueprint from the server.';
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.cloud_off_outlined,
+              color: AppColors.statusErrorRed,
+              size: 32,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'Blueprint Unavailable',
+              style: AppTextStyles.serifHeading(
+                fontSize: 20,
+                color: AppColors.lightTextPrimary,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 340),
+              child: Text(
+                message,
+                textAlign: TextAlign.center,
+                style: AppTextStyles.bodyMedium(
+                  color: AppColors.lightTextSecondary,
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            SutraButton(
+              label: 'RETRY',
+              height: 40,
+              variant: SutraButtonVariant.outline,
+              onPressed: solutionId == null
+                  ? null
+                  : () => ref.invalidate(solutionDetailProvider(solutionId)),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

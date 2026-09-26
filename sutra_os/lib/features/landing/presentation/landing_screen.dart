@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_endpoints.dart';
+import '../../../core/network/json_utils.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -13,14 +14,15 @@ import '../../../core/widgets/sutra_button.dart';
 import '../../../core/widgets/sutra_card.dart';
 import '../../auth/presentation/auth_controller.dart';
 
+/// Liveness probe for the marketing page.
+///
+/// This used to swallow every failure and return a `warming_up` payload, so the
+/// provider never entered its `error:` branch and the UI always rendered a hard
+/// "ONLINE" chip no matter what the backend was doing. Failures now propagate.
 final backendHealthProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   final client = ref.watch(apiClientProvider);
-  try {
-    final res = await client.get(ApiEndpoints.health);
-    return res.data as Map<String, dynamic>;
-  } catch (e) {
-    return {'status': 'warming_up', 'error': e.toString()};
-  }
+  final res = await client.get(ApiEndpoints.health);
+  return asMap(res.data);
 });
 
 class LandingScreen extends ConsumerWidget {
@@ -285,31 +287,36 @@ class LandingScreen extends ConsumerWidget {
 
                       // Live Backend Pulse Status Card
                       healthAsync.when(
-                        data: (health) => SutraCard(
-                          isDark: true,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.md,
-                            vertical: AppSpacing.sm,
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const StatusChip(
-                                label: 'LIVE ENGINE',
-                                statusText: 'ONLINE',
-                                isDark: true,
-                              ),
-                              const SizedBox(width: AppSpacing.md),
-                              Text(
-                                'ai-solution-builder.onrender.com',
-                                style: AppTextStyles.mono(
-                                  fontSize: 10,
-                                  color: AppColors.darkTextMuted,
+                        data: (health) {
+                          // Reflect the payload rather than asserting ONLINE.
+                          final status = asString(health['status'], fallback: 'unknown');
+                          final isUp = status == 'ok' || status == 'ready';
+                          return SutraCard(
+                            isDark: true,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.md,
+                              vertical: AppSpacing.sm,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                StatusChip(
+                                  label: 'LIVE ENGINE',
+                                  statusText: isUp ? 'ONLINE' : status.toUpperCase(),
+                                  isDark: true,
                                 ),
-                              ),
-                            ],
-                          ),
-                        ),
+                                const SizedBox(width: AppSpacing.md),
+                                Text(
+                                  'ai-solution-builder.onrender.com',
+                                  style: AppTextStyles.mono(
+                                    fontSize: 10,
+                                    color: AppColors.darkTextMuted,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
                         loading: () => Text(
                           'Probing live cluster...',
                           style: AppTextStyles.mono(
@@ -317,12 +324,23 @@ class LandingScreen extends ConsumerWidget {
                             color: AppColors.darkTextMuted,
                           ),
                         ),
-                        error: (_, __) => Text(
-                          'Waking up free-tier instance...',
-                          style: AppTextStyles.mono(
-                            fontSize: 10,
-                            color: AppColors.statusWarningAmber,
-                          ),
+                        error: (_, __) => Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const StatusChip(
+                              label: 'LIVE ENGINE',
+                              statusText: 'UNREACHABLE',
+                              isDark: true,
+                            ),
+                            const SizedBox(width: AppSpacing.md),
+                            Text(
+                              'Backend unreachable — it may be waking from cold sleep.',
+                              style: AppTextStyles.mono(
+                                fontSize: 10,
+                                color: AppColors.statusWarningAmber,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],

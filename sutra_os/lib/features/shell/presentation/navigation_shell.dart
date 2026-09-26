@@ -7,6 +7,8 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/sutra_button.dart';
 import '../../auth/presentation/auth_controller.dart';
 import '../../billing/data/billing_repository.dart';
+import '../../engine/domain/engine_models.dart';
+import '../../engine/presentation/engine_providers.dart';
 import '../../workspace/data/workspace_repository.dart';
 import '../../workspace/presentation/workspace_providers.dart';
 
@@ -23,6 +25,215 @@ class NavigationShell extends ConsumerWidget {
       index,
       initialLocation: index == navigationShell.currentIndex,
     );
+  }
+
+  /// Overflow entries for the workspace branch's sub-routes.
+  void _showWorkspaceTools(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.lightSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(AppSpacing.radiusMd)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: AppSpacing.sm),
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.lightBorder,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.account_tree_outlined),
+              title: const Text('Blueprint Review'),
+              subtitle: const Text('Artifacts, approvals, export'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                context.go('/solution');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.inventory_2_outlined),
+              title: const Text('Builds'),
+              subtitle: const Text('Build, download, deploy'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                context.go('/builds');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.forum_outlined),
+              title: const Text('Build Chat'),
+              subtitle: const Text('Streaming agent session'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                context.go('/chat');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.terminal_outlined),
+              title: const Text('Sandbox'),
+              subtitle: const Text('Browse files and preview the app'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                context.go('/sandbox');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.rocket_launch_outlined),
+              title: const Text('Live App'),
+              subtitle: const Text('Workable Systems preview'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                context.go('/live-app');
+              },
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Replaces the old hardcoded "All synthesis nodes operational" toast with
+  /// the engine's real polled health.
+  void _showEngineStatus(BuildContext context, WidgetRef ref) {
+    final healthAsync = ref.read(engineHealthProvider);
+    final resourcesAsync = ref.read(systemResourcesProvider);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.lightSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(AppSpacing.radiusMd)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'SYNTHESIS ENGINE',
+                style: AppTextStyles.smallCapsLabel(
+                  fontSize: 10,
+                  color: AppColors.goldDark,
+                  letterSpacing: 2.0,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              healthAsync.when(
+                loading: () => const LinearProgressIndicator(
+                  minHeight: 3,
+                  color: AppColors.gold,
+                  backgroundColor: AppColors.lightSurfaceSubtle,
+                ),
+                error: (error, _) => Text(
+                  'Engine status unavailable: $error',
+                  style: AppTextStyles.bodySmall(
+                    color: AppColors.statusErrorRed,
+                  ),
+                ),
+                data: (health) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: health.isOnline
+                                ? AppColors.statusLiveGreen
+                                : AppColors.goldDark,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          health.statusLabel,
+                          style: AppTextStyles.bodyMedium(
+                            color: AppColors.lightTextPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (health.model != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Model: ${health.model}',
+                        style: AppTextStyles.bodySmall(
+                          color: AppColors.lightTextSecondary,
+                        ),
+                      ),
+                    ],
+                    if (health.latencyMs != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Latency: ${health.latencyMs}ms',
+                        style: AppTextStyles.bodySmall(
+                          color: AppColors.lightTextSecondary,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              resourcesAsync.when(
+                loading: () => const SizedBox.shrink(),
+                error: (_, __) => const SizedBox.shrink(),
+                data: (resources) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'RESOURCES',
+                      style: AppTextStyles.smallCapsLabel(
+                        fontSize: 9,
+                        color: AppColors.lightTextMuted,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _formatResources(resources),
+                      style: AppTextStyles.bodySmall(
+                        color: AppColors.lightTextSecondary,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _formatResources(SystemResourcesModel r) {
+    final parts = <String>[];
+    if (r.cpuPercent != null) {
+      parts.add('CPU ${r.cpuPercent!.toStringAsFixed(0)}%');
+    }
+    if (r.cpuCount != null) parts.add('${r.cpuCount} cores');
+    if (r.memoryPercent != null) {
+      parts.add('RAM ${r.memoryPercent!.toStringAsFixed(0)}%');
+    }
+    if (r.diskPercent != null) {
+      parts.add('Disk ${r.diskPercent!.toStringAsFixed(0)}%');
+    }
+    return parts.isEmpty ? 'No metrics reported.' : parts.join(' • ');
   }
 
   void _showWorkspacePicker(BuildContext context, WidgetRef ref) {
@@ -57,7 +268,7 @@ class NavigationShell extends ConsumerWidget {
                 style: AppTextStyles.serifHeading(fontSize: 18),
               ),
               const SizedBox(height: AppSpacing.md),
-              workspacesAsync.maybeWhen(
+              workspacesAsync.when(
                 data: (list) => ListView.separated(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
@@ -80,7 +291,11 @@ class NavigationShell extends ConsumerWidget {
                         ),
                       ),
                       subtitle: Text(
-                        '${ws.solutionCount} Blueprints • ACTIVE',
+                        // "ACTIVE" was hardcoded on every row, so every
+                        // workspace looked selected.
+                        isSelected
+                            ? '${ws.solutionCount} Blueprints • ACTIVE'
+                            : '${ws.solutionCount} Blueprints',
                         style: AppTextStyles.bodySmall(color: AppColors.lightTextSecondary),
                       ),
                       trailing: isSelected
@@ -93,12 +308,120 @@ class NavigationShell extends ConsumerWidget {
                     );
                   },
                 ),
-                orElse: () => const Text('Primary Workspace'),
+                loading: () => const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(AppSpacing.md),
+                    child: CircularProgressIndicator(
+                      color: AppColors.blackButton,
+                      strokeWidth: 2,
+                    ),
+                  ),
+                ),
+                error: (_, __) => Text(
+                  'Could not load workspaces.',
+                  style: AppTextStyles.bodySmall(
+                    color: AppColors.statusErrorRed,
+                  ),
+                ),
               ),
+              const SizedBox(height: AppSpacing.md),
+              const Divider(color: AppColors.lightBorder),
+              const SizedBox(height: AppSpacing.sm),
+              // The workspace picker could change workspace but there was no
+              // equivalent for solutions, so blueprints inside a workspace were
+              // unreachable.
+              _buildSolutionPickerSection(ctx, ref),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildSolutionPickerSection(BuildContext ctx, WidgetRef ref) {
+    final solutionsAsync = ref.watch(activeSolutionsProvider);
+    final activeSolutionId = ref.watch(activeSolutionIdProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'BLUEPRINTS IN THIS WORKSPACE',
+          style: AppTextStyles.smallCapsLabel(
+            fontSize: 10,
+            color: AppColors.goldDark,
+            letterSpacing: 2.0,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        solutionsAsync.when(
+          loading: () => const Padding(
+            padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
+            child: Center(
+              child: CircularProgressIndicator(
+                color: AppColors.blackButton,
+                strokeWidth: 2,
+              ),
+            ),
+          ),
+          error: (_, __) => Text(
+            'Could not load blueprints.',
+            style: AppTextStyles.bodySmall(color: AppColors.statusErrorRed),
+          ),
+          data: (list) {
+            if (list.isEmpty) {
+              return Text(
+                'No blueprints here yet. Create one to get started.',
+                style: AppTextStyles.bodySmall(
+                  color: AppColors.lightTextSecondary,
+                ),
+              );
+            }
+            return ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 260),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: list.length,
+                itemBuilder: (context, i) {
+                  final solution = list[i];
+                  final isSelected = solution.id == activeSolutionId;
+                  return ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      Icons.architecture,
+                      size: 18,
+                      color: isSelected
+                          ? AppColors.gold
+                          : AppColors.lightTextSecondary,
+                    ),
+                    title: Text(
+                      solution.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.bodySmall(
+                        color: AppColors.lightTextPrimary,
+                        fontWeight:
+                            isSelected ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                    trailing: isSelected
+                        ? const Icon(Icons.check, color: AppColors.gold, size: 16)
+                        : null,
+                    onTap: () {
+                      ref
+                          .read(activeSolutionIdProvider.notifier)
+                          .set(solution.id);
+                      Navigator.pop(ctx);
+                    },
+                  );
+                },
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 
@@ -172,24 +495,29 @@ class NavigationShell extends ConsumerWidget {
                         if (title.isEmpty) return;
                         setDialogState(() => isCreating = true);
                         try {
-                          final wsId = ref.read(activeWorkspaceIdProvider) ?? 'ws_default';
                           final repo = ref.read(workspaceRepositoryProvider);
+                          final wsId = ref.read(activeWorkspaceIdProvider) ?? '';
                           final solution = await repo.createSolution(
                             workspaceId: wsId,
                             title: title,
                             description: descController.text.trim(),
                           );
                           ref.read(activeSolutionIdProvider.notifier).set(solution.id);
+                          ref.read(activeWorkspaceIdProvider.notifier).set(solution.workspaceId);
                           if (dialogCtx.mounted) {
                             Navigator.pop(dialogCtx);
-                            ref.invalidate(workspacesListProvider);
+                            invalidateWorkspaceScoped(ref, solution.workspaceId);
                             context.go('/workspace');
                           }
-                        } catch (_) {
-                          if (dialogCtx.mounted) {
-                            Navigator.pop(dialogCtx);
-                            context.go('/workspace');
-                          }
+                        } catch (e) {
+                          if (!dialogCtx.mounted) return;
+                          setDialogState(() => isCreating = false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Could not create blueprint: $e'),
+                              backgroundColor: AppColors.statusErrorRed,
+                            ),
+                          );
                         }
                       },
               ),
@@ -200,7 +528,15 @@ class NavigationShell extends ConsumerWidget {
     );
   }
 
-  void _showSearchModal(BuildContext context) {
+  /// Searches the user's real blueprints by title/description.
+  ///
+  /// This previously showed a `TextField` with no controller, no `onChanged`
+  /// and no filtering, plus four hardcoded jump tags. It looked like search and
+  /// did nothing.
+  void _showSearchModal(BuildContext context, WidgetRef ref) {
+    final solutionsAsync = ref.watch(activeSolutionsProvider);
+    final searchController = TextEditingController();
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -208,73 +544,132 @@ class NavigationShell extends ConsumerWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppSpacing.radiusMd)),
       ),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(
-          top: AppSpacing.lg,
-          left: AppSpacing.lg,
-          right: AppSpacing.lg,
-          bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.lg,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.search, size: 20, color: AppColors.gold),
-                const SizedBox(width: AppSpacing.sm),
-                Text('Quick Search & Jump', style: AppTextStyles.serifHeading(fontSize: 18)),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.md),
-            TextField(
-              autofocus: true,
-              style: AppTextStyles.bodyMedium(color: AppColors.lightTextPrimary),
-              decoration: InputDecoration(
-                hintText: 'Search blueprints, PostgreSQL DDL, routes...',
-                prefixIcon: const Icon(Icons.search, size: 18, color: AppColors.lightTextSecondary),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppSpacing.radiusXs),
-                  borderSide: const BorderSide(color: AppColors.lightBorder),
-                ),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                _buildSearchTag(ctx, context, 'E-Commerce Mesh', '/workspace'),
-                _buildSearchTag(ctx, context, 'PostgreSQL Schema', '/workspace'),
-                _buildSearchTag(ctx, context, 'Credit Balance', '/billing'),
-                _buildSearchTag(ctx, context, 'Render API Key', '/settings'),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          final query = searchController.text.trim().toLowerCase();
+          final all = solutionsAsync.valueOrNull ?? const [];
+          final matches = query.isEmpty
+              ? all
+              : all
+                  .where((s) =>
+                      s.title.toLowerCase().contains(query) ||
+                      (s.description ?? '').toLowerCase().contains(query))
+                  .toList();
 
-  Widget _buildSearchTag(BuildContext sheetCtx, BuildContext navCtx, String label, String route) {
-    return GestureDetector(
-      onTap: () {
-        Navigator.pop(sheetCtx);
-        navCtx.go(route);
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: AppColors.lightSurfaceSubtle,
-          borderRadius: BorderRadius.circular(AppSpacing.radiusXs),
-          border: Border.all(color: AppColors.lightBorder),
-        ),
-        child: Text(
-          label,
-          style: AppTextStyles.bodySmall(color: AppColors.lightTextPrimary),
-        ),
+          return Padding(
+            padding: EdgeInsets.only(
+              top: AppSpacing.lg,
+              left: AppSpacing.lg,
+              right: AppSpacing.lg,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + AppSpacing.lg,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.search, size: 20, color: AppColors.gold),
+                    const SizedBox(width: AppSpacing.sm),
+                    Text('Search Blueprints',
+                        style: AppTextStyles.serifHeading(fontSize: 18)),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+                TextField(
+                  controller: searchController,
+                  autofocus: true,
+                  onChanged: (_) => setSheetState(() {}),
+                  style:
+                      AppTextStyles.bodyMedium(color: AppColors.lightTextPrimary),
+                  decoration: InputDecoration(
+                    hintText: 'Search by title or description...',
+                    prefixIcon: const Icon(Icons.search,
+                        size: 18, color: AppColors.lightTextSecondary),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppSpacing.radiusXs),
+                      borderSide: const BorderSide(color: AppColors.lightBorder),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                if (solutionsAsync.isLoading)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(AppSpacing.md),
+                      child: CircularProgressIndicator(
+                        color: AppColors.blackButton,
+                        strokeWidth: 2,
+                      ),
+                    ),
+                  )
+                else if (solutionsAsync.hasError)
+                  Text(
+                    'Could not load blueprints to search.',
+                    style: AppTextStyles.bodySmall(
+                      color: AppColors.statusErrorRed,
+                    ),
+                  )
+                else if (matches.isEmpty)
+                  Text(
+                    query.isEmpty
+                        ? 'No blueprints in this workspace yet.'
+                        : 'Nothing matches "$query".',
+                    style: AppTextStyles.bodySmall(
+                      color: AppColors.lightTextSecondary,
+                    ),
+                  )
+                else
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 320),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: matches.length,
+                      separatorBuilder: (_, __) =>
+                          const Divider(color: AppColors.lightBorder),
+                      itemBuilder: (_, i) {
+                        final solution = matches[i];
+                        return ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.architecture,
+                              size: 18, color: AppColors.gold),
+                          title: Text(
+                            solution.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTextStyles.bodyMedium(
+                              color: AppColors.lightTextPrimary,
+                            ),
+                          ),
+                          subtitle: solution.description == null
+                              ? null
+                              : Text(
+                                  solution.description!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTextStyles.bodySmall(
+                                    color: AppColors.lightTextSecondary,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                          onTap: () {
+                            ref
+                                .read(activeSolutionIdProvider.notifier)
+                                .set(solution.id);
+                            Navigator.pop(ctx);
+                            context.go('/workspace');
+                          },
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
       ),
-    );
+    ).whenComplete(searchController.dispose);
   }
 
   void _showUserMenu(BuildContext context, WidgetRef ref, String initial) {
@@ -401,6 +796,18 @@ class NavigationShell extends ConsumerWidget {
     final user = authState.user;
     final isAdmin = user?.isAdmin ?? false;
     final usageAsync = ref.watch(billingUsageProvider);
+    // Resolve the selected workspace's real name for the header pill.
+    final workspacesAsync = ref.watch(workspacesListProvider);
+    final activeWorkspaceId = ref.watch(activeWorkspaceIdProvider);
+    final activeWorkspaceName = workspacesAsync.maybeWhen(
+      data: (list) {
+        for (final ws in list) {
+          if (ws.id == activeWorkspaceId) return ws.name;
+        }
+        return list.isEmpty ? 'No Workspace' : list.first.name;
+      },
+      orElse: () => 'Loading...',
+    );
     final userInitial = user?.fullName.isNotEmpty == true
         ? user!.fullName[0].toUpperCase()
         : (user?.email.isNotEmpty == true ? user!.email[0].toUpperCase() : 'A');
@@ -465,7 +872,10 @@ class NavigationShell extends ConsumerWidget {
                         children: [
                           Flexible(
                             child: Text(
-                              'Primary Workspace',
+                              // The real workspace name. This was the literal
+                              // string 'Primary Workspace' regardless of which
+                              // workspace was actually selected.
+                              activeWorkspaceName,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: AppTextStyles.smallCapsLabel(
@@ -503,8 +913,10 @@ class NavigationShell extends ConsumerWidget {
                         const SizedBox(width: 2),
                         Text(
                           usageAsync.maybeWhen(
-                            data: (u) => '${u.creditsRemaining}',
-                            orElse: () => '420',
+                            data: (u) => u.isUnlimited
+                                ? '∞'
+                                : '${u.creditsRemaining}',
+                            orElse: () => '--',
                           ),
                           style: AppTextStyles.smallCapsLabel(
                             fontSize: 9,
@@ -537,7 +949,21 @@ class NavigationShell extends ConsumerWidget {
                     padding: const EdgeInsets.all(4),
                     constraints: const BoxConstraints(),
                     tooltip: 'Search',
-                    onPressed: () => _showSearchModal(context),
+                    onPressed: () => _showSearchModal(context, ref),
+                  ),
+                ],
+
+                // Workspace tools: blueprint review, builds, build chat.
+                // The bottom bar is branch-indexed and already full, so the
+                // extra workspace sub-routes live behind an overflow menu.
+                if (navigationShell.currentIndex == 1) ...[
+                  const SizedBox(width: 4),
+                  IconButton(
+                    icon: const Icon(Icons.more_vert, size: 19, color: AppColors.lightTextSecondary),
+                    padding: const EdgeInsets.all(4),
+                    constraints: const BoxConstraints(),
+                    tooltip: 'Workspace tools',
+                    onPressed: () => _showWorkspaceTools(context),
                   ),
                 ],
 
@@ -551,14 +977,7 @@ class NavigationShell extends ConsumerWidget {
                         icon: const Icon(Icons.notifications_none_outlined, size: 19, color: AppColors.lightTextSecondary),
                         padding: const EdgeInsets.all(4),
                         constraints: const BoxConstraints(),
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Swarm telemetry: All synthesis nodes operational.'),
-                              duration: Duration(seconds: 1),
-                            ),
-                          );
-                        },
+                        onPressed: () => _showEngineStatus(context, ref),
                       ),
                       Container(
                         width: 5,

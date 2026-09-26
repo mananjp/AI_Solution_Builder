@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/network/api_endpoints.dart';
 
 final settingsRepositoryProvider = Provider<SettingsRepository>((ref) {
   final apiClient = ref.watch(apiClientProvider);
@@ -11,52 +12,39 @@ class SettingsRepository {
 
   SettingsRepository({required ApiClient apiClient}) : _apiClient = apiClient;
 
+  /// The API is write-only for deploy credentials: `UserResponse` has no
+  /// `settings` field and `/auth/me/settings` accepts only PATCH/POST, with
+  /// values stored encrypted. Tokens therefore can never be read back, and this
+  /// returns an empty map rather than a set of blank strings that the screen
+  /// would then treat as "the user cleared their keys".
   Future<Map<String, dynamic>> fetchSettings() async {
-    try {
-      final response = await _apiClient.get('/api/v1/auth/me');
-      if (response.data is Map<String, dynamic>) {
-        final data = response.data as Map<String, dynamic>;
-        final settings = data['settings'];
-        if (settings is Map<String, dynamic>) {
-          return settings;
-        }
-      }
-    } catch (_) {}
-    return {
-      'github_token': '',
-      'render_api_key': '',
-      'vercel_token': '',
-    };
+    return const {};
   }
 
-  Future<bool> saveCredentials({
+  /// `PATCH /auth/me/settings` with `{github_token, render_api_key, vercel_token}`.
+  Future<void> saveCredentials({
     String? githubToken,
     String? renderApiKey,
     String? vercelToken,
   }) async {
     final payload = <String, dynamic>{};
-    if (githubToken != null && githubToken.isNotEmpty) {
+    if (githubToken != null && githubToken.trim().isNotEmpty) {
       payload['github_token'] = githubToken.trim();
     }
-    if (renderApiKey != null && renderApiKey.isNotEmpty) {
+    if (renderApiKey != null && renderApiKey.trim().isNotEmpty) {
       payload['render_api_key'] = renderApiKey.trim();
     }
-    if (vercelToken != null && vercelToken.isNotEmpty) {
+    if (vercelToken != null && vercelToken.trim().isNotEmpty) {
       payload['vercel_token'] = vercelToken.trim();
     }
 
-    try {
-      await _apiClient.patch('/api/v1/auth/me/settings', data: payload);
-      return true;
-    } catch (_) {
-      // Also try post if patch differs
-      try {
-        await _apiClient.post('/api/v1/auth/me/settings', data: payload);
-        return true;
-      } catch (_) {
-        return false;
-      }
+    if (payload.isEmpty) {
+      return;
     }
+
+    // No silent retry against a second verb: a failure here has to be visible,
+    // otherwise the user is told their keys were saved when they were not.
+    await _apiClient.patch(ApiEndpoints.meSettings, data: payload);
   }
 }
 
