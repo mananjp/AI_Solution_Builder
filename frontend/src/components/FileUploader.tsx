@@ -207,6 +207,3 @@ export default function FileUploader({ onParsedContext, onClear }: FileUploaderP
     </div>
   );
 }
-    </div>
-  );
-}
