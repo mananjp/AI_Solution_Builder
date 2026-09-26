@@ -19,7 +19,7 @@ export interface Workspace {
   updated_at?: string;
 }
 
-export type ArtifactType = 
+export type ArtifactType =
   | 'hld'
   | 'lld'
   | 'wireframe'
@@ -29,7 +29,10 @@ export type ArtifactType =
   | 'roadmap'
   | 'bpmn'
   | 'bpmn_flows'
-  | 'workable';
+  | 'workable'
+  | 'app_icon'
+  | 'ui_mockup'
+  | 'hero_image';
 
 export interface Artifact {
   id: string;

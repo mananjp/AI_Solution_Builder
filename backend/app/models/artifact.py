@@ -25,7 +25,9 @@ class SolutionArtifact(Base):
     )
     artifact_type: Mapped[str] = mapped_column(
         String(100), nullable=False
-    )  # hld, lld, wireframe, er_diagram, bpmn, roadmap, api_spec, database_schema
+    )  # hld, lld, wireframe, er_diagram, bpmn, roadmap, api_spec, database_schema,
+    # app_icon, ui_mockup, hero_image (image bytes live in object storage; see
+    # services/image_gen.py — the `content` JSONB holds the storage key + prompt)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     content: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     content_text: Mapped[str] = mapped_column(Text, nullable=True)  # Rendered markdown/text version

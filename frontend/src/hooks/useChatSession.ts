@@ -148,6 +148,7 @@ export const BUILD_PHASES = [
   'scaffolding',
   'designing',
   'coding',
+  'illustrating',
   'verifying',
   'packaging',
   'completed',
@@ -161,14 +162,15 @@ const PHASE_MILESTONE: Record<string, number> = {
   scaffolding: 2,
   designing: 2,
   coding: 3,
-  verifying: 4,
-  packaging: 5,
-  completed: 6,
+  illustrating: 4,
+  verifying: 5,
+  packaging: 6,
+  completed: 7,
 };
 
-export const TOTAL_MILESTONES = 6;
+export const TOTAL_MILESTONES = 7;
 
-/** Derive the 6-item milestone checklist from the last observed phase. */
+/** Derive the milestone checklist from the last observed phase. */
 export function milestonesFromPhase(phase: string, _target: number, done: boolean): Milestone[] {
   const current = PHASE_MILESTONE[phase] ?? 0;
   return Array.from({ length: TOTAL_MILESTONES }, (_, i) => ({
