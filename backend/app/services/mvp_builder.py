@@ -3252,6 +3252,12 @@ def package_build(build_dir: Path | str) -> io.BytesIO:
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for path in files:
             zf.write(path, arcname=str(path.relative_to(root)).replace("\\", "/"))
+
+    if settings.SCAN_GENERATED_ARTIFACTS:
+        from app.services.security.archive import guard_archive
+
+        guard_archive(buffer.getvalue(), source="mvp.package")
+
     buffer.seek(0)
     return buffer
 

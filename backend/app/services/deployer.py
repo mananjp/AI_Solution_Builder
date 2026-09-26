@@ -18,6 +18,8 @@ from typing import Any
 
 import httpx
 
+from app.services.security.archive import safe_extract_zip
+
 GH_API_BASE = "https://api.github.com"
 
 logger = logging.getLogger(__name__)
@@ -147,10 +149,7 @@ async def deploy_build_workspace(
     """
     with TemporaryDirectory(prefix="mvp-deploy-") as tmp:
         root = Path(tmp)
-        artifact = root / "artifact.zip"
-        artifact.write_bytes(archive_bytes)
-        with zipfile.ZipFile(artifact, "r") as zf:
-            zf.extractall(root)
+        safe_extract_zip(archive_bytes, root)
 
         files = _extract_mvp_files(root)
         if not files:

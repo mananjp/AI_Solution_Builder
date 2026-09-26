@@ -41,6 +41,7 @@ from app.services.exporters import (
     serialize_solution,
 )
 from app.services.figma import build_figma_manifest
+from app.services.security import enforce_file
 
 logger = logging.getLogger(__name__)
 
@@ -230,6 +231,9 @@ The application will start on `http://localhost:8000`.
 
     zip_buffer.seek(0)
     filename = _safe_filename(solution.title, "_deployable.zip")
+
+    if settings.SCAN_GENERATED_ARTIFACTS:
+        await enforce_file(zip_buffer.getvalue(), filename=filename, source="export.zip")
 
     return StreamingResponse(
         zip_buffer,

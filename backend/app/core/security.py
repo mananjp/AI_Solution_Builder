@@ -209,3 +209,12 @@ def require_permission(permission: str) -> Any:
         return current_user
 
     return _check
+
+
+def require_admin(user: User) -> None:
+    """Validate that the given user possesses elevated administrator rights."""
+    if user.role not in ("admin", "superadmin", "owner"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Elevated administrator role required"
+        )
+

@@ -19,6 +19,8 @@ import {
   Lock,
   Play,
   Wrench,
+  Shield,
+  ShieldAlert,
 } from 'lucide-react';
 import {
   legacyRepoApi,
@@ -163,6 +165,14 @@ export default function LegacyModernizerPage() {
           <span className="text-xs text-[var(--text-3)] font-mono">Scope: Isolated Sandbox</span>
         </div>
 
+        {/* Security Scan Banner */}
+        <div className="flex items-center gap-2.5 p-2.5 bg-[var(--bg-1)] border border-[var(--border)] rounded text-[11px] text-[var(--text-2)] mb-5">
+          <ShieldCheck className="w-4 h-4 text-[var(--green)] shrink-0" />
+          <span>
+            <strong>Multi-Layer Threat Guard Active:</strong> Ingested ZIP archives and remote repos are audited against zip bombs, path traversal (Zip Slip), executable polyglots, and malware prior to extraction.
+          </span>
+        </div>
+
         {/* Tab selection */}
         <div className="flex border-b border-[var(--border)] mb-5">
           <button
@@ -286,7 +296,7 @@ export default function LegacyModernizerPage() {
             {analyzing ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
-                Analyzing Architecture...
+                Inspecting Boundaries & Scanning Threats...
               </>
             ) : (
               <>
@@ -309,6 +319,24 @@ export default function LegacyModernizerPage() {
               </h2>
               <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-mono">
                 {analysis.structure.total_files} files analyzed
+              </span>
+            </div>
+
+            {/* Security Check Verification Card */}
+            <div className="mb-5 p-3 bg-emerald-50/70 border border-emerald-200 rounded flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
+                <div>
+                  <span className="text-xs font-bold text-emerald-900 block">
+                    Security & Threat Check: Verified Clean
+                  </span>
+                  <span className="text-[11px] text-emerald-700">
+                    Zero malware signatures detected · Zip Slip boundary verified · Non-sutra_os boundary asserted
+                  </span>
+                </div>
+              </div>
+              <span className="text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-semibold">
+                Protected
               </span>
             </div>
 

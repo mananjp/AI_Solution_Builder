@@ -1197,3 +1197,96 @@ export const legacyRepoApi = {
   },
 };
 
+export interface SecurityScanItem {
+  id: string;
+  sha256?: string;
+  url?: string;
+  target: string;
+  source: string;
+  verdict: 'clean' | 'suspicious' | 'malicious' | 'unknown' | 'error' | 'skipped';
+  findings: Array<{
+    source: string;
+    verdict: string;
+    reason: string;
+    detail: Record<string, any>;
+  }>;
+  scanned_bytes: number;
+  from_cache: boolean;
+  user_id?: string;
+  duration_ms: number;
+  created_at?: string;
+}
+
+export interface SecurityStats {
+  total_scans: number;
+  cache_hits: number;
+  cache_hit_rate: number;
+  total_bytes_scanned: number;
+  verdict_breakdown: Record<string, number>;
+  source_breakdown: Record<string, number>;
+}
+
+export interface SecurityConfig {
+  security_scan_enabled: boolean;
+  block_threshold: string;
+  fail_unavailable_mode: string;
+  scan_sources: string;
+  archive_limits: {
+    max_entries: number;
+    max_uncompressed_bytes: number;
+    max_ratio: number;
+    max_nested_depth: number;
+  };
+  layers: {
+    layer_0_local_rules: { configured: boolean; live: boolean };
+    layer_1_clamav: { configured: boolean; live: boolean; host?: string; port?: number };
+    layer_2_virustotal: {
+      configured: boolean;
+      acknowledged_tos: boolean;
+      live: boolean;
+      api_key_configured: boolean;
+      api_key_masked?: string;
+      rpm_limit: number;
+      daily_limit: number;
+    };
+  };
+}
+
+export const securityApi = {
+  async getScans(params?: { verdict?: string; source?: string; limit?: number; offset?: number }) {
+    const qs = new URLSearchParams();
+    if (params?.verdict) qs.set('verdict', params.verdict);
+    if (params?.source) qs.set('source', params.source);
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.offset) qs.set('offset', String(params.offset));
+    const queryStr = qs.toString();
+    return request<{ total: number; offset: number; limit: number; items: SecurityScanItem[] }>(
+      `/security/scans${queryStr ? `?${queryStr}` : ''}`
+    );
+  },
+
+  async getStats(): Promise<SecurityStats> {
+    return request<SecurityStats>('/security/stats');
+  },
+
+  async getConfig(): Promise<SecurityConfig> {
+    return request<SecurityConfig>('/security/config');
+  },
+
+  async scanFile(file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const token = getAuthToken();
+    const res = await fetch(`${API_BASE_URL}/security/scan/file`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Scan failed' }));
+      throw new Error(err.error?.message || err.detail || 'Scan failed');
+    }
+    return res.json();
+  },
+};
+

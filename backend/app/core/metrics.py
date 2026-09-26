@@ -30,6 +30,11 @@ REQUEST_DURATION = Histogram(
 )
 DB_HEALTH = Gauge("db_up", "Database reachability (1 = up)")
 REDIS_HEALTH = Gauge("redis_up", "Redis reachability (1 = up)")
+SCANS_TOTAL = Counter("scans_total", "Total security scans", ["source", "verdict"])
+SCAN_DURATION = Histogram("scan_duration_seconds", "Security scan duration", ["source"])
+SCAN_BLOCKED_TOTAL = Counter("scan_blocked_total", "Security scans blocked", ["source"])
+SCAN_CACHE_HITS_TOTAL = Counter("scan_cache_hits_total", "Security scan cache hits")
+SCANNER_HEALTH = Gauge("scanner_up", "Scanner reachability (1 = up)", ["scanner"])
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):
@@ -61,6 +66,11 @@ def set_db_health(up: bool) -> None:
 
 def set_redis_health(up: bool) -> None:
     REDIS_HEALTH.set(1 if up else 0)
+
+
+def set_scanner_health(name: str, up: bool) -> None:
+    SCANNER_HEALTH.labels(scanner=name).set(1 if up else 0)
+
 
 
 def metrics_response() -> Response:

@@ -35,6 +35,7 @@ from app.services.legacy_repo.analyzer import LegacyRepoAnalyzer
 from app.services.legacy_repo.boundary import ScopeBoundaryViolation, assert_safe_boundary
 from app.services.legacy_repo.credentials import CredentialValidator, mask_secret
 from app.services.legacy_repo.modernizer import LegacyRepoModernizer
+from app.services.security import enforce_file, guard_archive, safe_extract_zip
 
 logger = logging.getLogger(__name__)
 
@@ -227,23 +228,8 @@ def _ensure_demo_sample_repo() -> Path:
 
 
 def _extract_zip_to_workspace(zip_bytes: bytes, workspace_dir: Path) -> Path:
-    """Extract zip archive safely without path traversal."""
-    workspace_dir.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-        for member in zf.infolist():
-            # Prevent zip slip
-            extracted_path = (workspace_dir / member.filename).resolve()
-            if not str(extracted_path).startswith(str(workspace_dir.resolve())):
-                raise HTTPException(status_code=400, detail="Invalid zip archive: path traversal detected")
-        zf.extractall(workspace_dir)
-
-    # Unwrap single root folder if created by GitHub zipball
-    subdirs = [p for p in workspace_dir.iterdir() if p.is_dir() and not p.name.startswith(".")]
-    files = [p for p in workspace_dir.iterdir() if p.is_file()]
-    if len(subdirs) == 1 and len(files) == 0:
-        return subdirs[0]
-
-    return workspace_dir
+    """Extract zip archive safely using hardened security scanner."""
+    return safe_extract_zip(zip_bytes, workspace_dir)
 
 
 @router.post("/analyze")
@@ -280,9 +266,12 @@ async def analyze_legacy_repository(
             token = _resolve_github_token(payload.github_token, current_user)
             zip_content = await _fetch_github_zipball(owner, repo, token)
 
+            # Enforce threat scan on downloaded zipball before workspace extraction
+            await enforce_file(zip_content, filename=f"{owner}-{repo}.zip", source="legacy_repo.github")
+
             temp_id = uuid4().hex[:10]
             staging_dir = Path(tempfile.gettempdir()) / f"legacy_gh_{owner}_{repo}_{temp_id}"
-            target_dir = _extract_zip_to_workspace(zip_content, staging_dir)
+            target_dir = safe_extract_zip(zip_content, staging_dir)
             cleanup_temp = True
         else:
             raise HTTPException(
@@ -323,9 +312,14 @@ async def analyze_uploaded_repository_zip(
         if len(contents) > max_bytes:
             raise HTTPException(status_code=413, detail="Repository ZIP too large (max 50MB)")
 
+        # Synchronous archive safety check (zip bomb, traversal, nesting)
+        guard_archive(contents, source="legacy_repo.upload")
+        # Multi-layer threat scan enforcement
+        await enforce_file(contents, filename=file.filename or "repo.zip", source="legacy_repo.upload")
+
         temp_id = uuid4().hex[:10]
         staging_dir = Path(tempfile.gettempdir()) / f"legacy_upload_{temp_id}"
-        target_dir = _extract_zip_to_workspace(contents, staging_dir)
+        target_dir = safe_extract_zip(contents, staging_dir)
 
         assert_safe_boundary(target_dir, action="analyze")
         analyzer = LegacyRepoAnalyzer(target_dir)

@@ -64,6 +64,7 @@ from app.services.render_deployer import (
     RenderDeployer,
     get_1click_deploy_url,
 )
+from app.services.security.archive import safe_extract_zip
 from app.services.storage import get_storage
 
 _ORIG_RUN_BUILD = builder.run_build
@@ -722,8 +723,7 @@ def _resolve_workspace_dir(build: MVPBuild) -> Path:
     local_zip = target_dir.with_suffix(".zip")
     if local_zip.exists():
         try:
-            with zipfile.ZipFile(local_zip, "r") as zf:
-                zf.extractall(target_dir)
+            safe_extract_zip(local_zip.read_bytes(), target_dir)
             if any(target_dir.iterdir()):
                 return target_dir
         except Exception as exc:
@@ -1550,10 +1550,7 @@ async def env_plan(
                 storage = get_storage()
                 zip_data = await storage.download_raw(build_key)
                 with tempfile.TemporaryDirectory(prefix="mvp-envplan-") as tmp:
-                    zip_path = Path(tmp) / "artifact.zip"
-                    zip_path.write_bytes(zip_data)
-                    with zipfile.ZipFile(zip_path, "r") as zf:
-                        zf.extractall(tmp)
+                    safe_extract_zip(zip_data, Path(tmp))
                     plan = builder.scan_env_plan(tmp)
             except Exception as scan_err:  # noqa: BLE001
                 logger.warning("Env-plan scan failed for build %s: %s", build_id, scan_err)
@@ -1833,10 +1830,7 @@ async def configure_build(
 
     with tempfile.TemporaryDirectory(prefix="mvp-configure-") as tmp:
         tmp_dir = Path(tmp)
-        zip_path = tmp_dir / "artifact.zip"
-        zip_path.write_bytes(zip_data)
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(tmp_dir)
+        safe_extract_zip(zip_data, tmp_dir)
 
         extracted = tmp_dir
         try:

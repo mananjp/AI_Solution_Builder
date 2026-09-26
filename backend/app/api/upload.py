@@ -17,6 +17,7 @@ from app.core.security import get_current_user
 from app.ingestion.parser import parse_document, parse_url
 from app.models.user import User
 from app.schemas import UrlParseRequest
+from app.services.security import enforce_file, enforce_url
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ async def upload_url(
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Fetch and parse a website URL into readable text for the AI pipeline."""
+    await enforce_url(payload.url, source="upload.url")
     try:
         extracted_text = await parse_url(payload.url)
     except ValueError as exc:
@@ -81,6 +83,9 @@ async def upload_document(
     if len(contents) > max_bytes:
         raise HTTPException(status_code=413, detail="File too large (max 10MB)")
 
+    # Enforce security scanning before parsing
+    await enforce_file(contents, filename=filename, source="upload.document")
+
     # Parse the document
     extracted_text = await parse_document(contents, filename)
 
@@ -120,6 +125,9 @@ async def upload_audio(
             status_code=400,
             detail=f"Unsupported audio type. Allowed: {', '.join(sorted(allowed_audio))}",
         )
+
+    # Enforce security scanning before external Groq / whisper transcription
+    await enforce_file(contents, filename=filename, source="upload.audio")
 
     transcription = ""
     whisper_lang = ""
@@ -191,6 +199,9 @@ async def upload_image(
             detail=f"Unsupported image type. Allowed: {', '.join(sorted(allowed_images))}",
         )
 
+    # Enforce security scanning before image context processing
+    await enforce_file(contents, filename=filename, source="upload.image")
+
     # Synthetic / vision context extractor
     extracted_context = (
         f"SCREENSHOT/IMAGE CONTEXT ({filename}):\n"
@@ -229,6 +240,7 @@ async def import_existing_system(
     context_parts: list[str] = []
 
     if payload.github_repo:
+        await enforce_url(payload.github_repo, source="upload.system")
         repo_url = payload.github_repo.rstrip("/")
         parts = repo_url.split("/")
         if len(parts) >= 2:

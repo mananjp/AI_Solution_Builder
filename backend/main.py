@@ -22,6 +22,7 @@ from app.api.export import router as export_router
 from app.api.mvp import router as mvp_router
 from app.api.opencode_chat import router as opencode_router
 from app.api.legacy_repo import router as legacy_repo_router
+from app.api.security import router as security_router
 from app.api.solutions import router as solutions_router
 from app.api.system import resources_router, router as system_router
 from app.api.upload import router as upload_router
@@ -217,6 +218,7 @@ app.include_router(workable_router, prefix="/api/v1")
 app.include_router(mvp_router, prefix="/api/v1")
 app.include_router(opencode_router, prefix="/api/v1")
 app.include_router(legacy_repo_router, prefix="/api/v1")
+app.include_router(security_router, prefix="/api/v1")
 # Mount opencode and chat routers at root as well to guarantee zero 404s if API_BASE_URL omits /api/v1
 app.include_router(opencode_router)
 app.include_router(chat_router)

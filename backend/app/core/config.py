@@ -75,6 +75,45 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""
 
+    # ── Security / Threat Scanning ────────────────────
+    SECURITY_SCAN_ENABLED: bool = True
+    SECURITY_SCAN_BLOCK_THRESHOLD: str = "suspicious"  # malicious | suspicious
+    SECURITY_SCAN_FAIL_UNAVAILABLE_MODE: str = "allow"  # allow | quarantine | block
+    SECURITY_SCAN_SOURCES: str = ""  # glob allowlist, e.g. "upload.*,legacy_repo.*"; "" = all
+    SECURITY_CACHE_TTL: int = 604800  # 7 days
+    SECURITY_QUARANTINE_DIR: str = ".data/quarantine"
+
+    CLAMAV_ENABLED: bool = False
+    CLAMAV_HOST: str = "clamav"
+    CLAMAV_PORT: int = 3310
+    CLAMAV_TIMEOUT: float = 5.0
+
+    # ── VirusTotal (Layer 2 — OFF by default) ────────
+    # NOTE: the free Community API is limited to 4 req/min and 500 req/day and
+    # "must not be used in commercial products or services" (VT docs, Getting
+    # started). This layer is a local-dev signal only unless a commercial licence
+    # is in place. VIRUSTOTAL_ACK_TOS must be explicitly set to acknowledge the
+    # usage terms before the layer can be switched on at all.
+    VIRUSTOTAL_ENABLED: bool = False
+    VIRUSTOTAL_ACK_TOS: bool = False
+    VIRUSTOTAL_API_KEY: str = ""
+    VIRUSTOTAL_TIMEOUT: float = 15.0
+    VIRUSTOTAL_UPLOAD_TIMEOUT: float = 60.0
+    VIRUSTOTAL_MAX_UPLOAD_BYTES: int = 33554432  # VT POST /files hard cap: 32 MB
+    VIRUSTOTAL_MIN_DETECTIONS: int = 3
+    VIRUSTOTAL_CACHE_TTL: int = 604800
+    VIRUSTOTAL_RPM: int = 4
+    VIRUSTOTAL_DAILY: int = 500
+    VIRUSTOTAL_ASYNC: bool = True
+
+    SCAN_URL_INGEST: bool = True
+    SCAN_GENERATED_ARTIFACTS: bool = False  # flip on after measuring FPs
+
+    ARCHIVE_MAX_ENTRIES: int = 10000
+    ARCHIVE_MAX_UNCOMPRESSED_BYTES: int = 524288000  # 500 MB
+    ARCHIVE_MAX_RATIO: int = 100
+    ARCHIVE_MAX_NESTED_DEPTH: int = 2
+
     # Only honor X-Forwarded-For when a trusted reverse proxy sits in front;
     # otherwise clients can forge it to dodge rate limits / audit attribution.
     TRUST_PROXY_HEADERS: bool = False
@@ -162,10 +201,14 @@ class Settings(BaseSettings):
             return None
 
     @field_validator(
-        "CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET", mode="before"
+        "CLOUDINARY_CLOUD_NAME",
+        "CLOUDINARY_API_KEY",
+        "CLOUDINARY_API_SECRET",
+        "VIRUSTOTAL_API_KEY",
+        mode="before",
     )
     @classmethod
-    def clean_cloudinary_creds(cls, v: Any) -> str:
+    def clean_pasted_creds(cls, v: Any) -> str:
         if not v:
             return ""
         return str(v).strip().strip("'\"").strip()
@@ -177,6 +220,30 @@ class Settings(BaseSettings):
         if not v:
             return ""
         return str(v).strip().strip("'\"").strip()
+
+    @model_validator(mode="after")
+    def enforce_scanner_config(self) -> "Settings":
+        if self.VIRUSTOTAL_ENABLED and not self.VIRUSTOTAL_ACK_TOS:
+            raise ValueError(
+                "VIRUSTOTAL_ENABLED requires VIRUSTOTAL_ACK_TOS=true to acknowledge "
+                "VirusTotal Terms of Service (Community API is non-commercial only)."
+            )
+        if self.SECURITY_SCAN_BLOCK_THRESHOLD not in ("malicious", "suspicious"):
+            raise ValueError(
+                f"SECURITY_SCAN_BLOCK_THRESHOLD must be 'malicious' or 'suspicious', "
+                f"got {self.SECURITY_SCAN_BLOCK_THRESHOLD!r}"
+            )
+        if self.SECURITY_SCAN_FAIL_UNAVAILABLE_MODE not in ("allow", "quarantine", "block"):
+            raise ValueError(
+                f"SECURITY_SCAN_FAIL_UNAVAILABLE_MODE must be 'allow', 'quarantine', or 'block', "
+                f"got {self.SECURITY_SCAN_FAIL_UNAVAILABLE_MODE!r}"
+            )
+        if self.VIRUSTOTAL_ENABLED and self.APP_ENV == "production":
+            logger.warning(
+                "VIRUSTOTAL_ENABLED=true in production: ensure an enterprise commercial licence "
+                "is in place to comply with VirusTotal Terms of Service."
+            )
+        return self
 
     @model_validator(mode="after")
     def enforce_production_secrets(self) -> "Settings":

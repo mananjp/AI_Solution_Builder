@@ -12,6 +12,7 @@ from app.models.credit import CreditTransaction, PaymentOrder, Plan
 from app.models.mvp_build import MVPBuild
 from app.models.organization import Organization
 from app.models.recommendation import RecommendationEvent
+from app.models.scan import ScanRecord
 from app.models.solution import Solution
 from app.models.user import User
 from app.models.workable import WorkableSchema
@@ -33,4 +34,5 @@ __all__ = [
     "ContextChunk",
     "MVPBuild",
     "BuildJob",
+    "ScanRecord",
 ]
