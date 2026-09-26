@@ -133,6 +133,35 @@ async def parse_docx(file_bytes: bytes) -> str:
         return f"[DOCX parsing error: {e}]"
 
 
+async def parse_pptx(file_bytes: bytes) -> str:
+    """Extract text from slides and speaker notes of a PPT/PPTX presentation."""
+    try:
+        from pptx import Presentation
+
+        prs = Presentation(io.BytesIO(file_bytes))
+        slide_texts: list[str] = []
+        for idx, slide in enumerate(prs.slides, 1):
+            parts: list[str] = [f"--- Slide {idx} ---"]
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    for paragraph in shape.text_frame.paragraphs:
+                        text = paragraph.text.strip()
+                        if text:
+                            parts.append(text)
+            if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
+                notes = slide.notes_slide.notes_text_frame.text.strip()
+                if notes:
+                    parts.append(f"[Speaker Notes]: {notes}")
+            if len(parts) > 1:
+                slide_texts.append("\n".join(parts))
+        if not slide_texts:
+            return "[Presentation contains no extractable text]"
+        return "\n\n".join(slide_texts)
+    except Exception as e:
+        logger.error(f"PPTX parsing failed: {e}")
+        return f"[Presentation parsing error: {e}]"
+
+
 async def parse_csv_excel(file_bytes: bytes, filename: str) -> str:
     """Extract schema information from CSV/Excel files."""
     try:
@@ -268,6 +297,8 @@ async def parse_document(file_bytes: bytes, filename: str) -> str:
         return await parse_pdf(file_bytes)
     elif filename_lower.endswith(".docx"):
         return await parse_docx(file_bytes)
+    elif filename_lower.endswith((".pptx", ".ppt")):
+        return await parse_pptx(file_bytes)
     elif filename_lower.endswith((".csv", ".xlsx", ".xls")):
         return await parse_csv_excel(file_bytes, filename)
     elif filename_lower.endswith((".json", ".yaml", ".yml")):

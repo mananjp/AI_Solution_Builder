@@ -81,7 +81,7 @@ export default function FileUploader({ onParsedContext, onClear }: FileUploaderP
       <input
         ref={fileInputRef}
         type="file"
-        accept=".pdf,.docx,.csv,.xlsx,.xls,.txt,.md,.json,.yaml,.yml"
+        accept=".pdf,.docx,.pptx,.ppt,.csv,.xlsx,.xls,.txt,.md,.json,.yaml,.yml,.xml,.html,.htm,.py,.js,.ts,.tsx,.jsx,.css,.sql,.env,.sh,.toml,.log,.rst,.png,.jpg,.jpeg,.webp,.gif,.svg"
         className="hidden"
         onChange={(e) => {
           if (e.target.files && e.target.files[0]) {

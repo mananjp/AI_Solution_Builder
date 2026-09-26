@@ -735,7 +735,9 @@ export const uploadApi = {
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({ detail: 'Upload failed' }));
-      throw new Error(err.detail || 'Upload failed');
+      const message =
+        err.error?.message ?? err.detail ?? (typeof err === 'string' ? err : 'Upload failed');
+      throw new Error(message);
     }
 
     const data = await response.json();
@@ -806,7 +808,9 @@ export const uploadApi = {
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({ detail: 'Audio upload failed' }));
-      throw new Error(err.detail || 'Audio upload failed');
+      const message =
+        err.error?.message ?? err.detail ?? (typeof err === 'string' ? err : 'Audio upload failed');
+      throw new Error(message);
     }
 
     return response.json();

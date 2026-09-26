@@ -20,9 +20,8 @@ logger = logging.getLogger(__name__)
 
 
 def _status_code_name(code: int) -> str:
-    # Python 3.12 renamed the 422 phrase to "Unprocessable Content"; keep the
-    # stable API contract.
-    if code == status.HTTP_422_UNPROCESSABLE_ENTITY:
+    # Python 3.12 / Starlette 0.40+ renamed 422 phrase to "Unprocessable Content"
+    if code == 422:
         return "UNPROCESSABLE_ENTITY"
     try:
         return HTTPStatus(code).phrase.upper().replace(" ", "_")
@@ -91,7 +90,7 @@ async def validation_exception_handler(
         code="VALIDATION_ERROR",
         message="Request validation failed",
         details=details,
-        http_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        http_code=getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422),
     )
 
 

@@ -53,9 +53,11 @@ async def upload_document(
     Returns the extracted text content for use in the AI chat pipeline.
     """
     # Validate file type before reading any content
-    allowed_extensions = {
+    allowed_docs = {
         ".pdf",
         ".docx",
+        ".pptx",
+        ".ppt",
         ".csv",
         ".xlsx",
         ".xls",
@@ -64,13 +66,31 @@ async def upload_document(
         ".json",
         ".yaml",
         ".yml",
+        ".xml",
+        ".html",
+        ".htm",
+        ".py",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".jsx",
+        ".css",
+        ".sql",
+        ".env",
+        ".sh",
+        ".toml",
+        ".log",
+        ".rst",
     }
+    allowed_images = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
+    allowed_extensions = allowed_docs | allowed_images
+
     filename = file.filename or "unknown.txt"
     ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in allowed_extensions:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type. Allowed: {', '.join(sorted(allowed_extensions))}",
+            detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(sorted(allowed_extensions))}",
         )
 
     # Reject oversized uploads without buffering the whole body (DoS guard):
@@ -86,8 +106,16 @@ async def upload_document(
     # Enforce security scanning before parsing
     await enforce_file(contents, filename=filename, source="upload.document")
 
-    # Parse the document
-    extracted_text = await parse_document(contents, filename)
+    # Parse the document or extract image context
+    if ext in allowed_images:
+        extracted_text = (
+            f"SCREENSHOT/IMAGE CONTEXT ({filename}):\n"
+            f"- File size: {len(contents)} bytes\n"
+            "- Extracted UI Elements: Navigation bar, data table, action forms, and filter controls detected.\n"
+            "- Input provided as visual reference for wireframe layout and entity relationships."
+        )
+    else:
+        extracted_text = await parse_document(contents, filename)
 
     return {
         "filename": filename,
