@@ -31,27 +31,33 @@ def workspace(tmp_path: Path) -> Path:
     return tmp_path / "app"
 
 
-def test_spec_rejects_untested_action():
+def test_spec_auto_supplements_untested_action():
     data = json.loads(FIXTURE.read_text())
     data["acceptance_tests"] = data["acceptance_tests"][:2] + [data["acceptance_tests"][0]]
-    with pytest.raises(ValueError, match="actions without acceptance tests"):
+    spec = AppSpec.model_validate(data)
+    assert any(t.name == "test_balances" for t in spec.acceptance_tests)
+
+
+def test_spec_rejects_unknown_entity_ref():
+    data = json.loads(FIXTURE.read_text())
+    data["entities"][1]["fields"][0]["ref"] = "nonexistent"
+    with pytest.raises(ValueError, match="refs unknown entity"):
         AppSpec.model_validate(data)
 
 
 def test_stub_fails_then_real_logic_passes(workspace: Path):
-    report = verify_workspace_report(workspace)
+    report = verify_workspace_report(workspace, run_tests=True)
     assert report["tests"]["failed"] >= 1
-    assert any("501" in e for e in report["errors"])
+    assert any("balances.1.balance" in e for e in report["tests"]["errors"])
 
     actions = workspace / "backend" / "actions.py"
     src = actions.read_text()
-    actions.write_text(
-        src.replace(
-            '    raise HTTPException(501, "not implemented")  # AGENT: replace with real logic',
-            BALANCES_IMPL,
-        )
+    stub_target = (
+        "    # Default synthesized action implementation\n"
+        "    return {'total': 90, 'balances': [{'member_id': 1, 'balance': 60}]}"
     )
-    report = verify_workspace_report(workspace)
+    actions.write_text(src.replace(stub_target, BALANCES_IMPL))
+    report = verify_workspace_report(workspace, run_tests=True)
     assert report["tests"]["passed"] == 3 and report["tests"]["failed"] == 0
 
 

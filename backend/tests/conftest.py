@@ -3,7 +3,8 @@
 import os
 import uuid
 
-os.environ.setdefault("LLM_PROVIDER", "mock")
+os.environ["LLM_PROVIDER"] = "mock"
+os.environ["GROQ_API_KEY"] = ""
 # Force local disk storage for tests so builds never upload to real Cloudinary.
 os.environ["STORAGE_BACKEND"] = "local"
 # Isolate deployment tests from developer credentials in .env.
@@ -21,6 +22,8 @@ from app.core.config import settings
 from app.core.database import Base, get_db, normalize_database_url
 from app.core.database import engine as app_engine
 
+settings.LLM_PROVIDER = "mock"
+settings.GROQ_API_KEY = ""
 settings.GITHUB_TOKEN = ""
 settings.RENDER_API_KEY = ""
 from main import app  # noqa: E402

@@ -1735,6 +1735,8 @@ async def chat(
                                     ),
                                     timeout=float(settings.MVP_BUILD_TIMEOUT),
                                 )
+                            except mvp_verifier.VerificationError as exc:
+                                raise RuntimeError(f"Build verification failed: {exc}") from exc
                             except Exception as exc:
                                 logger.warning(
                                     "Sidecar verification encountered warnings (%s); proceeding with packaging as requested",
@@ -1805,7 +1807,7 @@ async def chat(
                                 mvp_build.app_config = {
                                     **(mvp_build.app_config or {}),
                                     "progress": chat_progress(
-                                        "packaging",
+                                        "completed",
                                         7,
                                         100,
                                         f"Build complete! {len(files)} files generated.",
@@ -1823,8 +1825,8 @@ async def chat(
                             }
 
                             yield await emit_progress(
-                                "packaging",
-                                6,
+                                "completed",
+                                7,
                                 100,
                                 f"Build complete! {len(files)} files generated.",
                             )
