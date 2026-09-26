@@ -12,7 +12,7 @@ import logging
 import time
 
 from app.core.config import settings
-from app.core.redis import get_redis
+from app.core.redis import redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ async def acquire_virustotal_quota() -> bool:
     Returns True if quota is available, False if throttled.
     Shared across API processes and worker containers via Redis.
     """
-    client = get_redis()
+    client = redis_client()
     if client is None:
         # Fail-open if Redis is not configured or down
         return True

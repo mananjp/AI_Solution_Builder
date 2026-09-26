@@ -55,6 +55,10 @@ def redis_client() -> aioredis.Redis | None:
     return _redis
 
 
+# Alias for compatibility across services
+get_redis = redis_client
+
+
 async def ping_redis() -> bool:
     """Health probe used by the /ready endpoint."""
     client = _redis
