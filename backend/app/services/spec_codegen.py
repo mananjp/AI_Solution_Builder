@@ -23,6 +23,7 @@ LOCKED_FILES = (
     "backend/models.py",
     "backend/schemas.py",
     "backend/routers.py",
+    "backend/routers_analytics.py",
     "backend/tests/conftest.py",
     "backend/tests/test_acceptance.py",
     "spec.json",
@@ -250,6 +251,95 @@ def _crud(spec: AppSpec, e: Entity) -> str:
     )
 
 
+def gen_analytics_router(spec: AppSpec) -> str:
+    from app.services.analytics_spec import resolve_analytics_target
+
+    target = resolve_analytics_target(spec)
+    if target is None:
+        return (
+            '"""Analytics router -- GENERATED from spec.json."""\n\n'
+            "from fastapi import APIRouter\n\n"
+            'router = APIRouter(prefix="/analytics", tags=["analytics"])\n\n'
+            '@router.get("/summary")\n'
+            "async def summary() -> dict:\n"
+            '    return {"available": False, "reason": "no numeric fields found"}\n'
+        )
+
+    c = _cls(target.entity.name)
+    field = _clean_ident(target.metric_field.name)
+    time_col = _clean_ident(target.time_field.name) if target.time_field else None
+
+    trend_block = ""
+    if time_col:
+        trend_block = f"""
+    try:
+        trend_q = (
+            select(
+                func.date_trunc("day", models.{c}.{time_col}).label("day"),
+                func.sum(models.{c}.{field}).label("total"),
+            )
+            .group_by("day")
+            .order_by("day")
+        )
+        trend_rows = (await session.execute(trend_q)).all()
+    except Exception:
+        trend_q = (
+            select(
+                func.date(models.{c}.{time_col}).label("day"),
+                func.sum(models.{c}.{field}).label("total"),
+            )
+            .group_by("day")
+            .order_by("day")
+        )
+        trend_rows = (await session.execute(trend_q)).all()
+    trend = [{{"date": str(r.day), "total": float(r.total or 0)}} for r in trend_rows]
+"""
+    else:
+        trend_block = "\n    trend = []\n"
+
+    return "\n".join([
+        '"""Analytics router -- GENERATED from spec.json."""',
+        "",
+        "from __future__ import annotations",
+        "",
+        "from fastapi import APIRouter",
+        "from sqlalchemy import func, select",
+        "",
+        "try:",
+        "    from . import models",
+        "    from .deps import SessionDep",
+        "except (ImportError, ValueError):",
+        "    try:",
+        "        from deps import SessionDep",
+        "        import models",
+        "    except (ImportError, ValueError):",
+        "        from app.database import SessionDep",
+        "        from . import models",
+        "",
+        'router = APIRouter(prefix="/analytics", tags=["analytics"])',
+        "",
+        '@router.get("/summary")',
+        "async def summary(session: SessionDep) -> dict:",
+        "    agg_q = select(",
+        f"        func.count(models.{c}.id).label('count'),",
+        f"        func.sum(models.{c}.{field}).label('total'),",
+        f"        func.avg(models.{c}.{field}).label('average'),",
+        "    )",
+        "    row = (await session.execute(agg_q)).one()",
+        trend_block,
+        "    return {",
+        "        'available': True,",
+        f"        'entity': '{target.entity.name}',",
+        f"        'metric': '{target.metric_field.name}',",
+        "        'count': int(row.count or 0),",
+        "        'total': float(row.total or 0),",
+        "        'average': float(row.average or 0),",
+        "        'trend': trend,",
+        "    }",
+        "",
+    ])
+
+
 def gen_routers(spec: AppSpec) -> str:
     head = '''"""API routers — CRUD GENERATED from spec.json. Business logic lives in actions.py."""
 
@@ -263,12 +353,20 @@ try:
     from .actions import router as actions_router
     from .core.config import settings
     from .deps import SessionDep
+    try:
+        from .routers_analytics import router as analytics_router
+    except (ImportError, ValueError):
+        analytics_router = None
 except (ImportError, ValueError):
     import models
     import schemas
     from actions import router as actions_router
     from core.config import settings
     from deps import SessionDep
+    try:
+        from routers_analytics import router as analytics_router
+    except (ImportError, ValueError):
+        analytics_router = None
 
 router = APIRouter()
 
@@ -284,7 +382,9 @@ async def ready(session: SessionDep) -> dict[str, str]:
     return {"status": "ready", "database": "ok"}
 '''
     body = "".join(_crud(spec, e) for e in spec.entities)
-    return head + body + "\n\n\nrouter.include_router(actions_router)\n"
+    extra_routers = "\n\nrouter.include_router(actions_router)\n"
+    extra_routers += "if analytics_router is not None:\n    router.include_router(analytics_router)\n"
+    return head + body + extra_routers
 
 
 # ── actions.py (agent fills bodies) ─────────────────────────────────────
@@ -579,12 +679,50 @@ import { SkiperBadge } from "@/components/ui/skiper-ui/skiper-badge";
 import { SkiperCard } from "@/components/ui/skiper-ui/skiper-card";
 import { Link001 } from "@/components/ui/skiper-ui/skiper40";
 import { Layers, Database, Sparkles, Activity, Search } from "lucide-react";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+} from "recharts";
 
 const ENTITY_ROUTES: [string, string][] = @@ENTITY_ROUTES@@;
+
+function KpiCard({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: string | number;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+          {label}
+        </span>
+        {icon}
+      </div>
+      <div className="mt-2 text-2xl font-extrabold text-slate-900">{value}</div>
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [filter, setFilter] = useState("");
+  const [analytics, setAnalytics] = useState<{
+    available: boolean;
+    total: number;
+    average: number;
+    count: number;
+    metric?: string;
+    trend: { date: string; total: number }[];
+  } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -597,6 +735,17 @@ export default function Dashboard() {
         }
       }
     })();
+    api
+      .get<{
+        available: boolean;
+        total: number;
+        average: number;
+        count: number;
+        metric?: string;
+        trend: { date: string; total: number }[];
+      }>("/analytics/summary")
+      .then(setAnalytics)
+      .catch(() => setAnalytics(null));
   }, []);
 
   const totalRecords = Object.values(counts).reduce((a, b) => a + b, 0);
@@ -642,38 +791,81 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Quick Metrics Bar */}
-          <div className="mt-8 grid grid-cols-2 gap-4 border-t border-slate-100 pt-6 sm:grid-cols-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
-                <Layers className="h-5 w-5" />
+          {/* Real Analytics KPIs & Chart or Quick Metrics Bar */}
+          {analytics?.available ? (
+            <div className="mt-8 border-t border-slate-100 pt-6">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
+                <KpiCard
+                  label={`Total ${analytics.metric || "Volume"}`}
+                  value={analytics.total.toLocaleString()}
+                  icon={<Layers className="h-4 w-4 text-indigo-600" />}
+                />
+                <KpiCard
+                  label="Average"
+                  value={analytics.average.toFixed(2)}
+                  icon={<Activity className="h-4 w-4 text-emerald-600" />}
+                />
+                <KpiCard
+                  label="Records"
+                  value={analytics.count.toLocaleString()}
+                  icon={<Database className="h-4 w-4 text-violet-600" />}
+                />
               </div>
-              <div>
-                <div className="text-xl font-bold text-slate-900">{ENTITY_ROUTES.length}</div>
-                <div className="text-xs text-slate-500">Modules</div>
-              </div>
+              {analytics.trend && analytics.trend.length > 0 && (
+                <div className="rounded-2xl border border-slate-200/80 bg-slate-50/50 p-4">
+                  <div className="mb-3 text-xs font-semibold text-slate-600">
+                    Activity & Volume Trend
+                  </div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={analytics.trend}>
+                      <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} />
+                      <Tooltip />
+                      <Line
+                        type="monotone"
+                        dataKey="total"
+                        stroke="#6366f1"
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </div>
+          ) : (
+            <div className="mt-8 grid grid-cols-2 gap-4 border-t border-slate-100 pt-6 sm:grid-cols-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                  <Layers className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="text-xl font-bold text-slate-900">{ENTITY_ROUTES.length}</div>
+                  <div className="text-xs text-slate-500">Modules</div>
+                </div>
+              </div>
 
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-                <Database className="h-5 w-5" />
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                  <Database className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="text-xl font-bold text-slate-900">{totalRecords}</div>
+                  <div className="text-xs text-slate-500">Total Records</div>
+                </div>
               </div>
-              <div>
-                <div className="text-xl font-bold text-slate-900">{totalRecords}</div>
-                <div className="text-xs text-slate-500">Total Records</div>
-              </div>
-            </div>
 
-            <div className="col-span-2 sm:col-span-1 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
-                <Activity className="h-5 w-5" />
-              </div>
-              <div>
-                <div className="text-xl font-bold text-slate-900">99.9%</div>
-                <div className="text-xs text-slate-500">System Uptime</div>
+              <div className="col-span-2 sm:col-span-1 flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+                  <Activity className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="text-xl font-bold text-slate-900">99.9%</div>
+                  <div className="text-xs text-slate-500">System Uptime</div>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </motion.div>
 
         {/* Search & Header */}
@@ -1387,6 +1579,48 @@ export async function POST(req: NextRequest) {{
 """
         (act_dir / "route.ts").write_text(act_code, encoding="utf-8")
 
+    # 5. Analytics endpoint: /api/v1/analytics/summary
+    analytics_dir = api_dir / "analytics" / "summary"
+    analytics_dir.mkdir(parents=True, exist_ok=True)
+    from app.services.analytics_spec import resolve_analytics_target
+
+    target = resolve_analytics_target(spec)
+    if target:
+        c_plural = target.entity.plural
+        f_name = target.metric_field.name
+        e_name = target.entity.name
+        analytics_code = f"""import {{ NextResponse }} from "next/server";
+import {{ getDb }} from "@/lib/db";
+
+export async function GET() {{
+  const db = getDb();
+  const rows = db.list("{c_plural}");
+  const count = rows.length;
+  const total = rows.reduce((acc: number, r: any) => acc + (Number(r["{f_name}"]) || 0), 0);
+  const average = count > 0 ? total / count : 0;
+  return NextResponse.json({{
+    available: true,
+    entity: "{e_name}",
+    metric: "{f_name}",
+    count,
+    total,
+    average,
+    trend: [],
+  }});
+}}
+"""
+    else:
+        analytics_code = """import { NextResponse } from "next/server";
+
+export async function GET() {
+  return NextResponse.json({
+    available: false,
+    reason: "no numeric fields found",
+  });
+}
+"""
+    (analytics_dir / "route.ts").write_text(analytics_code, encoding="utf-8")
+
 
 # ── orchestration ───────────────────────────────────────────────────────
 
@@ -1404,6 +1638,7 @@ def write_generated(root: Path | str, spec: AppSpec) -> dict[str, str]:
         be / "models.py": gen_models(spec),
         be / "schemas.py": gen_schemas(spec),
         be / "routers.py": gen_routers(spec),
+        be / "routers_analytics.py": gen_analytics_router(spec),
         be / "actions.py": gen_actions_stub(spec),
         be / "tests" / "conftest.py": CONFTEST,
         be / "tests" / "test_acceptance.py": gen_acceptance_tests(spec),
@@ -1417,6 +1652,16 @@ def write_generated(root: Path | str, spec: AppSpec) -> dict[str, str]:
     if fe.exists():
         gen_frontend_pages(spec, fe)
         gen_next_route_handlers(spec, fe)
+        pkg_file = fe / "package.json"
+        if pkg_file.exists():
+            try:
+                pkg_data = json.loads(pkg_file.read_text(encoding="utf-8"))
+                deps = pkg_data.setdefault("dependencies", {})
+                if "recharts" not in deps:
+                    deps["recharts"] = "^2.15.0"
+                    pkg_file.write_text(json.dumps(pkg_data, indent=2), encoding="utf-8")
+            except Exception:
+                pass
 
     # If architecture is next_fullstack, emit the pure Node.js Dockerfile
     if getattr(spec, "architecture", "next_fullstack") == "next_fullstack":
