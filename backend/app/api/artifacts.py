@@ -284,6 +284,20 @@ async def regenerate_artifact(
     new_text = ""
     new_title = f"{payload.artifact_type.upper()} (v{next_version})"
 
+    # Generated visuals are produced by the illustration phase, not by a
+    # regenerable agent node. Without this guard the dispatch chain below would
+    # fall through to its generic `else` branch and write a placeholder row with
+    # no storage_key, so the newest version could never load an image. Reject
+    # before the credit is deducted: the refund path only covers exceptions.
+    if is_image_artifact(payload.artifact_type):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"'{payload.artifact_type}' artifacts are generated during the build "
+                "and cannot be regenerated. Re-run the build to produce new visuals."
+            ),
+        )
+
     # Meter the regeneration through the shared credit gate (402 if insufficient)
     await require_and_deduct_credit(
         db,
