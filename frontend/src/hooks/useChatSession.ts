@@ -180,6 +180,20 @@ export function milestonesFromPhase(phase: string, _target: number, done: boolea
   }));
 }
 
+/**
+ * Collapse consecutive identical bubbles.
+ *
+ * The backend can persist a turn's reply more than once (stream event plus
+ * terminal payload), so a re-hydrated history would replay it as a visible
+ * duplicate. Only *adjacent* equal texts are collapsed — a genuinely repeated
+ * line later in a conversation is still shown.
+ */
+function dedupeMessages(messages: ChatMessage[]): ChatMessage[] {
+  return messages.filter(
+    (m, i) => !(i > 0 && m.role === 'assistant' && messages[i - 1].role === 'assistant' && m.content === messages[i - 1].content)
+  );
+}
+
 function appendLog(progress: BuildProgress | null, message: string): BuildProgress {
   const startedAt = progress?.startedAt ?? Date.now();
   const seconds = Math.round((Date.now() - startedAt) / 1000);
@@ -255,11 +269,13 @@ function reduce(state: ChatState, action: ChatAction): ChatState {
           : state.sessionId,
         appName: solution.title || state.appName,
         messages: history.length
-          ? history.map((m) => ({
-              role: (m.role as ChatRole) || 'assistant',
-              content: m.content || '',
-              agent: m.role === 'assistant' ? agent : undefined,
-            }))
+          ? dedupeMessages(
+              history.map((m) => ({
+                role: (m.role as ChatRole) || 'assistant',
+                content: m.content || '',
+                agent: m.role === 'assistant' ? agent : undefined,
+              }))
+            )
           : [{ role: 'assistant', agent, content: action.welcome }],
       };
     }
@@ -333,11 +349,19 @@ function reduce(state: ChatState, action: ChatAction): ChatState {
     case 'user/message':
       return { ...state, messages: [...state.messages, { role: 'user', content: action.message }] };
 
-    case 'stream/message':
+    case 'stream/message': {
+      // A turn's reply can reach us from more than one channel (the `message`
+      // event, the terminal `complete` payload, or a re-hydrated history). If
+      // the last bubble is already this exact text, do not stack a copy.
+      const last = state.messages[state.messages.length - 1];
+      if (last && last.role === 'assistant' && last.content === action.message) {
+        return state;
+      }
       return {
         ...state,
         messages: [...state.messages, { role: 'assistant', content: action.message, agent: action.agent }],
       };
+    }
 
     case 'stream/progress': {
       const p = action.progress;

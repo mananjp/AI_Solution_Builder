@@ -3,10 +3,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  Box,
   Check,
   CheckCircle2,
-  CircleDashed,
   Code2,
   Download,
   ExternalLink,
@@ -53,19 +51,33 @@ import {
   MVPEnvVarSpec,
 } from '@/types';
 import { ResourceGauges } from '@/components/mvp/ResourceGauges';
+import { ProgressStepper } from '@/components/lab/progress-stepper';
+import { TreeView, type TreeNode } from '@/components/lab/tree-view';
 
-export const STATUS_STYLES: Record<MVPBuildStatus, string> = {
-  queued: 'badge-amber',
-  pending: 'badge-amber',
-  building: 'badge-blue animate-pulse',
-  complete: 'badge-green',
-  failed: 'badge-red',
-  cancelled: 'badge-gray',
+import { Badge, type BadgeProps } from '@/components/ui/badge';
+
+import { Button } from '@/components/ui/button';
+
+export const STATUS_STYLES: Record<MVPBuildStatus, BadgeProps['variant']> = {
+  queued: 'warning',
+  pending: 'warning',
+  building: 'info',
+  complete: 'success',
+  failed: 'destructive',
+  cancelled: 'neutral',
 };
 
 export function StatusBadge({ status }: { status: MVPBuildStatus }) {
-  return <span className={`badge ${STATUS_STYLES[status]}`}>{status}</span>;
+  return (
+    <Badge
+      variant={STATUS_STYLES[status]}
+      className={status === 'building' ? 'animate-pulse' : undefined}
+    >
+      {status}
+    </Badge>
+  );
 }
+
 
 // Fallback only. The backend owns the canonical milestone list
 // (``_CHAT_BUILD_STEPS``) and ships it on every progress payload, so anything it
@@ -101,39 +113,27 @@ function useBuildSteps(build: MVPBuild): BuildStep[] {
 
 function BuildStepList({ build }: { build: MVPBuild }) {
   const steps = useBuildSteps(build);
-  const cols =
-    steps.length <= 3
-      ? 'sm:grid-cols-3'
-      : steps.length === 4
-        ? 'sm:grid-cols-4'
-        : steps.length === 5
-          ? 'sm:grid-cols-5'
-          : 'sm:grid-cols-3 lg:grid-cols-6';
+  // The stepper takes an index into a list of labels, so completed steps become
+  // the count of finished milestones and the active one is the next index.
+  // A build with no active step (not started, or finished) parks on the first
+  // and last index respectively, which is where the marker belongs.
+  const activeIndex = steps.findIndex((step) => step.status === 'active');
+  const completedCount = steps.filter((step) => step.status === 'completed').length;
+  const current =
+    build.status === 'complete'
+      ? steps.length - 1
+      : activeIndex === -1
+        ? completedCount > 0
+          ? completedCount
+          : 0
+        : activeIndex;
+
   return (
-    <ol className={`grid grid-cols-1 ${cols} gap-1.5`}>
-      {steps.map((step) => (
-        <li key={step.key} className="flex items-start gap-2 min-w-0">
-          {step.status === 'completed' ? (
-            <CheckCircle2 className="w-3.5 h-3.5 text-[var(--green)] shrink-0 mt-0.5" />
-          ) : step.status === 'active' ? (
-            <Loader2 className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)] animate-spin shrink-0 mt-0.5" />
-          ) : (
-            <CircleDashed className="w-3.5 h-3.5 text-[var(--text-3)] shrink-0 mt-0.5" />
-          )}
-          <span
-            className={`text-[10px] leading-tight min-w-0 ${
-              step.status === 'completed'
-                ? 'text-[var(--text-2)] line-through decoration-[var(--green)]/40'
-                : step.status === 'active'
-                  ? 'font-semibold text-[var(--sutra-charcoal)]'
-                  : 'text-[var(--text-3)]'
-            }`}
-          >
-            {step.label}
-          </span>
-        </li>
-      ))}
-    </ol>
+    <ProgressStepper
+      steps={steps.map((step) => step.label)}
+      current={current}
+      label="Build progress"
+    />
   );
 }
 
@@ -143,32 +143,65 @@ function FileTree({ build }: { build: MVPBuild }) {
 
   return (
     <div className="pt-3 border-t border-[var(--border)] mt-3">
-      <button
+      <Button variant="ghost" size="default"
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] transition-colors"
+        className="flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold text-[var(--text-3)] hover:text-[var(--sutra-ink)] transition-colors"
       >
-        <FolderTree className="w-3.5 h-3.5 text-[var(--sutra-charcoal)]" />
+        <FolderTree className="w-3.5 h-3.5 text-[var(--sutra-ink)]" />
         <span>Generated Files ({build.file_count})</span>
-        <span className="text-[var(--sutra-muted-gold)] font-mono">{open ? '▾' : '▸'}</span>
-      </button>
+        <span className="text-[var(--sutra-strong)] font-mono">{open ? '▾' : '▸'}</span>
+      </Button>
       {open && (
-        <div className="mt-3 max-h-64 overflow-y-auto overflow-x-hidden rounded-sm bg-[var(--bg-2)] border border-[var(--border)] p-4 shadow-inner">
+        <div className="mt-3 max-h-64 overflow-y-auto overflow-x-hidden rounded-sm bg-[var(--bg-2)] border border-[var(--border)] p-2 shadow-inner">
           {files.length === 0 ? (
-            <p className="text-[11px] text-[var(--text-3)] font-mono">No file tree returned yet.</p>
+            <p className="p-2 text-[11px] text-[var(--text-3)] font-mono">No file tree returned yet.</p>
           ) : (
-            <ul className="space-y-1.5 min-w-0">
-              {files.map((f) => (
-                <li key={f.path} className="flex items-start gap-2 text-[11px] font-mono min-w-0">
-                  <Box className="w-3.5 h-3.5 text-[var(--text-3)] shrink-0 mt-0.5" />
-                  <span className={`min-w-0 break-all ${f.is_dir ? 'font-semibold text-[var(--sutra-charcoal)]' : 'text-[var(--text-2)] font-light'}`}>{f.path}</span>
-                </li>
-              ))}
-            </ul>
+            <TreeView nodes={toTreeNodes(files)} label="Generated files" />
           )}
         </div>
       )}
     </div>
   );
+}
+
+/**
+ * Folds the backend's flat `path` list into the tree the view expects.
+ *
+ * The backend reports every entry separately and marks directories, but it does
+ * not guarantee parents arrive before their children, so this is a single
+ * folding pass rather than an incremental walk: a file whose parent is absent
+ * from the payload is attached at the root instead of being dropped.
+ */
+function toTreeNodes(files: { path: string; is_dir?: boolean }[]): TreeNode[] {
+  const root: TreeNode[] = [];
+  const index = new Map<string, TreeNode>();
+
+  for (const file of files) {
+    const parts = file.path.split('/').filter(Boolean);
+    if (parts.length === 0) continue;
+
+    let siblings = root;
+    let walked = '';
+
+    parts.forEach((part, i) => {
+      walked = walked ? `${walked}/${part}` : part;
+      const existing = index.get(walked);
+      if (existing) {
+        // A directory seen first, then its own entry, must not become a leaf.
+        if (file.is_dir && !existing.children) existing.children = [];
+        if (i < parts.length - 1 && !existing.children) existing.children = [];
+        siblings = existing.children as TreeNode[];
+        return;
+      }
+      const node: TreeNode = { name: part };
+      if (i < parts.length - 1 || file.is_dir) node.children = [];
+      index.set(walked, node);
+      siblings.push(node);
+      siblings = node.children as TreeNode[];
+    });
+  }
+
+  return root;
 }
 
 const DEPLOY_STEP_LABELS: Record<string, string> = {
@@ -183,23 +216,23 @@ function EnvChip({ spec, value, onChange }: { spec: MVPEnvVarSpec; value: string
   const isDatabase = spec.key === 'DATABASE_URL';
 
   return (
-    <div className={`p-3 bg-[var(--bg-2)] border ${isDatabase ? 'border-[var(--sutra-muted-gold)]/40 bg-[var(--sutra-muted-gold)]/[0.03]' : 'border-[var(--border)]'} space-y-2`}>
+    <div className={`p-3 bg-[var(--bg-2)] border ${isDatabase ? 'border-[var(--sutra-strong)]/40 bg-[var(--sutra-strong)]/[0.03]' : 'border-[var(--border)]'} space-y-2`}>
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <code className="text-[11px] font-mono font-bold text-[var(--sutra-charcoal)]">
+        <code className="text-[11px] font-mono font-bold text-[var(--sutra-ink)]">
           {spec.key}
         </code>
         <div className="flex items-center gap-1.5">
           {isDatabase ? (
-            <span className="badge badge-green text-[9px]">Render Postgres (Auto-configured)</span>
+            <Badge variant="success" className="text-[9px]">Render Postgres (Auto-configured)</Badge>
           ) : (
             <>
-              {spec.auto_injected && <span className="badge badge-green text-[9px]">auto-injected</span>}
+              {spec.auto_injected && <Badge variant="success" className="text-[9px]">auto-injected</Badge>}
               {spec.required ? (
-                <span className="badge badge-red text-[9px]">required</span>
+                <Badge variant="destructive" className="text-[9px]">required</Badge>
               ) : (
-                <span className="badge badge-amber text-[9px]">optional</span>
+                <Badge variant="warning" className="text-[9px]">optional</Badge>
               )}
-              {spec.kind === 'build' && <span className="badge badge-gray text-[9px]">build-time</span>}
+              {spec.kind === 'build' && <Badge variant="neutral" className="text-[9px]">build-time</Badge>}
             </>
           )}
         </div>
@@ -211,28 +244,28 @@ function EnvChip({ spec, value, onChange }: { spec: MVPEnvVarSpec; value: string
       {isDatabase ? (
         <div className="space-y-2 pt-1">
           <div className="flex items-center justify-between gap-2 flex-wrap text-[10px]">
-            <span className="text-[var(--sutra-muted-gold)] font-mono flex items-center gap-1">
+            <span className="text-[var(--sutra-strong)] font-mono flex items-center gap-1">
               ✓ Auto-provisioned on Render — no manual database required
             </span>
-            <button
+            <Button variant="ghost" size="icon-sm"
               type="button"
               onClick={() => setShowOverride(!showOverride)}
-              className="text-[9px] uppercase tracking-wider font-bold text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] underline cursor-pointer"
+              className="text-[9px] uppercase tracking-wider font-bold text-[var(--text-3)] hover:text-[var(--sutra-ink)] underline cursor-pointer"
             >
               {showOverride ? 'Hide custom override' : 'Custom DB URL (optional)'}
-            </button>
+            </Button>
           </div>
           {showOverride && (
             <input
               value={value}
               onChange={(e) => onChange(e.target.value)}
               placeholder="postgresql://user:password@host/db (Leave empty to use Render PostgreSQL)"
-              className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[11px] font-mono focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors"
+              className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] text-[var(--sutra-ink)] text-[11px] font-mono focus:outline-none focus:border-[var(--sutra-strong)] transition-colors"
             />
           )}
         </div>
       ) : spec.auto_injected && spec.current ? (
-        <p className="text-[10px] font-mono text-[var(--sutra-muted-gold)] break-all">
+        <p className="text-[10px] font-mono text-[var(--sutra-strong)] break-all">
           Set automatically: {spec.current}
         </p>
       ) : (
@@ -242,18 +275,18 @@ function EnvChip({ spec, value, onChange }: { spec: MVPEnvVarSpec; value: string
               value={value}
               onChange={(e) => onChange(e.target.value)}
               placeholder={spec.current || spec.default || `Value for ${spec.key}`}
-              className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[11px] font-mono focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors"
+              className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] text-[var(--sutra-ink)] text-[11px] font-mono focus:outline-none focus:border-[var(--sutra-strong)] transition-colors"
             />
             {spec.recommendation_kind === 'value' &&
               spec.recommended &&
               value !== spec.recommended && (
-                <button
+                <Button variant="outline" size="default"
                   type="button"
                   onClick={() => onChange(spec.recommended as string)}
-                  className="shrink-0 px-2 py-1.5 border border-[var(--sutra-muted-gold)] text-[9px] uppercase tracking-widest font-bold text-[var(--sutra-muted-gold)] hover:bg-[var(--sutra-muted-gold)] hover:text-[var(--bg)] transition-colors"
+                  className="shrink-0 border border-[var(--sutra-strong)] text-[9px] uppercase tracking-widest font-bold text-[var(--sutra-strong)] hover:bg-[var(--sutra-strong)] hover:text-[var(--bg)] transition-colors"
                 >
                   Use default
-                </button>
+                </Button>
               )}
           </div>
           {spec.recommendation_kind === 'hint' && spec.recommended && (
@@ -318,7 +351,9 @@ export function DeployModal({
     const current = deployResult.deploy_state;
     const timer = setTimeout(() => {
       setLiveStatus({
-        overall: (current.status as MVPDeployStatus['overall']) || 'building',
+        // 'unknown' rather than 'building': a missing status must not claim a deploy is
+  // in progress.
+  overall: (current.status as MVPDeployStatus['overall']) ?? 'unknown',
         services: current.services,
         injected_env: current.injected_env,
         deploy_url: build.render_deploy_url || null,
@@ -379,16 +414,16 @@ export function DeployModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--sutra-charcoal)]/80 backdrop-blur-sm animate-fade-in">
-      <div className="w-full max-w-2xl bg-[var(--bg)] border border-[var(--sutra-muted-gold)] p-5 sm:p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--sutra-ink)]/80 backdrop-blur-sm animate-fade-in">
+      <div className="w-full max-w-2xl bg-[var(--bg)] border border-[var(--sutra-strong)] p-5 sm:p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between border-b border-[var(--border)] pb-4 mb-6">
-          <h3 className="text-[14px] font-serif text-[var(--sutra-charcoal)] flex items-center gap-2">
-            <Rocket className="w-4 h-4 text-[var(--sutra-muted-gold)]" />
+          <h3 className="text-[14px] font-serif text-[var(--sutra-ink)] flex items-center gap-2">
+            <Rocket className="w-4 h-4 text-[var(--sutra-strong)]" />
             <span>Deploy Build #{build.build_number}</span>
           </h3>
-          <button onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] transition-colors">
+          <Button variant="ghost" size="icon-sm" onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--sutra-ink)] transition-colors">
             <X className="w-4 h-4" />
-          </button>
+          </Button>
         </div>
 
         {error && (
@@ -401,20 +436,20 @@ export function DeployModal({
           <div className="space-y-5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="text-[10px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">Repository Name</label>
+                <label className="text-[10px] uppercase tracking-widest font-bold text-[var(--sutra-ink)]">Repository Name</label>
                 <input
                   value={repoName}
                   onChange={(e) => setRepoName(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-[var(--bg-2)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[13px] font-mono focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors shadow-sm"
+                  className="w-full px-4 py-2.5 bg-[var(--bg-2)] border border-[var(--border)] text-[var(--sutra-ink)] text-[13px] font-mono focus:outline-none focus:border-[var(--sutra-strong)] transition-colors shadow-sm"
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-[10px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">Description (optional)</label>
+                <label className="text-[10px] uppercase tracking-widest font-bold text-[var(--sutra-ink)]">Description (optional)</label>
                 <input
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Auto-generated MVP by AI Solution Builder"
-                  className="w-full px-4 py-2.5 bg-[var(--bg-2)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[13px] font-light focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors shadow-sm"
+                  className="w-full px-4 py-2.5 bg-[var(--bg-2)] border border-[var(--border)] text-[var(--sutra-ink)] text-[13px] font-light focus:outline-none focus:border-[var(--sutra-strong)] transition-colors shadow-sm"
                 />
               </div>
             </div>
@@ -425,10 +460,10 @@ export function DeployModal({
                   type="checkbox"
                   checked={privateRepo}
                   onChange={(e) => setPrivateRepo(e.target.checked)}
-                  className="mt-1 w-4 h-4 accent-[var(--sutra-charcoal)] cursor-pointer"
+                  className="mt-1 w-4 h-4 accent-[var(--sutra-ink)] cursor-pointer"
                 />
                 <div>
-                  <span className="font-semibold text-[13px] text-[var(--sutra-charcoal)]">Make repository private</span>
+                  <span className="font-semibold text-[13px] text-[var(--sutra-ink)]">Make repository private</span>
                   <p className="text-[11px] text-[var(--text-2)] font-light mt-0.5">
                     {privateRepo ? "Private repos require Vercel permissions." : "Public repo recommended for 1-click deployments."}
                   </p>
@@ -439,37 +474,37 @@ export function DeployModal({
                   type="checkbox"
                   checked={force}
                   onChange={(e) => setForce(e.target.checked)}
-                  className="w-4 h-4 accent-[var(--sutra-charcoal)] cursor-pointer"
+                  className="w-4 h-4 accent-[var(--sutra-ink)] cursor-pointer"
                 />
-                <span className="font-semibold text-[13px] text-[var(--sutra-charcoal)]">Force redeploy if already pushed</span>
+                <span className="font-semibold text-[13px] text-[var(--sutra-ink)]">Force redeploy if already pushed</span>
               </label>
             </div>
 
             {/* Required / optional env vars discovered in the generated code */}
             <div className="p-3 bg-[var(--bg-2)] border border-[var(--border)] space-y-2">
-              <div className="flex items-center gap-2 font-bold text-[10px] uppercase tracking-widest text-[var(--sutra-charcoal)]">
-                <KeyRound className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
+              <div className="flex items-center gap-2 font-bold text-[10px] uppercase tracking-widest text-[var(--sutra-ink)]">
+                <KeyRound className="w-3.5 h-3.5 text-[var(--sutra-strong)]" />
                 <span>Environment Variables</span>
               </div>
               {!envPlan ? (
                 <>
                   {pendingEnv.length === 0 ? (
                     <p className="text-[11px] text-[var(--text-2)] font-light flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
+                      <Sparkles className="w-3.5 h-3.5 text-[var(--sutra-strong)]" />
                       No special env vars detected — deploy will run out-of-the-box.
                     </p>
                   ) : (
                     pendingEnv.map(([key, value]) => (
                       <div key={key} className="flex items-center justify-between gap-2 text-[11px] font-mono">
-                        <span className="font-bold text-[var(--sutra-charcoal)]">{key}</span>
-                        <span className="badge badge-green text-[9px]">{value}</span>
+                        <span className="font-bold text-[var(--sutra-ink)]">{key}</span>
+                        <Badge variant="success" className="text-[9px]">{value}</Badge>
                       </div>
                     ))
                   )}
                 </>
               ) : envPlan.env.length === 0 ? (
                 <p className="text-[11px] text-[var(--text-2)] font-light flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
+                  <Sparkles className="w-3.5 h-3.5 text-[var(--sutra-strong)]" />
                   No env vars referenced in the generated code.
                 </p>
               ) : (
@@ -487,8 +522,8 @@ export function DeployModal({
             </div>
 
             {pendingRequired.length > 0 && (
-              <div className="p-4 bg-[#f59e0b]/10 border border-[#f59e0b]/30 space-y-1.5">
-                <p className="flex items-center gap-1.5 font-bold text-[10px] uppercase tracking-widest text-amber-700 dark:text-amber-400">
+              <div className="p-4 bg-[var(--amber)]/10 border border-[var(--amber)]/30 space-y-1.5">
+                <p className="flex items-center gap-1.5 font-bold text-[10px] uppercase tracking-widest text-[var(--amber)]">
                   <Info className="w-3.5 h-3.5" />
                   Pending required variables
                 </p>
@@ -500,9 +535,9 @@ export function DeployModal({
               </div>
             )}
 
-            <div className="p-4 bg-[var(--bg-2)] border-l-2 border-[var(--sutra-muted-gold)] space-y-1.5">
-              <div className="flex items-center gap-2 font-bold text-[10px] uppercase tracking-widest text-[var(--sutra-charcoal)]">
-                <Sparkles className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
+            <div className="p-4 bg-[var(--bg-2)] border-l-2 border-[var(--sutra-strong)] space-y-1.5">
+              <div className="flex items-center gap-2 font-bold text-[10px] uppercase tracking-widest text-[var(--sutra-ink)]">
+                <Sparkles className="w-3.5 h-3.5 text-[var(--sutra-strong)]" />
                 <span>Staged 1-Click Deploy to Render</span>
               </div>
               <p className="text-[12px] font-light text-[var(--text-2)]">
@@ -513,17 +548,17 @@ export function DeployModal({
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border)]">
-              <button onClick={onClose} className="btn btn-ghost px-5 py-2.5">
+              <Button type="button" variant="ghost" size="sm" onClick={onClose}>
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button type="button" size="sm"
                 onClick={handleDeploy}
                 disabled={loading || !repoName.trim()}
-                className="btn btn-primary px-6 py-2.5"
+               
               >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
                 <span>{loading ? 'Deploying…' : 'Deploy Now'}</span>
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
@@ -606,14 +641,14 @@ function DeployedEnvEditor({ buildId }: { buildId: string }) {
 
   if (!open) {
     return (
-      <button
+      <Button variant="secondary" size="default"
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-2 px-3 py-2 text-xs font-bold uppercase tracking-widest border border-[var(--border)] hover:bg-[var(--bg-2)] transition-colors"
+        className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest border border-[var(--border)] hover:bg-[var(--bg-2)] transition-colors"
       >
         <Settings2 className="w-3.5 h-3.5" />
         Environment
-      </button>
+      </Button>
     );
   }
 
@@ -622,17 +657,17 @@ function DeployedEnvEditor({ buildId }: { buildId: string }) {
   return (
     <div className="space-y-3 p-4 border border-[var(--border)] bg-[var(--bg-2)]">
       <div className="flex items-center justify-between gap-2">
-        <h4 className="text-xs font-bold uppercase tracking-widest text-[var(--sutra-charcoal)]">
+        <h4 className="text-xs font-bold uppercase tracking-widest text-[var(--sutra-ink)]">
           Environment (live)
         </h4>
-        <button
+        <Button variant="ghost" size="icon-sm"
           type="button"
           onClick={() => setOpen(false)}
-          className="text-[var(--text-3)] hover:text-[var(--sutra-charcoal)]"
+          className="text-[var(--text-3)] hover:text-[var(--sutra-ink)]"
           aria-label="Close environment editor"
         >
           <X className="w-4 h-4" />
-        </button>
+        </Button>
       </div>
 
       <p className="text-[11px] text-[var(--text-3)]">
@@ -663,15 +698,15 @@ function DeployedEnvEditor({ buildId }: { buildId: string }) {
       {notice && <p className="text-[11px] text-[var(--green)]">{notice}</p>}
 
       <div className="flex items-center gap-2">
-        <button
+        <Button variant="default" size="icon-sm"
           type="button"
           onClick={save}
           disabled={saving || specs.length === 0}
-          className="inline-flex items-center gap-2 px-3 py-2 text-xs font-bold uppercase tracking-widest bg-[var(--sutra-charcoal)] text-[var(--bg)] disabled:opacity-50"
+          className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest bg-[var(--sutra-ink)] text-[var(--bg)] disabled:opacity-50"
         >
           {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
           {saving ? 'Saving' : 'Save & restart'}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -688,7 +723,7 @@ function DeployStatusPanel({
   buildId: string;
   onClose: () => void;
 }) {
-  const overall = status?.overall || 'building';
+  const overall = status?.overall ?? 'unknown';
   const services = status?.services || result.deploy_state?.services || {};
   const names = Object.keys(services);
 
@@ -700,7 +735,7 @@ function DeployStatusPanel({
             ? 'border-[var(--green)]'
             : overall === 'failed'
               ? 'border-[var(--red)]'
-              : 'border-[var(--sutra-muted-gold)]'
+              : 'border-[var(--sutra-strong)]'
         }`}
       >
         {overall === 'live' ? (
@@ -708,10 +743,10 @@ function DeployStatusPanel({
         ) : overall === 'failed' ? (
           <Info className="w-5 h-5 text-[var(--red)] shrink-0" />
         ) : (
-          <Loader2 className="w-5 h-5 text-[var(--sutra-muted-gold)] animate-spin shrink-0" />
+          <Loader2 className="w-5 h-5 text-[var(--sutra-strong)] animate-spin shrink-0" />
         )}
         <div>
-          <h4 className="text-[13px] font-bold uppercase tracking-widest text-[var(--sutra-charcoal)]">
+          <h4 className="text-[13px] font-bold uppercase tracking-widest text-[var(--sutra-ink)]">
             {overall === 'live'
               ? 'Deployment Live'
               : overall === 'failed'
@@ -747,24 +782,25 @@ function DeployStatusPanel({
                   ) : svcStatus === 'failed' ? (
                     <Info className="w-4 h-4 text-[var(--red)] shrink-0" />
                   ) : (
-                    <Loader2 className="w-4 h-4 text-[var(--sutra-muted-gold)] animate-spin shrink-0" />
+                    <Loader2 className="w-4 h-4 text-[var(--sutra-strong)] animate-spin shrink-0" />
                   )}
                   <div className="min-w-0">
-                    <span className="block text-[11px] font-bold uppercase tracking-widest text-[var(--sutra-charcoal)]">{name}</span>
+                    <span className="block text-[11px] font-bold uppercase tracking-widest text-[var(--sutra-ink)]">{name}</span>
                     <span className="block text-[10px] text-[var(--text-3)] font-light">{label}</span>
                   </div>
                 </div>
-                <span
-                  className={`badge ${
+                <Badge
+                  variant={
                     svcStatus === 'live'
-                      ? 'badge-green'
+                      ? 'success'
                       : svcStatus === 'failed'
-                        ? 'badge-red'
-                        : 'badge-amber animate-pulse'
-                  } text-[10px]`}
+                        ? 'destructive'
+                        : 'warning'
+                  }
+                  className={svcStatus === 'live' ? 'text-[10px]' : 'text-[10px] animate-pulse'}
                 >
                   {svcStatus}
-                </span>
+                </Badge>
               </div>
 
               {svc.error && <p className="text-[11px] text-[var(--red)] font-mono">{svc.error}</p>}
@@ -776,7 +812,7 @@ function DeployStatusPanel({
                       href={svc.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg)] border border-[var(--border)] hover:border-[var(--sutra-muted-gold)] transition-colors text-[10px] font-mono text-[var(--sutra-charcoal)]"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg)] border border-[var(--border)] hover:border-[var(--sutra-strong)] transition-colors text-[10px] font-mono text-[var(--sutra-ink)]"
                     >
                       <Globe className="w-3 h-3 text-[var(--green)]" />
                       <span>Visit</span>
@@ -787,7 +823,7 @@ function DeployStatusPanel({
                       href={svc.dashboard_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg)] border border-[var(--border)] hover:border-[var(--sutra-muted-gold)] transition-colors text-[10px] font-mono text-[var(--sutra-charcoal)]"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg)] border border-[var(--border)] hover:border-[var(--sutra-strong)] transition-colors text-[10px] font-mono text-[var(--sutra-ink)]"
                     >
                       <ExternalLink className="w-3 h-3" />
                       <span>Render dashboard</span>
@@ -798,9 +834,9 @@ function DeployStatusPanel({
                       href={svc.deploy_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg)] border border-[var(--border)] hover:border-[var(--sutra-muted-gold)] transition-colors text-[10px] font-mono text-[var(--sutra-charcoal)]"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg)] border border-[var(--border)] hover:border-[var(--sutra-strong)] transition-colors text-[10px] font-mono text-[var(--sutra-ink)]"
                     >
-                      <Loader2 className="w-3 h-3 text-[var(--sutra-muted-gold)]" />
+                      <Loader2 className="w-3 h-3 text-[var(--sutra-strong)]" />
                       <span>Ongoing deployment</span>
                     </a>
                   )}
@@ -819,12 +855,12 @@ function DeployStatusPanel({
                 href={(status?.frontend_url || result.frontend_url)!}
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center justify-between p-4 bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--sutra-muted-gold)] transition-colors shadow-sm"
+                className="flex items-center justify-between p-4 bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--sutra-strong)] transition-colors shadow-sm"
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <Globe className="w-5 h-5 text-[var(--green)] shrink-0" />
                   <div className="min-w-0">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--sutra-charcoal)] block">Frontend</span>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--sutra-ink)] block">Frontend</span>
                     <span className="text-[11px] text-[var(--text-2)] font-mono truncate max-w-[260px] lg:max-w-sm block mt-0.5">
                       {status?.frontend_url || result.frontend_url}
                     </span>
@@ -838,12 +874,12 @@ function DeployStatusPanel({
                 href={`${status.backend_url}/docs`}
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center justify-between p-4 bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--sutra-muted-gold)] transition-colors shadow-sm"
+                className="flex items-center justify-between p-4 bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--sutra-strong)] transition-colors shadow-sm"
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <Server className="w-5 h-5 text-[var(--sutra-charcoal)] shrink-0" />
+                  <Server className="w-5 h-5 text-[var(--sutra-ink)] shrink-0" />
                   <div className="min-w-0">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--sutra-charcoal)] block">Backend API docs</span>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--sutra-ink)] block">Backend API docs</span>
                     <span className="text-[11px] text-[var(--text-2)] font-mono truncate max-w-[260px] block mt-0.5">
                       {status.backend_url}/docs
                     </span>
@@ -860,13 +896,13 @@ function DeployStatusPanel({
             href={(result.repo_url || status?.repo_url)!}
             target="_blank"
             rel="noreferrer"
-            className="flex items-center justify-between p-4 bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--sutra-muted-gold)] transition-colors shadow-sm"
+            className="flex items-center justify-between p-4 bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--sutra-strong)] transition-colors shadow-sm"
           >
             <div className="flex items-center gap-3 min-w-0">
-              <Rocket className="w-5 h-5 text-[var(--sutra-charcoal)] shrink-0" />
+              <Rocket className="w-5 h-5 text-[var(--sutra-ink)] shrink-0" />
               <div className="min-w-0">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--sutra-charcoal)] block">GitHub Repository</span>
-                <span className="font-mono text-[var(--sutra-muted-gold)] text-[11px] truncate max-w-[220px] block mt-0.5">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--sutra-ink)] block">GitHub Repository</span>
+                <span className="font-mono text-[var(--sutra-strong)] text-[11px] truncate max-w-[220px] block mt-0.5">
                   {result.repo_url || status?.repo_url}
                 </span>
               </div>
@@ -880,9 +916,9 @@ function DeployStatusPanel({
       {overall === 'live' && <DeployedEnvEditor buildId={buildId} />}
 
       <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border)]">
-        <button onClick={onClose} className="btn btn-primary px-6 py-2.5">
+        <Button type="button" size="sm" onClick={onClose}>
           Done
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -963,16 +999,16 @@ export function ConfigureModal({
   const auto = envPlan?.env.filter((s) => s.auto_injected || s.key === 'DATABASE_URL') || [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--sutra-charcoal)]/80 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--sutra-ink)]/80 backdrop-blur-sm animate-fade-in">
       <div className="w-full max-w-xl bg-[var(--bg)] border border-[var(--border)] p-5 sm:p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between border-b border-[var(--border)] pb-4 mb-6">
-          <h3 className="text-[14px] font-serif text-[var(--sutra-charcoal)] flex items-center gap-2">
-            <Settings2 className="w-4 h-4 text-[var(--sutra-muted-gold)]" />
+          <h3 className="text-[14px] font-serif text-[var(--sutra-ink)] flex items-center gap-2">
+            <Settings2 className="w-4 h-4 text-[var(--sutra-strong)]" />
             Tune Build #{build.build_number}
           </h3>
-          <button onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] transition-colors">
+          <Button variant="ghost" size="icon-sm" onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--sutra-ink)] transition-colors">
             <X className="w-4 h-4" />
-          </button>
+          </Button>
         </div>
 
         {error && (
@@ -981,18 +1017,18 @@ export function ConfigureModal({
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <label className="text-[10px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">App Name (optional)</label>
+            <label className="text-[10px] uppercase tracking-widest font-bold text-[var(--sutra-ink)]">App Name (optional)</label>
             <input
               value={appName}
               onChange={(e) => setAppName(e.target.value)}
               placeholder="my-production-app"
-              className="w-full px-4 py-2.5 bg-[var(--bg-2)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[13px] font-mono focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors shadow-sm"
+              className="w-full px-4 py-2.5 bg-[var(--bg-2)] border border-[var(--border)] text-[var(--sutra-ink)] text-[13px] font-mono focus:outline-none focus:border-[var(--sutra-strong)] transition-colors shadow-sm"
             />
           </div>
 
           {envPlan && (required.length > 0 || optional.length > 0 || auto.length > 0) && (
             <div className="p-3 bg-[var(--bg-2)] border border-[var(--border)] space-y-2">
-              <p className="text-[10px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">
+              <p className="text-[10px] uppercase tracking-widest font-bold text-[var(--sutra-ink)]">
                 Detected environment variables
               </p>
               <div className="flex flex-wrap gap-1.5">
@@ -1021,30 +1057,30 @@ export function ConfigureModal({
           )}
 
           <div className="space-y-2">
-            <label className="text-[10px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">Environment Overrides</label>
+            <label className="text-[10px] uppercase tracking-widest font-bold text-[var(--sutra-ink)]">Environment Overrides</label>
             <textarea
               value={envText}
               onChange={(e) => setEnvText(e.target.value)}
               rows={5}
               placeholder={'SECRET_KEY=change-me\nDATABASE_URL=...'}
-              className="w-full px-4 py-3 bg-[var(--bg-2)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[13px] font-mono focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors resize-none shadow-sm"
+              className="w-full px-4 py-3 bg-[var(--bg-2)] border border-[var(--border)] text-[var(--sutra-ink)] text-[13px] font-mono focus:outline-none focus:border-[var(--sutra-strong)] transition-colors resize-none shadow-sm"
             />
             <p className="text-[11px] text-[var(--text-2)] font-light mt-1">One KEY=VALUE per line. Written to .env.local.</p>
           </div>
         </div>
 
         <div className="flex justify-end gap-3 pt-6 mt-6 border-t border-[var(--border)]">
-          <button onClick={onClose} className="btn btn-ghost px-5 py-2.5">
+          <Button type="button" variant="ghost" size="sm" onClick={onClose}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button type="button" size="sm"
             onClick={handleConfigure}
             disabled={loading}
-            className="btn btn-primary px-6 py-2.5"
+           
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
             <span>Apply</span>
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -1075,44 +1111,47 @@ export function BuildCard({
   const services = build.deploy_state?.services || {};
 
   return (
-    <div className="sutra-card p-5 bg-[var(--bg)] space-y-4 shadow-sm border-l-2 border-l-[var(--sutra-muted-gold)] hover:shadow-md transition-shadow">
+    <div className="sutra-card min-w-0 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-4 shadow-sm transition-shadow hover:shadow-md sm:p-5">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] flex items-center justify-center font-serif text-lg shrink-0">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--sutra-ink)] font-serif text-base text-[var(--sutra-canvas)]">
             {build.build_number}
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
-              <h4 className="text-[13px] font-bold tracking-wide text-[var(--sutra-charcoal)] truncate">
+              <h4 className="text-[13px] font-bold tracking-wide text-[var(--sutra-ink)] truncate">
                 {build.app_name?.trim() || `Build #${build.build_number}`}
               </h4>
               <StatusBadge status={build.status} />
             </div>
-            <p className="text-[11px] text-[var(--text-2)] font-mono mt-1 break-all">
-              {formatBuildTime(build.created_at)} · {build.file_count} files ·{' '}
-              {build.build_id.slice(0, 8)}
+            <p className="mt-1 text-[11px] text-[var(--text-2)]">
+              {formatBuildTime(build.created_at)} <span aria-hidden>·</span> {build.file_count} files
+            </p>
+            <p className="mt-1 truncate font-mono text-[10px] text-[var(--text-3)]" title={build.build_id}>
+              Build ID · {build.build_id}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
           {(build.frontend_url || build.render_service_url) && (
-            <a
-              href={(build.frontend_url || build.render_service_url)!}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-1.5 px-3 py-1.5 badge badge-green text-[10px]"
-            >
-              <Globe className="w-3.5 h-3.5" />
-              <span>Live App</span>
-            </a>
+            <Badge asChild variant="success" className="gap-1.5 px-3 py-1.5 text-[10px]">
+              <a
+                href={(build.frontend_url || build.render_service_url)!}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Globe className="w-3.5 h-3.5" />
+                <span>Live App</span>
+              </a>
+            </Badge>
           )}
           {build.repo_url && (
             <a
               href={build.repo_url}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] hover:text-[var(--sutra-muted-gold)] transition-colors"
+              className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest font-bold text-[var(--sutra-ink)] hover:text-[var(--sutra-strong)] transition-colors"
             >
               <ExternalLink className="w-3.5 h-3.5" />
               <span>GitHub</span>
@@ -1123,9 +1162,9 @@ export function BuildCard({
 
       {/* Acceptance Tests Quality Badge */}
       {build.app_config?.quality && (
-        <div className="flex items-center justify-between gap-2 flex-wrap p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs">
-          <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-mono">
-            <Check className="w-4 h-4 text-emerald-500" />
+        <div className="flex items-center justify-between gap-2 flex-wrap p-3 rounded-lg bg-[var(--green-wash)] border border-[var(--green-wash)] text-xs">
+          <div className="flex items-center gap-2 text-[var(--green)] font-mono">
+            <Check className="w-4 h-4 text-[var(--green)]" />
             <span className="font-semibold">
               {build.app_config.quality.passed} /{' '}
               {build.app_config.quality.passed + (build.app_config.quality.failed || 0)} Acceptance
@@ -1145,8 +1184,8 @@ export function BuildCard({
       {showStepper && (
         <div className="p-3 bg-[var(--bg-2)] border border-[var(--border)] rounded-sm space-y-3">
           <div className="flex items-center justify-between text-[11px]">
-            <span className="font-semibold text-[var(--sutra-charcoal)] flex items-center gap-2">
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--sutra-muted-gold)]" />
+            <span className="font-semibold text-[var(--sutra-ink)] flex items-center gap-2">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--sutra-strong)]" />
               <span>
                 {build.progress?.message ||
                   (build.status === 'queued'
@@ -1155,7 +1194,7 @@ export function BuildCard({
               </span>
             </span>
             {build.progress?.percentage !== undefined && (
-              <span className="font-mono font-bold text-[var(--sutra-muted-gold)]">
+              <span className="font-mono font-bold text-[var(--sutra-strong)]">
                 {build.progress.percentage}%
               </span>
             )}
@@ -1163,7 +1202,7 @@ export function BuildCard({
           {build.progress?.percentage !== undefined && (
             <div className="w-full h-1.5 bg-[var(--bg)] rounded-full overflow-hidden border border-[var(--border)]">
               <div
-                className="h-full bg-gradient-to-r from-[var(--sutra-muted-gold)] to-[var(--green)] transition-all duration-300"
+                className="h-full bg-gradient-to-r from-[var(--sutra-strong)] to-[var(--green)] transition-all duration-300"
                 style={{ width: `${Math.max(5, build.progress.percentage)}%` }}
               />
             </div>
@@ -1176,14 +1215,14 @@ export function BuildCard({
         <div
           className={`flex items-center justify-between gap-2 flex-wrap p-3 border-l-2 text-[11px] ${
             overall === 'live'
-              ? 'border-[var(--green)] bg-emerald-500/10'
+              ? 'border-[var(--green)] bg-[var(--green-wash)]'
               : overall === 'failed'
                 ? 'border-[var(--red)] bg-[var(--red)]/10'
-                : 'border-[var(--sutra-muted-gold)] bg-[var(--bg-2)]'
+                : 'border-[var(--sutra-strong)] bg-[var(--bg-2)]'
           }`}
         >
-          <span className="flex items-center gap-2 font-bold uppercase tracking-widest text-[var(--sutra-charcoal)]">
-            <Rocket className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
+          <span className="flex items-center gap-2 font-bold uppercase tracking-widest text-[var(--sutra-ink)]">
+            <Rocket className="w-3.5 h-3.5 text-[var(--sutra-strong)]" />
             Deploy: {overall}
           </span>
           {Object.values(services).length > 0 && (
@@ -1204,81 +1243,78 @@ export function BuildCard({
         </p>
       )}
 
-      <div className="flex items-center gap-3 flex-wrap pt-2">
+      <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-3">
         {build.status === 'complete' && (
           <>
-            <Link
-              href={`/sandbox?buildId=${build.build_id}`}
-              className="btn btn-primary px-4 py-2 flex items-center gap-1.5 shadow-sm"
-            >
-              <Code2 className="w-3.5 h-3.5 text-white" />
-              <span>Live Sandbox</span>
-            </Link>
+            <Button asChild size="sm" className="gap-1.5">
+              <Link href={`/sandbox?buildId=${build.build_id}`}>
+                <Code2 className="w-3.5 h-3.5 text-[var(--background)]" />
+                <span>Live Sandbox</span>
+              </Link>
+            </Button>
 
             {(build.frontend_url || build.render_service_url) && (
-              <a
-                href={(build.frontend_url || build.render_service_url)!}
-                target="_blank"
-                rel="noreferrer"
-                className="btn btn-secondary px-4 py-2"
-              >
-                <Globe className="w-3.5 h-3.5 text-[var(--green)]" />
-                <span>Open App</span>
-              </a>
+              <Button asChild variant="secondary" size="sm">
+                <a
+                  href={(build.frontend_url || build.render_service_url)!}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Globe className="w-3.5 h-3.5 text-[var(--green)]" />
+                  <span>Open App</span>
+                </a>
+              </Button>
             )}
 
             {build.backend_url && (
-              <a
-                href={`${build.backend_url}/docs`}
-                target="_blank"
-                rel="noreferrer"
-                className="btn btn-secondary px-4 py-2"
-              >
-                <Server className="w-3.5 h-3.5" />
-                <span>API Docs</span>
-              </a>
+              <Button asChild variant="secondary" size="sm">
+                <a href={`${build.backend_url}/docs`} target="_blank" rel="noreferrer">
+                  <Server className="w-3.5 h-3.5" />
+                  <span>API Docs</span>
+                </a>
+              </Button>
             )}
 
-            <button onClick={onDownload} className="btn btn-secondary px-4 py-2">
+            <Button type="button" variant="secondary" size="sm" onClick={onDownload}>
               <Download className="w-3.5 h-3.5" />
               <span>Download ZIP</span>
-            </button>
-            <button onClick={onConfigure} className="btn btn-secondary px-4 py-2">
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={onConfigure}>
               <Settings2 className="w-3.5 h-3.5" />
               <span>Tune</span>
-            </button>
+            </Button>
             {onSandbox && (
-              <button onClick={onSandbox} className="btn btn-secondary px-4 py-2">
-                <Globe className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
+              <Button type="button" variant="secondary" size="sm" onClick={onSandbox}>
+                <Globe className="w-3.5 h-3.5 text-[var(--sutra-strong)]" />
                 <span>Sandbox</span>
-              </button>
+              </Button>
             )}
             {!isDeployed && (
-              <button onClick={onDeploy} className="btn btn-primary px-5 py-2">
+              <Button type="button" size="sm" onClick={onDeploy}>
                 <Rocket className="w-3.5 h-3.5" />
                 <span>Deploy</span>
-              </button>
+              </Button>
             )}
 
             {build.render_service_url && onDestroyPreview && (
-              <button
+              <Button variant="secondary" size="default"
                 onClick={onDestroyPreview}
-                className="flex items-center gap-2 px-4 py-2 bg-[var(--bg)] hover:bg-[var(--bg-2)] text-[var(--red)] border border-[var(--border)] transition-colors shadow-sm text-[10px] uppercase tracking-widest font-bold"
+                className="flex items-center gap-2 bg-[var(--bg)] hover:bg-[var(--bg-2)] text-[var(--red)] border border-[var(--border)] transition-colors text-[10px] uppercase tracking-widest font-bold"
               >
                 <PowerOff className="w-3.5 h-3.5" />
                 <span>Teardown</span>
-              </button>
+              </Button>
             )}
           </>
         )}
         {(build.status === 'failed' || build.status === 'cancelled') && (
-          <button
+          <Button variant="secondary" size="default"
             onClick={onDestroy}
-            className="flex items-center gap-2 px-4 py-2 bg-[var(--bg)] hover:bg-[var(--bg-2)] text-[var(--red)] border border-[var(--border)] transition-colors shadow-sm text-[10px] uppercase tracking-widest font-bold"
+            className="flex items-center gap-2 bg-[var(--bg)] hover:bg-[var(--bg-2)] text-[var(--red)] border border-[var(--border)] transition-colors text-[10px] uppercase tracking-widest font-bold"
           >
             <Trash2 className="w-3.5 h-3.5" />
             <span>Destroy</span>
-          </button>
+          </Button>
         )}
       </div>
 

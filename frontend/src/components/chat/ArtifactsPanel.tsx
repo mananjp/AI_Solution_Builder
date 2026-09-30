@@ -1,7 +1,8 @@
 'use client';
 
 import React from 'react';
-import { CheckCircle2, Layers, Play } from 'lucide-react';
+import Link from 'next/link';
+import { CheckCircle2, Layers, Play, Rocket } from 'lucide-react';
 import clsx from 'clsx';
 import { BuildCard } from '@/components/mvp/BuildCard';
 import { ArtifactsSkeleton, Skeleton } from '@/components/chat/Skeleton';
@@ -9,6 +10,7 @@ import { BuildProgressPanel, ThinkingPanel } from '@/components/chat/BuildProgre
 import type { ChatState } from '@/hooks/useChatSession';
 import type { MVPBuild, MVPDeployResult } from '@/types';
 import type { TranslationKey } from '@/lib/i18n/dictionaries';
+import { Button } from '@/components/ui/button';
 
 function EmptyArtifacts({ title, hint }: { title: string; hint: string }) {
   return (
@@ -17,7 +19,7 @@ function EmptyArtifacts({ title, hint }: { title: string; hint: string }) {
         <Play className="w-5 h-5 text-[var(--text-3)]" />
       </div>
       <div>
-        <p className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">{title}</p>
+        <p className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-ink)]">{title}</p>
         <p className="text-[11px] text-[var(--text-2)] font-light max-w-[200px] mx-auto mt-2">{hint}</p>
       </div>
     </div>
@@ -51,11 +53,11 @@ export function ArtifactsPanel({
   const empty = !showSkeleton && !showProgress && !showThinking && state.builds.length === 0;
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-[var(--bg-2)] border border-[var(--border)] rounded-sm overflow-hidden">
-      <div className="p-3.5 border-b border-[var(--border)] flex items-center justify-between bg-[var(--bg)] shrink-0">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-2)]">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--bg)] p-3.5">
         <div className="flex items-center gap-2 min-w-0">
           <Layers className="w-4 h-4 text-[var(--text-3)] shrink-0" />
-          <h2 className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] truncate">
+          <h2 className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-ink)] truncate">
             Build artifacts
           </h2>
           {state.builds.length > 0 && (
@@ -64,29 +66,30 @@ export function ArtifactsPanel({
             </span>
           )}
         </div>
-        {state.solutionId && state.builds.length > 0 && (
-          <a
-            href={`/solution/${state.solutionId}`}
-            className="text-[10px] font-medium text-[var(--sutra-muted-gold)] hover:underline shrink-0"
-          >
-            {viewArtifactsLabel} →
-          </a>
+        {state.solutionId && (
+          <Button asChild variant="outline" size="sm" className="shrink-0">
+            <Link href={`/solution/${state.solutionId}/mvp`}>
+              <Rocket />
+              <span>{state.builds.length > 0 ? viewArtifactsLabel : 'MVP workspace'}</span>
+            </Link>
+          </Button>
         )}
       </div>
 
-      <div className="flex-1 p-3.5 overflow-y-auto overflow-x-hidden min-h-0">
+      <div className="flex-1 min-h-0 space-y-3 overflow-y-auto overflow-x-hidden p-3.5">
         {showSkeleton && <ArtifactsSkeleton />}
 
         {state.builds.length > 0 && (
-          <div className="space-y-3 animate-fade-in min-w-0">
-            <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold text-[var(--green)] bg-[var(--bg)] border border-[var(--border)] p-2">
+          <div className="min-w-0 animate-fade-in">
+            <div className="mb-3 flex items-center gap-2 rounded-lg border border-[var(--green-edge)] bg-[var(--green-wash)] p-2.5 text-[10px] font-bold uppercase tracking-widest text-[var(--green)]">
               <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
               <span>
                 {state.builds.length} {buildOrchestratedLabel}
               </span>
             </div>
+            <div className="space-y-3">
             {state.builds.map((b) => (
-              <div key={b.build_id} className="min-w-0">
+              <div key={b.build_id} className="min-w-0 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg)] [&_.sutra-card]:rounded-xl [&_.sutra-card]:border-0 [&_.sutra-card]:p-4 [&_.sutra-card]:shadow-none [&_.sutra-card:hover]:translate-y-0">
                 <BuildCard
                   build={b}
                   isDeployed={Boolean(b.repo_url)}
@@ -97,6 +100,7 @@ export function ArtifactsPanel({
                 />
               </div>
             ))}
+            </div>
           </div>
         )}
 

@@ -5,8 +5,9 @@ import uuid
 
 from sqlalchemy import select
 
-from app.core.security import create_access_token, hash_password
+from app.core.security import get_current_user
 from app.models.user import User
+from main import app
 
 
 async def test_health_ready_metrics_root(client):
@@ -206,18 +207,24 @@ async def test_admin_forbidden_for_member(auth_client, session_factory):
         member = User(
             email=f"member-{uuid.uuid4().hex[:8]}@example.com",
             full_name="Member",
-            hashed_password=hash_password("Testpass123!"),
             role="member",
             org_id=org_id,
         )
         db.add(member)
         await db.commit()
-        member_id = member.id
+        # session_factory sets expire_on_commit=False, so the attributes stay
+        # readable once the session closes and the user is used as a stub below.
+        await db.refresh(member)
 
-    member_headers = {
-        "Authorization": f"Bearer {create_access_token(data={'sub': str(member_id)})}"
-    }
-    resp = await client.get("/api/v1/admin/stats", headers=member_headers)
+    # Auth0 is the only identity provider: there is no local token to mint, and
+    # `create_access_token`/`hash_password` were removed with password auth.
+    # Substitute the resolved user directly so the role check is still exercised.
+    app.dependency_overrides[get_current_user] = lambda: member
+    try:
+        resp = await client.get("/api/v1/admin/stats")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
     assert resp.status_code == 403
     assert "ELEVATED" in resp.text.upper()
 

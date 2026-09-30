@@ -2,6 +2,9 @@
 
 import React, { useEffect, useState } from 'react';
 import { solutionApi } from '@/lib/api';
+import { Dialog } from '@/components/lab/dialog';
+
+import { Button } from '@/components/ui/button';
 
 interface ImpactPreviewModalProps {
   isOpen: boolean;
@@ -66,30 +69,34 @@ export function ImpactPreviewModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
-      <div className="w-full max-w-lg rounded-sm bg-[var(--bg)] border border-[var(--border)] p-6 shadow-2xl text-[var(--sutra-charcoal)] space-y-5">
-        {/* Header */}
-        <div className="flex items-start justify-between">
-          <div>
-            <h3 className="text-base font-serif font-bold text-[var(--sutra-charcoal)] flex items-center gap-2">
-              <span className="text-[var(--sutra-muted-gold)]">⚡</span> Impact Preview &amp; Credit Quote
-            </h3>
-            <p className="text-xs text-[var(--text-2)] mt-1 font-light">
-              Preview how modifying <span className="font-mono text-[var(--sutra-muted-gold)] font-semibold">{targetArtifact}</span> cascades to dependent artifacts.
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-sm text-[var(--text-3)] hover:text-[var(--text)] hover:bg-[var(--bg-3)] transition-colors"
-          >
-            ✕
-          </button>
-        </div>
-
+    /* The lab dialog supplies the overlay, Escape handling, focus trap and
+       `aria-modal`, none of which the previous fixed div had. */
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      title={
+        <span className="flex items-center gap-2">
+          <span className="text-[var(--sutra-strong)]">⚡</span> Impact Preview &amp; Credit
+          Quote
+        </span>
+      }
+      description={
+        <>
+          Preview how modifying{' '}
+          <span className="font-mono text-[var(--sutra-strong)] font-semibold">
+            {targetArtifact}
+          </span>{' '}
+          cascades to dependent artifacts.
+        </>
+      }
+    >
+      <div className="space-y-5">
         {/* Toggle Cascade */}
         <div className="p-3.5 rounded-sm bg-[var(--bg-2)] border border-[var(--border)] flex items-center justify-between">
           <div>
-            <span className="text-sm font-medium text-[var(--sutra-charcoal)]">Cascade Regeneration</span>
+            <span className="text-sm font-medium text-[var(--sutra-ink)]">Cascade Regeneration</span>
             <p className="text-xs text-[var(--text-2)] font-light">
               Automatically keep downstream schemas, APIs, and code aligned.
             </p>
@@ -98,7 +105,7 @@ export function ImpactPreviewModal({
             type="checkbox"
             checked={cascade}
             onChange={(e) => setCascade(e.target.checked)}
-            className="w-4 h-4 accent-[var(--sutra-muted-gold)] rounded-xs cursor-pointer"
+            className="w-4 h-4 accent-[var(--sutra-strong)] rounded-xs cursor-pointer"
           />
         </div>
 
@@ -108,7 +115,9 @@ export function ImpactPreviewModal({
             Affected Artifacts ({affected.length})
           </span>
           {loading ? (
-            <div className="py-6 text-center text-xs text-[var(--text-3)] font-mono">Calculating dependency cascade...</div>
+            <div className="py-6 text-center text-xs text-[var(--text-3)] font-mono">
+              Calculating dependency cascade...
+            </div>
           ) : (
             <div className="flex flex-wrap gap-2">
               {affected.map((item) => (
@@ -116,7 +125,7 @@ export function ImpactPreviewModal({
                   key={item}
                   className={`px-2.5 py-1 rounded-sm text-xs font-mono border ${
                     item === targetArtifact
-                      ? 'bg-[var(--sutra-muted-gold)]/15 text-[var(--sutra-deep-gold)] border-[var(--sutra-muted-gold)]/40 font-semibold'
+                      ? 'bg-[var(--sutra-strong)]/15 text-[var(--sutra-strong)] border-[var(--sutra-strong)]/40 font-semibold'
                       : 'bg-[var(--bg-3)] text-[var(--text)] border-[var(--border)]'
                   }`}
                 >
@@ -130,14 +139,14 @@ export function ImpactPreviewModal({
         {/* Upfront Credit Quote */}
         <div className="p-3.5 rounded-sm bg-[var(--bg-2)] border border-[var(--border)] flex items-center justify-between">
           <div className="space-y-0.5">
-            <span className="text-xs font-semibold uppercase tracking-wider text-[var(--sutra-muted-gold)]">
+            <span className="text-xs font-semibold uppercase tracking-wider text-[var(--sutra-strong)]">
               Pre-Flight Credit Cost
             </span>
             <div className="text-xs text-[var(--text-2)]">
               {affected.length} node(s) × 2 credits per node
             </div>
           </div>
-          <span className="text-xl font-bold font-mono text-[var(--sutra-charcoal)]">
+          <span className="text-xl font-bold font-mono text-[var(--sutra-ink)]">
             {estimatedCredits} Credits
           </span>
         </div>
@@ -145,25 +154,22 @@ export function ImpactPreviewModal({
         {/* Action Buttons */}
         <div className="flex items-center justify-end gap-3 pt-2">
           {confirmError && (
-            <div className="p-3 rounded-sm bg-rose-500/10 border border-rose-500/20 text-xs text-rose-600">
+            <div className="p-3 rounded-sm bg-[var(--red-wash)] border border-[var(--red-wash)] text-xs text-[var(--red)]">
               {confirmError}
             </div>
           )}
-          <button
-            onClick={onClose}
-            className="btn btn-ghost px-4 py-2 text-xs"
-          >
+          <Button type="button" variant="ghost" size="sm" onClick={onClose} className="text-xs">
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button type="button" size="sm"
             onClick={handleConfirmRegenerate}
             disabled={confirming || loading}
-            className="btn btn-primary px-4 py-2 text-xs font-semibold shadow-sm transition-all disabled:opacity-50"
-          >
+           
+           className="text-xs font-semibold shadow-sm transition-all disabled:opacity-50">
             {confirming ? 'Regenerating...' : `Regenerate (${estimatedCredits} Credits)`}
-          </button>
+          </Button>
         </div>
       </div>
-    </div>
+    </Dialog>
   );
 }

@@ -99,20 +99,14 @@ async def get_usage(
     monthly_limit: int | None = plan.monthly_credits if plan else 0
     balance = org.credits_remaining
 
-    user_email = (getattr(current_user, "email", "") or "").lower()
-    org_name = (getattr(org, "name", "") or "").lower()
-    is_demo = (
-        getattr(current_user, "is_anonymous", False)
-        or "demo" in user_email
-        or "guest" in user_email
-        or "demo" in org_name
-        or "guest" in org_name
-        or balance is None
-    )
+    # A NULL balance means the plan is unlimited by contract, not that the
+    # account is a demo: the substring checks this replaced matched any email
+    # or organisation name containing "demo"/"guest".
+    is_unlimited = balance is None
 
     credits_used: int | None
-    if is_demo:
-        plan_name = "Demo Unlimited"
+    if is_unlimited:
+        plan_name = "Unlimited"
         monthly_limit = None
         credits_used = None
         balance = None

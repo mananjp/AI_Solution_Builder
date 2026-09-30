@@ -1,69 +1,83 @@
-# AI Solution Builder — Render Blueprint (2-service architecture)
-# Reference: https://render.com/docs/blueprint-spec
-#
-# Managed services (zero Render containers):
-# - PostgreSQL + pgvector : Neon (DATABASE_URL)
-# - Redis cache/queue     : Upstash (REDIS_URL)
-# - Artifact storage      : Cloudinary (STORAGE_BACKEND=cloudinary)
-#
-# Services:
-#   1. ai-solution-builder          public web    Next.js (:3000, proxies /api -> 127.0.0.1:8000) + FastAPI
-#   2. ai-solution-builder-builder  worker (internal)  opencode (:4096) + background build worker (shared /workspace)
-
+# Single-instance production topology: Next.js, FastAPI, OpenCode and inline
+# build execution share one container and one persistent workspace disk.
+# PostgreSQL (with pgvector) and Redis are managed external services.
 services:
-  # ── App (FastAPI + Next.js) ────────────────────────────────────────────────
-  - name: ai-solution-builder-app
-    type: web
+  - type: web
+    name: ai-solution-builder-app
     runtime: docker
-    plan: starter
-    dockerfilePath: ./backend.Dockerfile
-    dockerCommand: api
+    plan: standard
+    dockerfilePath: ./app.Dockerfile
+    dockerContext: .
+    dockerCommand: app
     healthCheckPath: /ready
+    maxShutdownDelaySeconds: 120
+    disk:
+      name: ai-solution-builder-workspace
+      mountPath: /workspace
+      sizeGB: 10
     envVars:
       - key: APP_NAME
         value: AI Solution Builder
       - key: APP_ENV
         value: production
       - key: APP_ROLE
-        value: api
-      - key: MALLOC_ARENA_MAX
-        value: "2"
+        value: app
+      - key: CORS_ORIGINS
+        value: https://ai-solution-builder-app.onrender.com
+      - key: FRONTEND_URL
+        value: https://ai-solution-builder-app.onrender.com
+      - key: NEXT_PUBLIC_API_URL
+        value: /api/v1
+      - key: NEXT_PUBLIC_AUTH0_DOMAIN
+        sync: false
+      - key: NEXT_PUBLIC_AUTH0_CLIENT_ID
+        sync: false
+      - key: NEXT_PUBLIC_AUTH0_AUDIENCE
+        sync: false
+      - key: NEXT_PUBLIC_AUTH0_CALLBACK_URL
+        value: https://ai-solution-builder-app.onrender.com/callback
       - key: DATABASE_URL
         sync: false
       - key: REDIS_URL
         sync: false
-      - key: JWT_SECRET_KEY
+      - key: AUTH0_DOMAIN
         sync: false
-      - key: JWT_ALGORITHM
-        value: HS256
+      - key: AUTH0_AUDIENCE
+        sync: false
+      - key: AUTH0_ENABLED
+        value: "true"
+      - key: DEV_AUTH_BYPASS
+        value: "false"
+      - key: SECRET_ENCRYPTION_KEY
+        generateValue: true
+      - key: LLM_PROVIDER
+        value: groq
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_MODEL_NAME
         value: openai/gpt-oss-120b
-      - key: LLM_PROVIDER
-        value: groq
-      - key: STORAGE_BACKEND
-        value: local
-      - key: CLOUDINARY_CLOUD_NAME
-        sync: false
-      - key: CLOUDINARY_API_KEY
-        sync: false
-      - key: CLOUDINARY_API_SECRET
-        sync: false
-      - key: ENABLE_OPENCODE_SIDECAR
-        value: "true"
-      - key: OPENCODE_SERVER_URL
-        value: http://127.0.0.1:4096
       - key: OPENCODE_ZEN_API_KEY
         sync: false
       - key: OPENCODE_MODEL
         value: opencode/big-pickle
       - key: OPENCODE_AGENT
         value: mvp-builder
+      - key: OPENCODE_SERVER_URL
+        value: http://127.0.0.1:4096
+      - key: ENABLE_OPENCODE_SIDECAR
+        value: "true"
       - key: WORKER_MODE
         value: inline
       - key: MVP_BUILD_DIR
         value: /workspace
+      - key: UPLOAD_DIR
+        value: /workspace/uploads
+      - key: EXPORT_DIR
+        value: /workspace/exports
+      - key: SECURITY_QUARANTINE_DIR
+        value: /workspace/quarantine
+      - key: STORAGE_BACKEND
+        value: local
       - key: MVP_BUILD_TIMEOUT
         value: "600"
       - key: MVP_VERIFY_INSTALL_TIMEOUT
@@ -72,74 +86,9 @@ services:
         value: "120"
       - key: MVP_VERIFY_NPM
         value: "false"
-      - key: ALLOW_ANONYMOUS_AUTH
-        value: "true"
-      - key: ANONYMOUS_CREDITS
-        value: ""
-      - key: CORS_ORIGINS
-        value: https://ai-solution-builder.onrender.com,https://*.vercel.app
-      - key: VERCEL_TOKEN
-        sync: false
-      - key: VERCEL_TEAM_ID
-        sync: false
-      - key: RAZORPAY_KEY_ID
-        sync: false
-      - key: RAZORPAY_KEY_SECRET
-        sync: false
-      - key: STRIPE_API_KEY
-        sync: false
-      - key: STRIPE_WEBHOOK_SECRET
-        sync: false
-
-  # ── Builder (opencode + background worker) ─────────────────────────────────
-  - name: ai-solution-builder-builder
-    type: worker
-    runtime: docker
-    plan: starter
-    dockerfilePath: ./builder.Dockerfile
-    dockerCommand: builder
-    envVars:
-      - key: APP_NAME
-        value: AI Solution Builder
-      - key: APP_ENV
-        value: production
-      - key: APP_ROLE
-        value: builder
-      - key: DATABASE_URL
-        sync: false
-      - key: REDIS_URL
-        sync: false
-      - key: JWT_SECRET_KEY
-        sync: false
-      - key: GROQ_API_KEY
-        sync: false
-      - key: GROQ_MODEL_NAME
-        value: openai/gpt-oss-120b
-      - key: LLM_PROVIDER
-        value: groq
-      - key: STORAGE_BACKEND
-        value: local
-      - key: CLOUDINARY_CLOUD_NAME
-        sync: false
-      - key: CLOUDINARY_API_KEY
-        sync: false
-      - key: CLOUDINARY_API_SECRET
-        sync: false
-      - key: WORKER_MODE
-        value: worker
-      - key: WORKER_POLL_INTERVAL
-        value: "2.0"
-      - key: MVP_BUILD_DIR
-        value: /workspace
-      - key: MVP_BUILD_TIMEOUT
-        value: "600"
-      - key: MVP_VERIFY_INSTALL_TIMEOUT
-        value: "180"
-      - key: MVP_VERIFY_BUILD_TIMEOUT
-        value: "120"
-      - key: OPENCODE_ZEN_API_KEY
-        sync: false
-      - key: OPENCODE_MODEL
-        value: opencode/big-pickle
-      - key: OPENCODE_AGENT
-        value: mvp-builder
+      - key: DB_POOL_SIZE
+        value: "3"
+      - key: DB_MAX_OVERFLOW
+        value: "2"
+      - key: UVICORN_WORKERS
+        value: "1"

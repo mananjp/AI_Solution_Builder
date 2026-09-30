@@ -152,11 +152,11 @@ jobs:
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_WEB_SERVICE_ID: ${{ secrets.RENDER_WEB_SERVICE_ID }}
-          RENDER_PRIVATE_SERVICE_ID: ${{ secrets.RENDER_PRIVATE_SERVICE_ID }}
         run: |
+          if [ -z "$RENDER_API_KEY" ] || [ -z "$RENDER_WEB_SERVICE_ID" ]; then
+            echo "Render redeploy skipped: configure RENDER_API_KEY and RENDER_WEB_SERVICE_ID to enable it."
+            exit 0
+          fi
           curl -fsS -X POST \
             "https://api.render.com/v1/services/${RENDER_WEB_SERVICE_ID}/deploys" \
-            -H "Authorization: Bearer ${RENDER_API_KEY}" -H "Accept: application/json"
-          curl -fsS -X POST \
-            "https://api.render.com/v1/services/${RENDER_PRIVATE_SERVICE_ID}/deploys" \
             -H "Authorization: Bearer ${RENDER_API_KEY}" -H "Accept: application/json"

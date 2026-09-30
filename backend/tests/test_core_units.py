@@ -17,10 +17,7 @@ from app.core.credits import (
     require_and_deduct_credit,
 )
 from app.core.security import (
-    create_access_token,
     decode_token,
-    hash_password,
-    verify_password,
 )
 from app.ingestion.parser import (
     extract_readable_html,
@@ -387,37 +384,10 @@ async def test_parse_document_routes_openapi_json():
 
 
 # ── Security ────────────────────────────────────────
-def test_password_hashing_roundtrip():
-    hashed = hash_password("S3cret!")
-    assert verify_password("S3cret!", hashed)
-    assert not verify_password("wrong", hashed)
-
-
-def test_decode_token_expired_raises():
-    token = create_access_token({"sub": "x"}, expires_delta=timedelta(seconds=-60))
-    with pytest.raises(HTTPException) as exc:
-        decode_token(token)
-    assert exc.value.status_code == 401
-
-
 def test_decode_token_invalid_signature_raises():
     with pytest.raises(HTTPException) as exc:
         decode_token("garbage.token.here")
     assert exc.value.status_code == 401
-
-
-async def test_get_current_user_token_missing_subject(client):
-    token = create_access_token({"other": "claim"})
-    resp = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
-    assert resp.status_code == 401
-    assert "subject" in resp.json()["error"]["message"]
-
-
-async def test_get_current_user_token_unknown_user(client):
-    token = create_access_token({"sub": str(uuid4())})
-    resp = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
-    assert resp.status_code == 401
-    assert resp.json()["error"]["message"] == "User not found"
 
 
 async def test_get_current_user_deactivated(auth_client, session_factory):
@@ -431,17 +401,6 @@ async def test_get_current_user_deactivated(auth_client, session_factory):
     resp = await client.get("/api/v1/auth/me", headers=auth_client["headers"])
     assert resp.status_code == 403
     assert "deactivated" in resp.json()["error"]["message"]
-
-
-def test_create_access_token_sets_expiry():
-    import jwt as pyjwt
-
-    from app.core.config import settings
-
-    token = create_access_token({"sub": "abc"})
-    payload = pyjwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-    assert payload["sub"] == "abc"
-    assert "exp" in payload
 
 
 def test_production_guard_rejects_placeholder_jwt_secret():

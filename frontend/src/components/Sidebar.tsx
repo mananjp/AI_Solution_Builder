@@ -1,131 +1,81 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import {
-  LayoutDashboard,
-  Layers,
-  CreditCard,
-  Settings,
-  LogOut,
-  Rocket,
-  Wrench,
-  GitFork,
-} from 'lucide-react';
-import { authApi } from '@/lib/api';
-import { User } from '@/types';
-import { useI18n } from '@/components/I18nProvider';
 
-type NavItem = {
-  name: string;
-  key: 'dashboard' | 'customBuilder' | 'legacyModernizer' | 'solutions' | 'billing' | 'deployKeys' | 'admin';
-  href: string;
-  icon: React.ComponentType<{ className?: string }>;
-  badge?: string;
-};
+import { CollapsibleSidebar } from '@/components/lab/collapsible-sidebar';
+import { useNavItems } from '@/components/nav-items';
+import { useShell } from '@/components/ShellContext';
 
-const navItems: NavItem[] = [
-  { name: 'Dashboard', key: 'dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Custom Builder', key: 'customBuilder', href: '/chat', icon: Wrench, badge: 'AI' },
-  { name: 'Legacy Modernizer', key: 'legacyModernizer', href: '/legacy-modernizer', icon: GitFork, badge: 'NEW' },
-  { name: 'Solutions', key: 'solutions', href: '/dashboard#blueprints', icon: Layers },
-  { name: 'Billing', key: 'billing', href: '/billing', icon: CreditCard },
-  { name: 'Deploy Keys', key: 'deployKeys', href: '/settings', icon: Rocket },
-  { name: 'Admin', key: 'admin', href: '/admin', icon: Settings },
-];
+/**
+ * Docked navigation rail.
+ *
+ * Built on the lab's `CollapsibleSidebar`, which animates the rail's width
+ * rather than scaling it, so labels and icons are never squashed mid-transition.
+ * The active row's highlight is a shared layout element, so moving between
+ * items slides the highlight instead of cross-fading it, and a collapsed row
+ * raises its label as a tooltip on hover and on keyboard focus.
+ *
+ * The lab component ships its own toggle inside a children column. This rail is
+ * full-bleed and the navbar owns that toggle, so the column is hidden here
+ * rather than left as a second, redundant control.
+ */
+export default function AppSidebar() {
+  const items = useNavItems();
+  const { railExpanded, setRailExpanded } = useShell();
 
-export default function Sidebar() {
-  const pathname = usePathname();
-  const router = useRouter();
-  const { t } = useI18n();
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const railItems = items.map((item) => ({
+    id: item.key,
+    label: item.label,
+    icon: <item.icon className="size-5" aria-hidden />,
+    // Without this the rows render as buttons wired to a no-op and nothing
+    // navigates. The rail is controlled on `id`, but each row still needs its
+    // destination so it can be a real link.
+    href: item.href,
+  }));
 
-  useEffect(() => {
-    authApi.me().then(setCurrentUser).catch(() => undefined);
-  }, [pathname]);
-
-  const handleLogout = () => {
-    authApi.logout();
-    router.push('/login');
-  };
+  // The rail is controlled on an id, but navigation happens through links, so
+  // this only drives which row is highlighted.
+  const currentId = items.find((item) => item.active)?.key ?? items[0]?.key ?? '';
 
   return (
-    <aside className="hidden lg:flex h-screen bg-[var(--bg-2)] border-r border-[var(--border)] flex-col fixed left-0 top-0 z-40 w-[64px] py-6">
-      {/* Top */}
-      <div className="flex-1 flex flex-col min-h-0">
-        {/* Brand row */}
-        <div className="flex mb-8 flex-col items-center gap-4 w-full">
-          <Link href="/dashboard" className="group w-full flex justify-center relative group/logo">
-            <div className="flex items-center justify-center shrink-0 pt-1">
-              <span className="text-[var(--sutra-muted-gold)] font-sanskrit font-bold text-3xl leading-none drop-shadow-sm">सूत्र</span>
-            </div>
-            {/* Tooltip */}
-            <div className="absolute left-[110%] ml-2 px-2 py-1 bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] text-[10px] uppercase tracking-widest font-bold rounded-sm opacity-0 pointer-events-none group-hover/logo:opacity-100 transition-opacity whitespace-nowrap z-50 shadow-sm border border-[var(--border)]">
-              SUTRA OS
-            </div>
+    // No width and no right border here.
+    //
+    // The lab's `motion.nav` animates its own width between 64 and 240 and owns
+    // its trailing border. This wrapper used to hard-code `w-16`/`w-60` and add a
+    // second `border-r`, which meant the aside snapped to the final width on the
+    // same frame the toggle was pressed while the rail was still springing — so
+    // the content column jumped first and the rail caught up, and two 1px rules
+    // sat on top of each other. Sizing to the lab's own nav lets the spring
+    // drive the reflow, so the column follows the rail instead of racing it.
+    <div className="flex h-full flex-col bg-background">
+      {/* The wordmark is outside the animated nav, so at full size it would hold
+          the collapsed rail wider than its 64px and the icons would sit off-centre.
+          It is only rendered when there is room for it, and the row keeps its
+          height either way so nothing jumps on toggle. */}
+      <div className="flex h-14 shrink-0 items-center px-3">
+        {railExpanded && (
+          <Link
+            href="/dashboard"
+            className="font-sanskrit text-xl font-bold leading-none text-foreground"
+          >
+            सूत्र
           </Link>
-        </div>
-
-        {/* Nav */}
-        <nav className="space-y-2 flex-1 w-full px-2">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive =
-              pathname === item.href ||
-              (item.href !== '/dashboard' && pathname.startsWith(item.href.split('#')[0]));
-
-            return (
-              <div key={item.key} className="relative group/nav flex items-center justify-center w-full">
-                <Link
-                  href={item.href}
-                  className={`flex items-center justify-center w-10 h-10 rounded-sm transition-all duration-200 ${
-                    isActive
-                      ? 'bg-[var(--sutra-soft-cream)] text-[var(--sutra-charcoal)]'
-                      : 'text-[var(--text-2)] hover:text-[var(--text)] hover:bg-[var(--bg)]'
-                  }`}
-                >
-                  <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[var(--sutra-muted-gold)]' : ''}`} />
-                </Link>
-                {/* Tooltip */}
-                <div className="absolute left-[110%] ml-2 px-2 py-1 bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] text-[10px] uppercase tracking-widest font-bold rounded-sm opacity-0 pointer-events-none group-hover/nav:opacity-100 transition-opacity whitespace-nowrap z-50 shadow-sm border border-[var(--border)]">
-                  {t(`side.${item.key}` as const)} {item.badge && <span className="ml-1 text-[var(--sutra-muted-gold)]">({item.badge})</span>}
-                </div>
-              </div>
-            );
-          })}
-        </nav>
+        )}
       </div>
 
-      {/* Bottom */}
-      <div className="space-y-4 pt-6 border-t border-[var(--border)] flex flex-col items-center">
-        {/* User */}
-        <div className="relative group/user flex items-center justify-center w-full">
-          <div className="w-8 h-8 bg-[var(--sutra-charcoal)] flex items-center justify-center text-xs font-serif text-[var(--sutra-warm-ivory)] shrink-0 cursor-help">
-            {currentUser?.full_name ? currentUser.full_name.charAt(0).toUpperCase() : 'G'}
-          </div>
-          {/* Tooltip */}
-          <div className="absolute left-[110%] ml-2 px-2 py-1 bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] text-[10px] uppercase tracking-widest font-bold rounded-sm opacity-0 pointer-events-none group-hover/user:opacity-100 transition-opacity whitespace-nowrap z-50 shadow-sm border border-[var(--border)]">
-            {currentUser?.full_name || t('side.guestUser')}
-          </div>
-        </div>
-
-        {/* Logout */}
-        <div className="w-full px-2 flex justify-center">
-          <div className="relative group/logout flex items-center justify-center w-full">
-            <button
-              onClick={handleLogout}
-              className="flex items-center justify-center w-10 h-10 rounded-sm text-[var(--text-2)] hover:text-[#C53B3B] hover:bg-[#C53B3B10] transition-colors"
-            >
-              <LogOut className="w-4 h-4 shrink-0" />
-            </button>
-            {/* Tooltip */}
-            <div className="absolute left-[110%] ml-2 px-2 py-1 bg-[#C53B3B] text-[var(--sutra-warm-ivory)] text-[10px] uppercase tracking-widest font-bold rounded-sm opacity-0 pointer-events-none group-hover/logout:opacity-100 transition-opacity whitespace-nowrap z-50 shadow-sm border border-[var(--border)]">
-              {t('side.signOut')}
-            </div>
-          </div>
-        </div>
+      {/* No horizontal padding: the lab already pads its own list with `p-2`, and
+          the extra 8px here pushed a 48px row to 80px inside the 64px collapsed
+          rail, so the icon was off-centre and clipped on the right. */}
+      <div className="min-h-0 flex-1 pb-2 [&>div>div:last-child]:hidden">
+        <CollapsibleSidebar
+          items={railItems}
+          value={currentId}
+          onChange={() => undefined}
+          expanded={railExpanded}
+          onExpandedChange={setRailExpanded}
+          className="h-full w-full rounded-none border-0 bg-transparent p-0 shadow-none"
+        />
       </div>
-    </aside>
+    </div>
   );
 }

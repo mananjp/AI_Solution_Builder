@@ -1,111 +1,114 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
-import { Check, Globe, ChevronDown } from 'lucide-react';
+import { Check, ChevronDown, Globe } from 'lucide-react';
+
 import { useI18n } from '@/components/I18nProvider';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { SUPPORTED_LANGUAGES } from '@/lib/i18n/languages';
 import { setCurrentLanguage } from '@/lib/api';
+import type { ComponentProps } from 'react';
+
+type ButtonSize = NonNullable<ComponentProps<typeof Button>['size']>;
 
 export interface LanguageSelectorProps {
+  /**
+   * Shows the two-letter code on the trigger instead of the language's own
+   * name. For the narrow contexts — the auth pages and the landing header —
+   * where "ગુજરાતી" would crowd the control.
+   */
   compact?: boolean;
-  align?: 'left' | 'right';
+  /**
+   * Must match the size of the buttons it sits beside. The Navbar mixes 28px
+   * controls, so it takes the default; the landing header sits among 40px ones.
+   */
+  size?: ButtonSize;
   className?: string;
 }
 
+/**
+ * Language switcher.
+ *
+ * Built on the shared `DropdownMenu` and, critically, on the shared `Button` via
+ * `asChild`. `DropdownMenuTrigger` on its own renders a bare Radix trigger with
+ * no classes at all, so passing `className` to it styled an unstyled element —
+ * no `inline-flex`, no border, no radius, no hover, no focus ring. Composing it
+ * with `Button` is what makes it look like its neighbours.
+ *
+ * Each row shows the language in its own script plus its English name, so a
+ * reader who cannot identify a script can still find theirs.
+ */
 export function LanguageSelector({
   compact = false,
-  align = 'right',
-  className = '',
+  size = 'sm',
+  className,
 }: LanguageSelectorProps) {
   const { lang, setLang, t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const current = SUPPORTED_LANGUAGES.find((l) => l.code === lang) ?? SUPPORTED_LANGUAGES[0];
 
-  useEffect(() => {
-    const onDocClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
-  }, []);
-
-  const dropdownAlign = align === 'right' ? 'right-0' : 'left-0';
-  const currentLanguageDef =
-    SUPPORTED_LANGUAGES.find((l) => l.code === lang) || SUPPORTED_LANGUAGES[0];
-
-  const handleSelectLanguage = (code: string) => {
+  const handleSelect = (code: string) => {
     setLang(code);
+    // The API layer reads the same value to set the request's content language,
+    // so the two have to be told together.
     setCurrentLanguage(code);
-    setOpen(false);
   };
 
   return (
-    <div ref={ref} className={`relative inline-block text-left ${className}`}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-label={t('lang.language')}
-        title={t('lang.language')}
-        className="h-8 px-2.5 rounded-sm bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--sutra-muted-gold)] text-[var(--text)] flex items-center gap-2 text-xs font-medium transition-all shadow-sm focus:outline-none cursor-pointer"
-      >
-        <Globe className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)] shrink-0" />
-        <span className="font-sans font-medium tracking-wide">
-          {compact ? lang.toUpperCase() : currentLanguageDef.native}
-        </span>
-        <ChevronDown
-          className={`w-3 h-3 text-[var(--text-3)] transition-transform duration-200 ${
-            open ? 'rotate-180' : ''
-          }`}
-        />
-      </button>
-
-      {open && (
-        <div
-          className={`absolute ${dropdownAlign} top-full mt-1.5 w-60 z-50 bg-[#0d121f] border border-[var(--sutra-muted-gold)]/30 rounded-md shadow-2xl overflow-hidden py-1 animate-fade-in backdrop-blur-md`}
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size={size}
+          aria-label={t('lang.language')}
+          title={t('lang.language')}
+          className={`gap-1.5 ${className ?? ''}`}
         >
-          <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider font-semibold text-[var(--sutra-muted-gold)] border-b border-[var(--border)] bg-[#090d16] flex items-center justify-between">
-            <span>{t('lang.language')}</span>
-            <span className="text-[9px] text-slate-400 font-normal">ભાષા / भाषा</span>
-          </div>
+          {/* Explicit sizes: Button scales any icon without a `size-*` class to
+              16px, which is too large for a 28px control. */}
+          <Globe aria-hidden className="size-3.5 shrink-0 opacity-70" />
+          <span dir="auto" className="font-medium leading-none">
+            {compact ? current.code.toUpperCase() : current.native}
+          </span>
+          <ChevronDown aria-hidden className="size-3 shrink-0 opacity-50" />
+        </Button>
+      </DropdownMenuTrigger>
 
-          <div className="max-h-72 overflow-y-auto divide-y divide-[var(--border)]/30 p-1">
-            {SUPPORTED_LANGUAGES.map((l) => {
-              const active = l.code === lang;
-              return (
-                <button
-                  key={l.code}
-                  type="button"
-                  onClick={() => handleSelectLanguage(l.code)}
-                  className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-sm text-[12px] transition-colors cursor-pointer ${
-                    active
-                      ? 'bg-[var(--sutra-muted-gold)]/15 text-[var(--sutra-deep-gold)] font-medium'
-                      : 'text-slate-200 hover:bg-[var(--sutra-muted-gold)]/10 hover:text-white'
-                  }`}
-                >
-                  <span dir="auto" className="font-medium truncate tracking-wide">
-                    {l.native}
-                  </span>
-                  <span className="flex items-center gap-1.5 shrink-0">
-                    {l.rtl && (
-                      <span
-                        dir="ltr"
-                        className="text-[8px] uppercase tracking-widest font-bold text-amber-400/80 border border-amber-400/30 px-1 py-px rounded-sm"
-                      >
-                        RTL
-                      </span>
-                    )}
-                    <span className="text-[10px] font-mono text-slate-400 uppercase">
-                      {l.code}
-                    </span>
-                    {active && <Check className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)] shrink-0" />}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuLabel>{t('lang.language')}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {SUPPORTED_LANGUAGES.map((l) => (
+          <DropdownMenuItem
+            key={l.code}
+            onSelect={() => handleSelect(l.code)}
+            aria-current={l.code === lang ? 'true' : undefined}
+            className="gap-3"
+          >
+            <span className="flex min-w-0 flex-1 flex-col">
+              {/* `dir="auto"` so a right-to-left script lays out correctly if one
+                  is ever added. */}
+              <span dir="auto" className="truncate font-medium">
+                {l.native}
+              </span>
+              <span className="truncate text-[11px] text-muted">{l.english}</span>
+            </span>
+            {l.code === lang ? (
+              <Check aria-hidden className="size-4 shrink-0" />
+            ) : (
+              <span className="shrink-0 font-mono text-[10px] uppercase text-muted">
+                {l.code}
+              </span>
+            )}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

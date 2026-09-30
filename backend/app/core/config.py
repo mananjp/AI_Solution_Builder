@@ -41,10 +41,51 @@ class Settings(BaseSettings):
     # ── Redis ─────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # ── JWT Auth ──────────────────────────────────
-    JWT_SECRET_KEY: str = "change-this-to-a-long-random-string-in-production"
-    JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
+    # ── Auth0 (identity provider) ─────────────────────────
+    # The API accepts only Auth0-issued RS256 access tokens. The local
+    # HS256 secret and password hashing are gone: credentials, MFA, social
+    # login, breached-password detection and session revocation all belong to
+    # Auth0, and a compromise of the database no longer yields passwords.
+    # Domain only, never a URL, with any scheme or trailing path stripped.
+    AUTH0_DOMAIN: str = ""
+    # API identifier from the Auth0 dashboard. Tokens without this audience are
+    # rejected, which is what stops an ID token minted for another app of the
+    # same tenant from being replayed against this API.
+    AUTH0_AUDIENCE: str = ""
+    # Namespaced custom claim carrying the SUTRA role. Created by the
+    # Post-Login Action in deploy/auth0/post-login-action.js.
+    AUTH0_ROLE_CLAIM: str = "https://sutra.app/roles"
+    # Comma-separated emails promoted to "admin" on first login. The first
+    # login also wins the "owner" role for any new organisation, so an empty
+    # value here is safe.
+    AUTH0_ADMIN_EMAILS: str = ""
+    # Clock skew tolerance when validating exp/nbf, in seconds.
+    AUTH0_LEEWAY_SECONDS: int = 30
+    # How long a fetched JWKS is cached before it is re-fetched, in seconds.
+    # Also bounds exposure if Auth0 rotates a signing key.
+    AUTH0_JWKS_CACHE_SECONDS: int = 600
+    # Set false only to keep the API bootable in tests/CI without a tenant.
+    # In production this is forced on by enforce_production_secrets.
+    AUTH0_ENABLED: bool = True
+
+    # Dev-only escape hatch so the UI can be exercised without a working Auth0
+    # tenant. Grants a synthetic local user (real DB rows, real org/workspace) to
+    # requests that carry no bearer token. `enforce_production_secrets` makes
+    # booting with this on in production a hard error, so it cannot leak.
+    DEV_AUTH_BYPASS: bool = False
+    DEV_AUTH_BYPASS_EMAIL: str = "dev@sutra.local"
+
+    # ── Secret encryption at rest ──────────────────────────
+    # Encrypts user-supplied deploy tokens (GitHub PAT, Render and Vercel keys)
+    # before they are written to the users.settings JSON. It is a separate value
+    # from anything Auth0 knows: rotating Auth0 credentials must never make
+    # stored deploy secrets unreadable, and vice versa.
+    SECRET_ENCRYPTION_KEY: str = ""
+    # Deprecated. Only read, never written: lets an existing database decrypt
+    # values encrypted before the move to SECRET_ENCRYPTION_KEY. Safe to leave
+    # unset on a fresh deployment, and safe to delete once every stored secret
+    # has been re-saved.
+    JWT_SECRET_KEY: str = ""
 
     # ── AI / LLM Provider ─────────────────────────
     # Premade apps build directly through the OpenCode sidecar; this provider
@@ -184,24 +225,9 @@ class Settings(BaseSettings):
     WORKER_MODE: str = "inline"  # "worker" (separate process) | "inline" (in-process fallback)
     WORKER_POLL_INTERVAL: float = 2.0  # seconds
 
-    # ── Social OAuth & Anonymous Login ────────────
+    # ── Frontend origin ───────────────────────────
+    # Used for CORS and the Auth0 post-login redirect allow-list check.
     FRONTEND_URL: str = "http://localhost:3000"
-    AUTH_GITHUB_CLIENT_ID: str = ""
-    AUTH_GITHUB_CLIENT_SECRET: str = ""
-    AUTH_GOOGLE_CLIENT_ID: str = ""
-    AUTH_GOOGLE_CLIENT_SECRET: str = ""
-    ALLOW_ANONYMOUS_AUTH: bool = True
-    ANONYMOUS_CREDITS: int | None = None  # None = unlimited credits for demo accounts
-
-    @field_validator("ANONYMOUS_CREDITS", mode="before")
-    @classmethod
-    def parse_anonymous_credits(cls, v: Any) -> int | None:
-        if v is None or v == "" or str(v).lower() in ("none", "null", "unlimited"):
-            return None
-        try:
-            return int(v)
-        except (ValueError, TypeError):
-            return None
 
     @field_validator(
         "CLOUDINARY_CLOUD_NAME",
@@ -250,13 +276,41 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def enforce_production_secrets(self) -> "Settings":
-        if self.APP_ENV == "production" and (
-            self.JWT_SECRET_KEY in _PLACEHOLDER_SECRETS or len(self.JWT_SECRET_KEY) < 32
-        ):
-            raise ValueError(
-                "JWT_SECRET_KEY must be set to a strong, unique secret "
-                f"(>= 32 chars) when APP_ENV='production'. Current value: {self.JWT_SECRET_KEY!r}"
-            )
+        """Fail at boot rather than 401 every request.
+
+        The previous HS256 check was a single secret. Auth0 is three values,
+        and a missing one produces a confusing runtime failure: the app boots,
+        the login button works, and every API call returns 401. Validating in
+        the constructor turns that into an immediate, actionable startup error.
+        """
+        if self.APP_ENV == "production":
+            if self.DEV_AUTH_BYPASS:
+                raise ValueError(
+                    "DEV_AUTH_BYPASS must be false when APP_ENV='production'. "
+                    "It authenticates requests that carry no token, which would make "
+                    "the entire API public."
+                )
+            if not self.AUTH0_ENABLED:
+                raise ValueError(
+                    "AUTH0_ENABLED must be true when APP_ENV='production'. "
+                    "Unauthenticated access to the API is not supported."
+                )
+            if not self.auth0_domain:
+                raise ValueError(
+                    "AUTH0_DOMAIN must be set when APP_ENV='production'. "
+                    "Expected the bare tenant domain, e.g. 'your-tenant.us.auth0.com'."
+                )
+            if not self.AUTH0_AUDIENCE:
+                raise ValueError(
+                    "AUTH0_AUDIENCE must be set when APP_ENV='production'. "
+                    "Use the API identifier from the Auth0 dashboard, not the client ID."
+                )
+            if not self.SECRET_ENCRYPTION_KEY:
+                raise ValueError(
+                    "SECRET_ENCRYPTION_KEY must be set when APP_ENV='production'. "
+                    "Deploy credentials are encrypted with it; without it they cannot "
+                    "be stored. Generate one with: openssl rand -base64 48"
+                )
         # Auto-detect real LLM provider if credentials are provided and provider is still default mock
         if self.LLM_PROVIDER == "mock":
             if self.GROQ_API_KEY and self.GROQ_API_KEY.strip():
@@ -264,6 +318,34 @@ class Settings(BaseSettings):
             elif self.OPENAI_API_KEY and self.OPENAI_API_KEY.strip():
                 self.LLM_PROVIDER = "openai"
         return self
+
+    @property
+    def auth0_domain(self) -> str:
+        """Normalised bare tenant domain, or "" when unconfigured.
+
+        Tolerates the several shapes this value gets pasted in as: a full URL,
+        a trailing slash, a protocol-relative value, or a leading dot. Stripping
+        the scheme matters because the issuer claim is compared verbatim, and
+        "https://x.auth0.com/" != "x.auth0.com".
+        """
+        raw = (self.AUTH0_DOMAIN or "").strip().strip('"').strip("'")
+        for prefix in ("https://", "http://", "//"):
+            if raw.lower().startswith(prefix):
+                raw = raw[len(prefix) :]
+        return raw.strip("/").strip().lstrip(".")
+
+    @property
+    def auth0_issuer(self) -> str:
+        """The `iss` claim every valid token must carry."""
+        return f"https://{self.auth0_domain}/"
+
+    @property
+    def auth0_jwks_url(self) -> str:
+        return f"https://{self.auth0_domain}/.well-known/jwks.json"
+
+    @property
+    def auth0_admin_emails(self) -> set[str]:
+        return {e.strip().lower() for e in self.AUTH0_ADMIN_EMAILS.split(",") if e.strip()}
 
     @property
     def cors_origins_list(self) -> list[str]:

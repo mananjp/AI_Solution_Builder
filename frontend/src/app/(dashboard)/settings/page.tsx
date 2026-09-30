@@ -3,6 +3,32 @@
 import React, { useState } from 'react';
 import { Check, Eye, EyeOff, GitBranch, Lock, Rocket, ShieldCheck, Smartphone, Server, RefreshCw } from 'lucide-react';
 import { authApi, getApiBaseUrl } from '@/lib/api';
+import { Accordion, type AccordionItem } from '@/components/lab/accordion';
+
+import { Button } from '@/components/ui/button';
+
+const DEPLOYER_STEPS: AccordionItem[] = [
+  {
+    question: 'Build an MVP',
+    answer:
+      'Finish an MVP build for a solution: chat → blueprints → Build & Deploy. Nothing can be deployed until a build exists.',
+  },
+  {
+    question: 'Deploy to GitHub',
+    answer:
+      'On the MVP page, choose Deploy to GitHub and enter a repository name. The deployer needs the GitHub PAT saved above.',
+  },
+  {
+    question: 'What gets pushed',
+    answer:
+      'The project is pushed with a render.yaml blueprint and a CI workflow, so Render can build it without manual setup.',
+  },
+  {
+    question: 'Automatic deploys',
+    answer:
+      'Add the Render API key to let the deployer trigger an automatic deploy on Render after each push. Without it, push and deploy stay separate steps.',
+  },
+];
 
 export default function SettingsPage() {
   const [githubToken, setGithubToken] = useState('');
@@ -84,13 +110,13 @@ export default function SettingsPage() {
     <div className="space-y-8 max-w-4xl mx-auto animate-fade-up py-4">
       {/* Header */}
       <div className="border-b border-[var(--border)] pb-4">
-        <h1 className="text-2xl font-serif text-[var(--sutra-charcoal)]">Deployment Credentials</h1>
+        <h1 className="text-2xl font-serif text-[var(--sutra-ink)]">Deployment Credentials</h1>
         <p className="text-[13px] text-[var(--text-2)] mt-1 font-light">Securely manage your deployment tokens for one-click MVP provisioning.</p>
       </div>
 
       <div className="sutra-card p-8 bg-[var(--bg-2)] flex items-start justify-between gap-6 flex-wrap relative overflow-hidden">
         <div className="space-y-4 max-w-xl relative z-10">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] text-[10px] uppercase tracking-widest font-bold">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-[var(--sutra-ink)] text-[var(--sutra-canvas)] text-[10px] uppercase tracking-widest font-bold">
             <ShieldCheck className="w-3.5 h-3.5" />
             <span>One-Click Deployer</span>
           </div>
@@ -107,8 +133,8 @@ export default function SettingsPage() {
         className="sutra-card p-8 space-y-6 bg-[var(--bg)]"
       >
         <div className="space-y-2">
-          <label className="flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">
-            <GitBranch className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
+          <label className="flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-ink)]">
+            <GitBranch className="w-3.5 h-3.5 text-[var(--sutra-strong)]" />
             GitHub Personal Access Token (PAT)
           </label>
           <div className="relative">
@@ -117,27 +143,27 @@ export default function SettingsPage() {
               value={githubToken}
               onChange={(e) => setGithubToken(e.target.value)}
               placeholder="ghp_••••••••••••••••••••••••••"
-              className="w-full px-4 py-3 pl-10 pr-12 bg-[var(--bg-2)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[13px] font-mono focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm"
+              className="w-full px-4 py-3 pl-10 pr-12 bg-[var(--bg-2)] border border-[var(--border)] text-[var(--sutra-ink)] text-[13px] font-mono focus:outline-none focus:border-[var(--sutra-strong)] transition-colors rounded-sm shadow-sm"
               autoComplete="off"
             />
             <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-3)]" />
-            <button
+            <Button variant="ghost" size="icon-sm"
               type="button"
               onClick={() => setShowTokens(!showTokens)}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] transition-colors"
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[var(--text-3)] hover:text-[var(--sutra-ink)] transition-colors"
               title={showTokens ? 'Hide secrets' : 'Reveal secrets'}
             >
               {showTokens ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
+            </Button>
           </div>
           <p className="text-[11px] text-[var(--text-2)] font-light mt-1">
-            Scopes needed: <code className="text-[var(--sutra-charcoal)] bg-[var(--bg-2)] px-1.5 border border-[var(--border)] rounded-sm font-mono">repo</code>
+            Scopes needed: <code className="text-[var(--sutra-ink)] bg-[var(--bg-2)] px-1.5 border border-[var(--border)] rounded-sm font-mono">repo</code>
           </p>
         </div>
 
         <div className="space-y-2">
-          <label className="flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">
-            <Rocket className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
+          <label className="flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-ink)]">
+            <Rocket className="w-3.5 h-3.5 text-[var(--sutra-strong)]" />
             Render API Key
           </label>
           <div className="relative">
@@ -146,18 +172,18 @@ export default function SettingsPage() {
               value={renderApiKey}
               onChange={(e) => setRenderApiKey(e.target.value)}
               placeholder="rnd_••••••••••••••••••••••"
-              className="w-full px-4 py-3 pl-10 pr-12 bg-[var(--bg-2)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[13px] font-mono focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm"
+              className="w-full px-4 py-3 pl-10 pr-12 bg-[var(--bg-2)] border border-[var(--border)] text-[var(--sutra-ink)] text-[13px] font-mono focus:outline-none focus:border-[var(--sutra-strong)] transition-colors rounded-sm shadow-sm"
               autoComplete="off"
             />
             <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-3)]" />
-            <button
+            <Button variant="ghost" size="icon-sm"
               type="button"
               onClick={() => setShowTokens(!showTokens)}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] transition-colors"
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[var(--text-3)] hover:text-[var(--sutra-ink)] transition-colors"
               title={showTokens ? 'Hide secrets' : 'Reveal secrets'}
             >
               {showTokens ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
+            </Button>
           </div>
           <p className="text-[11px] text-[var(--text-2)] font-light mt-1">
             Optional — used to trigger an automatic Render deploy after push.
@@ -177,13 +203,13 @@ export default function SettingsPage() {
         )}
 
         <div className="pt-4 flex justify-end border-t border-[var(--border)]">
-          <button
+          <Button
             type="submit"
             disabled={saving}
-            className="btn btn-primary min-w-[160px] justify-center shadow-md"
-          >
+           
+           className="min-w-[160px] justify-center shadow-md">
             {saving ? <span>Encrypting...</span> : <span>Save Credentials</span>}
-          </button>
+          </Button>
         </div>
       </form>
 
@@ -191,11 +217,11 @@ export default function SettingsPage() {
       <div className="sutra-card p-8 space-y-6 bg-[var(--bg)] border border-[var(--border)]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-sm bg-[var(--sutra-muted-gold)]/15 text-[var(--sutra-muted-gold)] border border-[var(--sutra-muted-gold)]/30">
+            <div className="p-2 rounded-sm bg-[var(--sutra-strong)]/15 text-[var(--sutra-strong)] border border-[var(--sutra-strong)]/30">
               <Smartphone className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-[13px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">
+              <h2 className="text-[13px] uppercase tracking-widest font-bold text-[var(--sutra-ink)]">
                 Mobile &amp; API Server Configuration
               </h2>
               <p className="text-xs text-[var(--text-2)] font-light mt-0.5">
@@ -205,7 +231,7 @@ export default function SettingsPage() {
           </div>
           <span className={`px-2.5 py-1 text-[10px] font-mono uppercase font-bold rounded-sm border ${
             isMobileApp
-              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+              ? 'bg-[var(--green-wash)] text-[var(--green)] text-[var(--green)] border-[var(--green-wash)]'
               : 'bg-[var(--bg-2)] text-[var(--text-2)] border-[var(--border)]'
           }`}>
             {isMobileApp ? 'Capacitor Android Active' : 'Web Shell Active'}
@@ -214,8 +240,8 @@ export default function SettingsPage() {
 
         <form onSubmit={handleSaveApiUrl} className="space-y-4">
           <div className="space-y-1.5">
-            <label className="flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">
-              <Server className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
+            <label className="flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-ink)]">
+              <Server className="w-3.5 h-3.5 text-[var(--sutra-strong)]" />
               Active Backend Base URL
             </label>
             <div className="flex gap-2">
@@ -224,16 +250,16 @@ export default function SettingsPage() {
                 value={customApiUrl}
                 onChange={(e) => setCustomApiUrl(e.target.value)}
                 placeholder={currentApi || 'https://ai-solution-builder.onrender.com/api/v1'}
-                className="flex-1 px-4 py-2.5 bg-[var(--bg-2)] border border-[var(--border)] text-[var(--sutra-charcoal)] text-[12px] font-mono focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm"
+                className="flex-1 px-4 py-2.5 bg-[var(--bg-2)] border border-[var(--border)] text-[var(--sutra-ink)] text-[12px] font-mono focus:outline-none focus:border-[var(--sutra-strong)] transition-colors rounded-sm shadow-sm"
               />
-              <button
+              <Button
                 type="submit"
-                className="btn btn-primary px-5 text-xs whitespace-nowrap"
-              >
+               
+               className="px-5 text-xs whitespace-nowrap">
                 Apply URL
-              </button>
+              </Button>
               {customApiUrl && (
-                <button
+                <Button variant="secondary"
                   type="button"
                   onClick={() => {
                     setCustomApiUrl('');
@@ -242,20 +268,20 @@ export default function SettingsPage() {
                     setApiSaveStatus('Reset to default backend.');
                     setTimeout(() => setApiSaveStatus(null), 3000);
                   }}
-                  className="btn btn-secondary px-3 text-xs"
+                 
                   title="Reset to default"
-                >
+                 className="px-3 text-xs">
                   <RefreshCw className="w-3.5 h-3.5" />
-                </button>
+                </Button>
               )}
             </div>
             <p className="text-[11px] text-[var(--text-3)] font-mono">
-              Current resolved endpoint: <span className="text-[var(--sutra-muted-gold)]">{currentApi}</span>
+              Current resolved endpoint: <span className="text-[var(--sutra-strong)]">{currentApi}</span>
             </p>
           </div>
 
           {apiSaveStatus && (
-            <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs rounded-sm animate-fade-in flex items-center gap-2">
+            <div className="p-3 bg-[var(--green-wash)] border border-[var(--green-wash)] text-[var(--green)] text-[var(--green)] text-xs rounded-sm animate-fade-in flex items-center gap-2">
               <Check className="w-3.5 h-3.5" />
               {apiSaveStatus}
             </div>
@@ -267,21 +293,21 @@ export default function SettingsPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Token Generation Guide */}
         <div className="sutra-card p-6 bg-[var(--bg-2)]">
-          <h2 className="text-[12px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] mb-4">How to generate tokens</h2>
+          <h2 className="text-[12px] uppercase tracking-widest font-bold text-[var(--sutra-ink)] mb-4">How to generate tokens</h2>
           <div className="space-y-5">
             <div>
-              <h3 className="text-[11px] font-bold text-[var(--sutra-charcoal)] mb-2 flex items-center gap-1.5"><GitBranch className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" /> GitHub PAT</h3>
+              <h3 className="text-[11px] font-bold text-[var(--sutra-ink)] mb-2 flex items-center gap-1.5"><GitBranch className="w-3.5 h-3.5 text-[var(--sutra-strong)]" /> GitHub PAT</h3>
               <ol className="space-y-2 text-[12px] text-[var(--text-2)] list-decimal list-inside font-light">
-                <li>Go to <a href="https://github.com/settings/tokens/new" target="_blank" rel="noreferrer" className="text-[var(--sutra-muted-gold)] hover:underline font-medium">GitHub Developer Settings &rarr;</a></li>
+                <li>Go to <a href="https://github.com/settings/tokens/new" target="_blank" rel="noreferrer" className="text-[var(--sutra-strong)] hover:underline font-medium">GitHub Developer Settings &rarr;</a></li>
                 <li>Enter a descriptive note (e.g., &quot;Sutra AI Builder&quot;).</li>
-                <li>Check the <code className="text-[var(--sutra-charcoal)] bg-[var(--bg)] px-1 border border-[var(--border)] rounded-sm font-mono text-[10px]">repo</code> scope to allow code pushes.</li>
+                <li>Check the <code className="text-[var(--sutra-ink)] bg-[var(--bg)] px-1 border border-[var(--border)] rounded-sm font-mono text-[10px]">repo</code> scope to allow code pushes.</li>
                 <li>Click <strong>Generate token</strong> and copy it here.</li>
               </ol>
             </div>
             <div className="border-t border-[var(--border)] pt-4">
-              <h3 className="text-[11px] font-bold text-[var(--sutra-charcoal)] mb-2 flex items-center gap-1.5"><Rocket className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" /> Render API Key</h3>
+              <h3 className="text-[11px] font-bold text-[var(--sutra-ink)] mb-2 flex items-center gap-1.5"><Rocket className="w-3.5 h-3.5 text-[var(--sutra-strong)]" /> Render API Key</h3>
               <ol className="space-y-2 text-[12px] text-[var(--text-2)] list-decimal list-inside font-light">
-                <li>Go to your <a href="https://dashboard.render.com/user/settings#api-keys" target="_blank" rel="noreferrer" className="text-[var(--sutra-muted-gold)] hover:underline font-medium">Render Account Settings &rarr;</a></li>
+                <li>Go to your <a href="https://dashboard.render.com/user/settings#api-keys" target="_blank" rel="noreferrer" className="text-[var(--sutra-strong)] hover:underline font-medium">Render Account Settings &rarr;</a></li>
                 <li>Scroll down to the <strong>API Keys</strong> section.</li>
                 <li>Click <strong>Create API Key</strong>.</li>
                 <li>Copy the generated key and paste it here.</li>
@@ -290,14 +316,18 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Usage hint */}
+        {/* Usage hint. The lab accordion takes plain strings, so these steps are
+            text-only: the linked numbered lists that need anchors stay in their
+            own cards. */}
         <div className="sutra-card p-6 bg-[var(--bg-2)]">
-          <h2 className="text-[12px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] mb-4">How the deployer works</h2>
-          <ol className="space-y-3 text-[13px] text-[var(--text-2)] list-decimal list-inside font-light">
-            <li>Finish an MVP build for a solution (chat → blueprints → Build &amp; Deploy).</li>
-            <li>On the MVP page, click <strong className="text-[var(--sutra-charcoal)] font-semibold">Deploy to GitHub</strong> and enter a repo name.</li>
-            <li>The deployer pushes the project with <code className="text-[var(--sutra-charcoal)] bg-[var(--bg)] px-1.5 border border-[var(--border)] rounded-sm font-mono">render.yaml</code> and CI workflow.</li>
-          </ol>
+          <h2 className="text-[12px] uppercase tracking-widest font-bold text-[var(--sutra-ink)] mb-4">
+            How the deployer works
+          </h2>
+          <Accordion
+            items={DEPLOYER_STEPS}
+            defaultOpen={[0]}
+            className="text-[13px] text-[var(--text-2)]"
+          />
         </div>
       </div>
     </div>

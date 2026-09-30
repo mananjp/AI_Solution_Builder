@@ -58,6 +58,13 @@ async def lifespan(app: FastAPI):
     # Connect to Redis first
     await init_redis()
 
+    # Prime the Auth0 signing-key cache before serving traffic, so the first
+    # authenticated request does not pay a blocking JWKS fetch. Non-fatal by
+    # design: a cold start must not fail just because Auth0 is briefly slow.
+    from app.core.security import warm_jwks
+
+    await warm_jwks()
+
     # Create all tables if they don't exist (dev convenience — use Alembic in production)
     try:
         async with engine.begin() as conn:
@@ -67,21 +74,22 @@ async def lifespan(app: FastAPI):
             is_postgres = engine.dialect.name == "postgresql"
             if is_postgres:
                 await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-            await conn.run_sync(Base.metadata.create_all)
+
+            # Dev/test convenience only. In production the schema is owned by
+            # Alembic, and `create_all` is actively harmful there: it creates
+            # missing *tables* but never adds missing *columns* to tables that
+            # already exist. That asymmetry is what let a missing migration ship
+            # silently — the app booted "successfully" while every request
+            # failed on `column users.auth_provider does not exist`. If you see
+            # this skipped in production, run `alembic upgrade head`.
+            if settings.APP_ENV != "production":
+                await conn.run_sync(Base.metadata.create_all)
             # Seed the default plans so anonymous/register flows never hit a
             # missing `plans` table (previously only seeded via a PG-only migration).
             from app.core.plans import ensure_default_plans_sync
 
             await conn.run_sync(ensure_default_plans_sync)
             if is_postgres:
-                # Ensure all existing guest/demo accounts gain unlimited credits immediately
-                await conn.execute(
-                    text(
-                        "UPDATE organizations SET credits_remaining = NULL "
-                        "WHERE id IN (SELECT org_id FROM users WHERE is_anonymous = TRUE OR email ILIKE '%demo%' OR email ILIKE '%guest%') "
-                        "OR name ILIKE '%guest%' OR name ILIKE '%demo%'"
-                    )
-                )
                 await conn.execute(
                     text(
                         "UPDATE mvp_builds SET status = 'complete', error_message = NULL "
@@ -110,14 +118,6 @@ async def lifespan(app: FastAPI):
                 )
             else:
                 # SQLite-compatible hygiene (LIKE is case-insensitive for ASCII)
-                with suppress(Exception):
-                    await conn.execute(
-                        text(
-                            "UPDATE organizations SET credits_remaining = NULL "
-                            "WHERE id IN (SELECT org_id FROM users WHERE is_anonymous = 1 OR email LIKE '%demo%' OR email LIKE '%guest%') "
-                            "OR name LIKE '%guest%' OR name LIKE '%demo%'"
-                        )
-                    )
                 with suppress(Exception):
                     await conn.execute(
                         text(
@@ -186,7 +186,12 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|.*\.onrender\.com|.*\.vercel\.app)(:\d+)?$",
+    # Production browser origins must be listed explicitly in CORS_ORIGINS.
+    # Accepting every *.vercel.app or *.onrender.com deployment here lets
+    # unrelated customer projects make credentialed requests to this API.
+    allow_origin_regex=(
+        None if settings.APP_ENV == "production" else r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
