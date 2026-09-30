@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   animate,
   motion,
@@ -68,6 +68,7 @@ export function SendButton({
   const [status, setStatus] = useState<Status>("idle");
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const flight = useRef<AnimationPlaybackControls>(undefined);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
 
   const t = useMotionValue(0);
   const x = useTransform(t, (v) => along(v).x);
@@ -85,10 +86,8 @@ export function SendButton({
     [],
   );
 
-  const send = () => {
-    // Ignore repeat clicks until the button is back to Send.
+  const startFlightAnimation = useCallback(() => {
     if (status !== "idle") return;
-    onSend?.();
     setStatus("sending");
     if (!reduceMotion) {
       flight.current = animate(t, 1, { duration: FLIGHT, ease: FLIGHT_EASE });
@@ -101,6 +100,36 @@ export function SendButton({
         setStatus("idle");
       }, RESET_AFTER),
     ];
+  }, [status, reduceMotion, t]);
+
+  // If the parent form is submitted via keyboard (e.g. Enter key), trigger the flight animation
+  useEffect(() => {
+    const btn = buttonRef.current;
+    if (!btn) return;
+    const form = btn.closest("form");
+    if (!form) return;
+    const handleFormSubmit = () => {
+      startFlightAnimation();
+    };
+    form.addEventListener("submit", handleFormSubmit);
+    return () => {
+      form.removeEventListener("submit", handleFormSubmit);
+    };
+  }, [startFlightAnimation]);
+
+  const send = (e: React.MouseEvent<HTMLButtonElement>) => {
+    // Ignore repeat clicks until the button is back to Send.
+    if (status !== "idle" || disabled) return;
+
+    if (onSend) {
+      onSend();
+      startFlightAnimation();
+    } else if (type === "submit" && buttonRef.current?.form) {
+      startFlightAnimation();
+      buttonRef.current.form.requestSubmit();
+    } else {
+      startFlightAnimation();
+    }
   };
 
   const planeHome = status !== "sent";
@@ -108,6 +137,7 @@ export function SendButton({
   return (
     <>
       <button
+        ref={buttonRef}
         type={type}
         // A fixed name; the live region below reports "Sent".
         aria-label={label}

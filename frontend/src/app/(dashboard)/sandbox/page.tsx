@@ -481,7 +481,7 @@ function SandboxContent() {
                     <div 
                       className={`p-3 rounded-sm text-xs leading-relaxed max-w-[92%] shadow-sm ${
                         msg.role === 'user'
-                          ? 'bg-[var(--sutra-ink)] text-[var(--sutra-warm-ivory)] border border-[var(--sutra-ink)]'
+                          ? 'bg-[var(--foreground)] text-[var(--background)] border border-[var(--foreground)]'
                           : 'bg-[var(--bg)] text-[var(--text)] border border-[var(--border)]'
                       }`}
                     >

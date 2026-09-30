@@ -1,5 +1,5 @@
 // AI Solution Builder — Offline Service Worker
-const CACHE_NAME = 'ai-solution-builder-v3';
+const CACHE_NAME = 'ai-solution-builder-v4';
 const PRECACHE_URLS = [
   '/manifest.json'
 ];

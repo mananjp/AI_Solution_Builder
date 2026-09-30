@@ -1033,7 +1033,17 @@ async def chat(
 ) -> EventSourceResponse:
     # Eager ownership check
     if payload.solution_id:
-        await _verify_solution_access(db, payload.solution_id, current_user)
+        try:
+            await _verify_solution_access(db, payload.solution_id, current_user)
+        except HTTPException as exc:
+            if exc.status_code == 404:
+                logger.warning(
+                    "Client provided non-existent solution_id=%s; creating new solution instead",
+                    payload.solution_id,
+                )
+                payload.solution_id = None
+            else:
+                raise
 
     async def event_generator() -> AsyncIterator[dict[str, Any]]:
         try:
@@ -1042,14 +1052,21 @@ async def chat(
             async with async_session_factory() as stream_db:
                 solution = None
                 if payload.solution_id:
-                    solution = await _verify_solution_access(
-                        stream_db, payload.solution_id, current_user
-                    )
-                    if payload.app_name and solution.title in (
-                        "Custom App Build",
-                        "Custom App",
-                    ):
-                        solution.title = payload.app_name
+                    try:
+                        solution = await _verify_solution_access(
+                            stream_db, payload.solution_id, current_user
+                        )
+                        if payload.app_name and solution.title in (
+                            "Custom App Build",
+                            "Custom App",
+                        ):
+                            solution.title = payload.app_name
+                    except HTTPException as exc:
+                        if exc.status_code == 404:
+                            solution = None
+                            payload.solution_id = None
+                        else:
+                            raise
 
                 if solution is None:
                     workspace = await _get_or_create_workspace(stream_db, current_user)

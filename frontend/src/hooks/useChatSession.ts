@@ -738,7 +738,9 @@ export function useChatSession(options: UseChatSessionOptions) {
         upsertCachedSolution(solution);
       } catch {
         loadedRef.current = null;
-        dispatch({ type: 'conversation/failed' });
+        removeCachedSolution(solutionId);
+        dispatch({ type: 'history/remove', id: solutionId });
+        dispatch({ type: 'activate', solutionId: null, welcome });
         dispatch({ type: 'builds/loaded', builds: [] });
       }
     },

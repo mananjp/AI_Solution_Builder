@@ -141,10 +141,12 @@ function ChatContent() {
   }, [dispatch]);
 
   // ── Send ──
+  const sendingRef = useRef(false);
   const send = useCallback(
     async (finalize: boolean) => {
       const text = state.input.trim();
-      if (!text || state.streaming) return;
+      if (!text || state.streaming || sendingRef.current) return;
+      sendingRef.current = true;
 
       dispatch({ type: 'set-input', value: '' });
       dispatch({ type: 'user/message', message: text });
@@ -249,9 +251,20 @@ function ChatContent() {
           dispatch({ type: 'history/remove', id: solutionIdRef.current });
           selectSolution(null);
         }
+      } finally {
+        sendingRef.current = false;
       }
     },
     [state.input, state.streaming, state.appName, state.sessionId, state.context, agent, dispatch, selectSolution, syncHistoryEntry, t]
+  );
+
+  const handleSubmit = useCallback(
+    (e?: React.FormEvent) => {
+      e?.preventDefault();
+      if (!state.input.trim() || state.streaming || sendingRef.current) return;
+      void send(state.buildRequested);
+    },
+    [state.input, state.streaming, state.buildRequested, send]
   );
 
   // ── Build actions ──
@@ -421,8 +434,8 @@ function ChatContent() {
       </header>
 
       {state.capability?.simulation && (
-        <div className="mb-3 flex items-start gap-2.5 rounded-sm border border-[var(--sutra-gold)] bg-[var(--bg)] px-4 py-3 shadow-sm shrink-0">
-          <AlertTriangle className="w-4 h-4 text-[var(--sutra-gold)] shrink-0 mt-0.5" />
+        <div className="mb-3 flex items-start gap-2.5 rounded-sm border border-[var(--amber)] bg-[var(--bg)] px-4 py-3 shadow-sm shrink-0">
+          <AlertTriangle className="w-4 h-4 text-[var(--amber)] shrink-0 mt-0.5" />
           <div className="text-[11px] leading-relaxed min-w-0">
             <p className="font-bold uppercase tracking-widest text-[var(--sutra-ink)] text-[10px]">
               Simulation mode — no live AI engine connected
@@ -507,7 +520,7 @@ function ChatContent() {
               </div>
             )}
 
-            <form onSubmit={(e) => { e.preventDefault(); void send(state.buildRequested); }}>
+            <form onSubmit={handleSubmit}>
               {state.buildRequested && (
                 <div className="mb-2.5 flex items-center gap-2 animate-fade-in">
                   <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)] shrink-0">
@@ -577,6 +590,12 @@ function ChatContent() {
                     type="text"
                     value={state.input}
                     onChange={(e) => dispatch({ type: 'set-input', value: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                        e.preventDefault();
+                        handleSubmit();
+                      }
+                    }}
                     placeholder={
                       state.context
                         ? t('chat.instructSutra', { filename: state.context.filename })
@@ -586,11 +605,13 @@ function ChatContent() {
                     className="w-full py-3 pl-4 pr-4 sm:pr-28 bg-[var(--bg)] border border-[var(--border)] text-[13px] text-[var(--sutra-ink)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-strong)] transition-colors rounded-lg shadow-sm min-w-0"
                   />
                   <label
+                    title={state.buildRequested ? `${t('chat.buildTab')} (active)` : t('chat.buildTab')}
+                    aria-label="Toggle MVP architecture build"
                     className={clsx(
-                      'absolute right-2 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[10px] uppercase tracking-widest font-bold cursor-pointer select-none transition-colors',
+                      'absolute right-2 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[10px] uppercase tracking-widest font-bold cursor-pointer select-none transition-all shadow-sm',
                       state.buildRequested
-                        ? 'bg-[var(--sutra-ink)] text-[var(--sutra-warm-ivory)]'
-                        : 'bg-[var(--bg-2)] border border-[var(--border)] text-[var(--text-3)] hover:text-[var(--sutra-ink)] hover:border-[var(--text-3)]'
+                        ? 'bg-[var(--foreground)] text-[var(--background)] ring-1 ring-[var(--foreground)]'
+                        : 'bg-[var(--surface)] border border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)] hover:border-[var(--border-2)]'
                     )}
                   >
                     <input
@@ -599,8 +620,8 @@ function ChatContent() {
                       onChange={(e) => dispatch({ type: 'toggle-build-requested', value: e.target.checked })}
                       className="sr-only"
                     />
-                    <Settings2 className="w-3 h-3" />
-                    <span className="hidden sm:inline">{t('chat.buildTab')}</span>
+                    <Settings2 className="w-3.5 h-3.5 shrink-0" />
+                    <span className="hidden sm:inline font-bold">{t('chat.buildTab')}</span>
                   </label>
                 </div>
 
@@ -611,6 +632,7 @@ function ChatContent() {
                   iconOnly
                   className="h-11 w-11 shrink-0"
                   type="submit"
+                  onSend={() => handleSubmit()}
                   disabled={!state.input.trim() || state.streaming}
                 />
               </div>
