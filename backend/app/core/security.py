@@ -191,10 +191,13 @@ async def get_current_user(
         # `DEV_AUTH_BYPASS` is rejected at boot when APP_ENV='production', so this
         # branch is unreachable in a deployed environment.
         if settings.APP_ENV != "production" and settings.DEV_AUTH_BYPASS:
-            user = await _get_or_create_dev_user(db)
-            request.state.user_sub = str(user.id)
-            request.state.org_id = str(user.org_id) if user.org_id else None
-            return user
+            # Named distinctly from `user` below: binding `user` here would make
+            # mypy infer it as `User`, and the normal path assigns a
+            # `User | None` from `scalar_one_or_none()`.
+            dev_user = await _get_or_create_dev_user(db)
+            request.state.user_sub = str(dev_user.id)
+            request.state.org_id = str(dev_user.org_id) if dev_user.org_id else None
+            return dev_user
         raise _unauthorized("Not authenticated")
 
     claims = decode_token(credentials.credentials)
