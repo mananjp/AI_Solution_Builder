@@ -439,6 +439,18 @@ def pluralize(name: str) -> str:
     return f"{word}s"
 
 
+def _prompt_title(prompt: str) -> str:
+    """Derive a clean product name from a chat-style request.
+
+    Slicing the first 40 characters produced names like
+    "Create a clinic appointment booking syst" — the request verb and a word cut
+    in half. This strips the request frame and trailing artefact nouns instead.
+    """
+    from app.services.domain_lexicon import _title_from_prompt
+
+    return _title_from_prompt(prompt)
+
+
 def fallback_app_spec(
     ai_state: dict[str, Any],
     user_prompt: str = "",
@@ -452,8 +464,7 @@ def fallback_app_spec(
     """
     title = (
         ai_state.get("solution_title")
-        or ai_state.get("business_description", "").split(".")[0]
-        or (user_prompt.split("\n")[0][:40] if user_prompt else "")
+        or _prompt_title(user_prompt or ai_state.get("business_description", ""))
         or "Custom App"
     ).strip()
     clean_name = re.sub(r"[^\w\s]+", " ", title).strip() or "Custom App"
@@ -497,158 +508,19 @@ def fallback_app_spec(
                 )
 
     if not entities:
+        from app.services.domain_lexicon import infer_entities as _infer
+
         combined_text = (
-            f"{user_prompt} {uploaded_context} {ai_state.get('business_description', '')}".lower()
+            f"{user_prompt} {uploaded_context} {ai_state.get('business_description', '')}".strip()
         )
-        if any(
-            k in combined_text
-            # "website", "agency" and "service" were dropped as bare keywords:
-            # they appear in ordinary prose ("HR services", "customer service",
-            # "our agency site") and hijacked internal-tool requests into the
-            # inquiry/lead branch. Multi-word forms are specific enough.
-            for k in ("landing page", "landing", "portfolio", "showcase", "one-pager", "brochure")
-        ):
-            entities = [
-                (
-                    "inquiry",
-                    "inquiries",
-                    [{"name": "name", "type": "string"}, {"name": "email", "type": "string"}],
-                ),
-                ("lead", "leads", [{"name": "company", "type": "string"}]),
-            ]
-        elif any(
-            k in combined_text
-            for k in (
-                "employee",
-                "employees",
-                "hr",
-                "human resource",
-                "workforce",
-                "staff",
-                "payroll",
-                "department",
-                "attendance",
-                "leave",
-                "onboarding",
-                "hiring",
-            )
-        ):
-            # Checked before the commerce branch: an employee request that
-            # mentions "payroll" or "order" must never be read as e-commerce.
-            entities = [
-                (
-                    "employee",
-                    "employees",
-                    [
-                        {"name": "full_name", "type": "string"},
-                        {"name": "email", "type": "string"},
-                        {"name": "job_title", "type": "string"},
-                        {"name": "department", "type": "string"},
-                        {"name": "status", "type": "string"},
-                    ],
-                ),
-                (
-                    "department",
-                    "departments",
-                    [
-                        {"name": "name", "type": "string"},
-                        {"name": "head", "type": "string"},
-                        {"name": "location", "type": "string"},
-                    ],
-                ),
-                (
-                    "leave_request",
-                    "leave_requests",
-                    [
-                        {"name": "employee_name", "type": "string"},
-                        {"name": "leave_type", "type": "string"},
-                        {"name": "start_date", "type": "string"},
-                        {"name": "end_date", "type": "string"},
-                        {"name": "status", "type": "string"},
-                    ],
-                ),
-                (
-                    "attendance_record",
-                    "attendance_records",
-                    [
-                        {"name": "employee_name", "type": "string"},
-                        {"name": "date", "type": "string"},
-                        {"name": "check_in", "type": "string"},
-                        {"name": "check_out", "type": "string"},
-                        {"name": "status", "type": "string"},
-                    ],
-                ),
-            ]
-        elif any(
-            k in combined_text for k in ("store", "shop", "ecommerce", "cart", "product", "retail")
-        ):
-            entities = [
-                (
-                    "product",
-                    "products",
-                    [{"name": "title", "type": "string"}, {"name": "price", "type": "float"}],
-                ),
-                (
-                    "order",
-                    "orders",
-                    [
-                        {"name": "customer_name", "type": "string"},
-                        {"name": "status", "type": "string"},
-                    ],
-                ),
-            ]
-        elif any(k in combined_text for k in ("task", "project", "todo", "kanban", "sprint")):
-            entities = [
-                ("project", "projects", [{"name": "title", "type": "string"}]),
-                (
-                    "task",
-                    "tasks",
-                    [{"name": "title", "type": "string"}, {"name": "status", "type": "string"}],
-                ),
-            ]
-        elif any(
-            k in combined_text for k in ("invoice", "billing", "expense", "finance", "payment")
-        ):
-            entities = [
-                (
-                    "invoice",
-                    "invoices",
-                    [
-                        {"name": "client_name", "type": "string"},
-                        {"name": "amount", "type": "float"},
-                    ],
-                ),
-                (
-                    "expense",
-                    "expenses",
-                    [
-                        {"name": "description", "type": "string"},
-                        {"name": "amount", "type": "float"},
-                    ],
-                ),
-            ]
-        elif any(k in combined_text for k in ("restaurant", "food", "menu", "cafe", "dine")):
-            entities = [
-                (
-                    "menu_item",
-                    "menu_items",
-                    [{"name": "name", "type": "string"}, {"name": "price", "type": "float"}],
-                ),
-                (
-                    "table_order",
-                    "table_orders",
-                    [{"name": "table_number", "type": "int"}, {"name": "status", "type": "string"}],
-                ),
-            ]
-        else:
-            entities = [
-                (
-                    "item",
-                    "items",
-                    [{"name": "name", "type": "string"}, {"name": "description", "type": "text"}],
-                ),
-                ("category", "categories", [{"name": "name", "type": "string"}]),
-            ]
+        # The lexicon reads the request itself: a curated vertical when one
+        # matches, otherwise the nouns the user actually typed. The previous
+        # fixed item/category cascade made every offline build look identical
+        # apart from its title, which read as "it only renamed my project".
+        entities = [
+            (name, plural, [{"name": fname, "type": ftype} for fname, ftype in fields])
+            for name, plural, fields in _infer(combined_text, limit=_MAX_FALLBACK_ENTITIES)
+        ]
 
     spec_entities: list[Entity] = []
     for ename, eplural, f_list in entities:

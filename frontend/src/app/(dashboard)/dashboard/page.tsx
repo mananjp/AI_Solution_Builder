@@ -1,16 +1,25 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
-  Plus, Layers, FolderKanban, Clock, ArrowUpRight, Trash2,
-  Compass, Rocket, Zap, Loader2, RefreshCw, Circle, MessageSquare,
+  Layers, FolderKanban, Clock, ArrowUpRight, Trash2, AlertCircle,
+  Rocket, Zap, Loader2, RefreshCw, Circle, MessageSquare,
 } from 'lucide-react';
-import { workspaceApi, solutionApi, mvpApi, opencodeApi } from '@/lib/api';
-import type { OpenCodeDiagnosis } from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { AnnouncementBanner } from '@/components/lab/announcement-banner';
+import { RelativeTime } from '@/components/lab/relative-time';
+import { ToastStack } from '@/components/lab/toast-stack';
+
+/** Mirrors the lab's internal `Toast` shape, which it does not export. */
+type Toast = { id: number; title: string; description: string };
+import { workspaceApi, solutionApi, mvpApi, opencodeApi, billingApi } from '@/lib/api';
 import { Solution, Workspace, MVPBuild, MVPTemplate, MVPDeployResult } from '@/types';
-import { Activity } from 'lucide-react';
-import { ResourceGauges } from '@/components/mvp/ResourceGauges';
+import { errorMessage } from '@/lib/errors';
 import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
 import { useI18n } from '@/components/I18nProvider';
 
@@ -20,28 +29,6 @@ const FALLBACK_TEMPLATES: MVPTemplate[] = [
   { slug: 'portfolio', title: 'Portfolio Site', description: 'Public portfolio with project showcases and a contact form.', app_name: 'portfolio', industry: 'Web' },
 ];
 
-const INDUSTRY_PROMPTS = [
-  {
-    title: 'Retail & Omnichannel Commerce',
-    desc: 'POS, real-time stock sync, multi-store, loyalty engine',
-    prompt: 'I want to build an omnichannel retail system with inventory management, POS terminal support, and loyalty rewards.',
-  },
-  {
-    title: 'Healthcare EHR & Telemedicine',
-    desc: 'HIPAA patient portal, video consults, prescriptions, audit trails',
-    prompt: 'I want to build a telemedicine platform with HIPAA compliance, scheduling, WebRTC video, and electronic health records.',
-  },
-  {
-    title: 'Logistics & Fleet Dispatch',
-    desc: 'Live GPS tracking, route optimization, driver apps, POD scanning',
-    prompt: 'I want to build a freight dispatch system with automated route planning, live driver tracking, and digital proof of delivery.',
-  },
-  {
-    title: 'B2B SaaS Multi-Tenant Platform',
-    desc: 'RBAC, usage metering, Stripe invoicing, team workspaces',
-    prompt: 'I want to build a multi-tenant B2B SaaS platform with organization billing, role-based access, and audit logs.',
-  },
-];
 
 export default function DashboardPage() {
   const { t } = useI18n();
@@ -50,50 +37,91 @@ export default function DashboardPage() {
   const [selectedWorkspace, setSelectedWorkspace] = useState('');
   const [engineOnline, setEngineOnline] = useState<boolean | null>(null);
   const [engineModel, setEngineModel] = useState<string | null>(null);
-  const [diagnosis, setDiagnosis] = useState<OpenCodeDiagnosis | null>(null);
-  const [diagOpen, setDiagOpen] = useState(false);
-  const [diagLoading, setDiagLoading] = useState(false);
   const [builds, setBuilds] = useState<MVPBuild[]>([]);
   const [templates, setTemplates] = useState<MVPTemplate[]>(FALLBACK_TEMPLATES);
   const [buildingSlug, setBuildingSlug] = useState<string | null>(null);
-  const [actionErr, setActionErr] = useState<string | null>(null);
   const [deployTarget, setDeployTarget] = useState<MVPBuild | null>(null);
   const [configureTarget, setConfigureTarget] = useState<MVPBuild | null>(null);
   const [newWsName, setNewWsName] = useState('');
   const [creatingWs, setCreatingWs] = useState(false);
+  const [engineOfflineDismissed, setEngineOfflineDismissed] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+  // Real credit balance from the billing API. This was a hardcoded "1,450",
+  // so the tile reported the same number to every account forever.
+  const [credits, setCredits] = useState<number | null>(null);
+  // Ids are handed out by a ref rather than a counter, so two failures landing
+  // in the same tick cannot collide on the toast stack's key.
+  const nextToastId = useRef(0);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const pushToast = useCallback((title: string, description: string) => {
+    setToasts((prev) => [...prev, { id: nextToastId.current++, title, description }]);
+  }, []);
+
+  // Build ids still in flight. Derived rather than recomputed inside the polling
+  // effect, so the interval only restarts when the set of active ids actually
+  // changes instead of on every status write.
+  const activeBuilds = useMemo(
+    () =>
+      builds
+        .filter((b) => b.status === 'queued' || b.status === 'pending' || b.status === 'building')
+        .map((b) => b.build_id),
+    [builds]
+  );
+
+  // The banner stays dismissed until the sidecar drops again, so a transient
+  // blip does not bring it back and a real recovery-then-outage does.
+  const wasOnline = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (engineOnline === null) return;
+    if (wasOnline.current === false && engineOnline === false) {
+      setEngineOfflineDismissed(false);
+    }
+    wasOnline.current = engineOnline;
+  }, [engineOnline]);
 
   // Load workspaces + solutions
   useEffect(() => {
-    let mounted = true;
+    let cancelled = false;
     async function load() {
+      setLoadError(null);
       try {
         const wsList = await workspaceApi.list();
-        if (!mounted) return;
+        if (cancelled) return;
         if (wsList?.length > 0) {
           setWorkspaces(wsList);
           setSelectedWorkspace(wsList[0].id);
           const sols = await solutionApi.list(wsList[0].id);
-          if (mounted) setSolutions(sols);
+          if (!cancelled) setSolutions(sols);
         } else {
-          const ws = await workspaceApi.create({ name: 'Primary Workspace', description: 'Core architecture zone' });
-          if (!mounted) return;
+          // A brand new account genuinely has no workspaces, so seeding one is
+          // a real create call rather than a stand-in.
+          const ws = await workspaceApi.create({
+            name: 'Primary Workspace',
+            description: 'Core architecture zone',
+          });
+          if (cancelled) return;
           setWorkspaces([ws]);
           setSelectedWorkspace(ws.id);
         }
-      } catch {
-        if (!mounted) return;
-        const demoWs = { id: 'ws-demo', org_id: 'demo-org', name: 'Primary Workspace', description: 'Core architecture zone', created_at: new Date().toISOString() };
-        setWorkspaces([demoWs]);
-        setSelectedWorkspace('ws-demo');
-        setSolutions([
-          { id: 'sol-1', workspace_id: 'ws-demo', title: 'Omnichannel Retail POS & Inventory', description: 'Multi-store POS with real-time stock sync, offline barcode scanning, and staff scheduling.', status: 'complete', created_at: new Date().toISOString() },
-          { id: 'sol-2', workspace_id: 'ws-demo', title: 'HIPAA-Compliant Telehealth & EHR Portal', description: 'Doctor appointments, encrypted WebRTC consultations, prescription workflow, and audit logging.', status: 'complete', created_at: new Date().toISOString() },
-        ]);
+      } catch (err) {
+        if (cancelled) return;
+        // Previously this synthesised a "Primary Workspace" plus two finished
+        // solutions ("Omnichannel Retail POS", "HIPAA-Compliant Telehealth"),
+        // both marked complete. Any 401/404/500 or an offline backend therefore
+        // rendered as a populated, healthy account, and a user with real work
+        // would be looking at invented titles. Report the failure instead.
+        setWorkspaces([]);
+        setSolutions([]);
+        setLoadError(errorMessage(err));
       }
     }
     load();
-    return () => { mounted = false; };
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadToken]);
 
   // Ping engine
   useEffect(() => {
@@ -110,39 +138,41 @@ export default function DashboardPage() {
     return () => { mounted = false; clearInterval(t); };
   }, []);
 
-  const runDiagnose = async () => {
-    setDiagLoading(true);
-    setDiagOpen(true);
-    try {
-      const d = await opencodeApi.diagnose();
-      setDiagnosis(d);
-      setEngineOnline(d.checks.find((c) => c.label === 'Live generation round-trip')?.status === 'ok');
-    } catch {
-      setDiagnosis({ ok: false, checks: [{ status: 'fail', label: 'Diagnose request failed', detail: 'The backend could not run diagnose().', fix: null }] });
-    } finally {
-      setDiagLoading(false);
-    }
-  };
-
   // Load templates
   useEffect(() => {
     mvpApi.listTemplates().then((l) => { if (l?.length > 0) setTemplates(l); }).catch(() => undefined);
   }, []);
 
+  // Credit balance. A failure leaves the tile as an em dash rather than a
+  // number, so an unreadable balance is never reported as a real one.
+  useEffect(() => {
+    let cancelled = false;
+    billingApi
+      .getUsage()
+      .then((u) => {
+        if (!cancelled) setCredits(u.current_balance);
+      })
+      .catch(() => {
+        if (!cancelled) setCredits(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Poll active builds
   useEffect(() => {
-    const active = builds.filter((b) => ['queued', 'pending', 'building'].includes(b.status)).map((b) => b.build_id);
-    if (!active.length) return;
+    if (!activeBuilds.length) return;
     const t = setInterval(async () => {
-      for (const id of active) {
+      for (const id of activeBuilds) {
         try {
           const fresh = await mvpApi.getStatus(id);
           setBuilds((p) => p.map((b) => (b.build_id === id ? fresh : b)));
-        } catch { /* ignore */ }
+        } catch { /* keep last known status */ }
       }
     }, 3000);
     return () => clearInterval(t);
-  }, [builds]);
+  }, [activeBuilds]);
 
   const handleCreateWs = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -153,40 +183,44 @@ export default function DashboardPage() {
       setWorkspaces((p) => [...p, ws]);
       setSelectedWorkspace(ws.id);
       setNewWsName('');
-    } catch {
-      const mock: Workspace = { id: `ws-${Date.now()}`, org_id: 'demo', name: newWsName, created_at: new Date().toISOString() };
-      setWorkspaces((p) => [...p, mock]);
-      setSelectedWorkspace(mock.id);
-      setNewWsName('');
+    } catch (err) {
+      // This used to add a locally-invented workspace with a timestamp id, so a
+      // failed create looked like it had worked and then vanished on reload.
+      pushToast('Workspace not created', errorMessage(err));
     } finally { setCreatingWs(false); }
   };
 
   const handleDeleteSol = async (id: string) => {
-    try { await solutionApi.delete(id); } catch { /* ignore */ }
-    setSolutions((p) => p.filter((s) => s.id !== id));
-  };
-
-  const handleQuickBuild = async (tpl: MVPTemplate) => {
-    setBuildingSlug(tpl.slug);
-    setActionErr(null);
     try {
-      const build = await mvpApi.quickBuild({ template: tpl.slug, app_name: tpl.app_name });
-      setBuilds((p) => [build, ...p]);
+      await solutionApi.delete(id);
+      setSolutions((p) => p.filter((s) => s.id !== id));
     } catch (err) {
-      setActionErr(err instanceof Error ? err.message : 'Build failed.');
-    } finally { setBuildingSlug(null); }
+      // Removing the row regardless meant a failed delete looked successful and
+      // the solution reappeared on the next load.
+      pushToast('Delete failed', errorMessage(err));
+    }
   };
 
-  const handleDownload = async (build: MVPBuild) => {
-    try { await mvpApi.downloadBuild(build.build_id, `mvp_build${build.build_number}.zip`); }
-    catch (err) { setActionErr(err instanceof Error ? err.message : 'Download failed.'); }
-  };
-
-  const handleDestroy = async (build: MVPBuild) => {
-    if (!window.confirm(`Destroy build #${build.build_number}?`)) return;
-    try { await mvpApi.destroy(build.build_id); setBuilds((p) => p.filter((b) => b.build_id !== build.build_id)); }
-    catch (err) { setActionErr(err instanceof Error ? err.message : 'Destroy failed.'); }
-  };
+    const handleQuickBuild = async (tpl: MVPTemplate) => {
+      setBuildingSlug(tpl.slug);
+      try {
+        const build = await mvpApi.quickBuild({ template: tpl.slug, app_name: tpl.app_name });
+        setBuilds((p) => [build, ...p]);
+      } catch (err) {
+        pushToast('Build failed', err instanceof Error ? err.message : `Could not start ${tpl.title}.`);
+      } finally { setBuildingSlug(null); }
+    };
+  
+    const handleDownload = async (build: MVPBuild) => {
+      try { await mvpApi.downloadBuild(build.build_id, `mvp_build${build.build_number}.zip`); }
+      catch (err) { pushToast('Download failed', err instanceof Error ? err.message : 'The artifact could not be downloaded.'); }
+    };
+  
+    const handleDestroy = async (build: MVPBuild) => {
+      if (!window.confirm(`Destroy build #${build.build_number}?`)) return;
+      try { await mvpApi.destroy(build.build_id); setBuilds((p) => p.filter((b) => b.build_id !== build.build_id)); }
+      catch (err) { pushToast('Destroy failed', err instanceof Error ? err.message : 'The build was not destroyed.'); }
+    };
 
   const handleDeployed = (result: MVPDeployResult | string) => {
     const repoUrl = typeof result === 'string' ? result : result.repo_url;
@@ -201,10 +235,50 @@ export default function DashboardPage() {
   return (
     <div className="space-y-10 animate-fade-up max-w-[1200px] mx-auto py-4">
 
+      {/* Announced once the engine has actually answered, so a slow first poll
+          never shows an alarming banner about something still loading. */}
+      <AnnouncementBanner
+        open={engineOnline === false && !engineOfflineDismissed}
+        onDismiss={() => setEngineOfflineDismissed(true)}
+        icon={<AlertCircle className="size-4" aria-hidden />}
+        label="Engine status"
+      >
+        The generation sidecar is not responding. Builds and diagnoses will fail until it is
+        back.
+      </AnnouncementBanner>
+
+      {/* A failed load is not an empty account. Without this the page looked
+          identical to a brand new user, and the two require opposite actions. */}
+      {loadError && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-start gap-3 rounded border border-[var(--red-edge)] bg-[var(--red-wash)] px-4 py-3 text-sm text-[var(--red)]"
+        >
+          <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">Could not load your workspaces</p>
+            <p className="mt-0.5 font-mono text-xs opacity-90">{loadError}</p>
+            <p className="mt-1 text-xs opacity-80">
+              The counts and lists below are empty because nothing could be read, not
+              because your account has no work in it.
+            </p>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setReloadToken((n) => n + 1)}
+          >
+            <RefreshCw />
+            Retry
+          </Button>
+        </div>
+      )}
+
       {/* Page header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-serif text-[var(--sutra-charcoal)]">{t('dash.overview')}</h1>
+          <h1 className="text-3xl font-serif text-[var(--sutra-ink)]">{t('dash.overview')}</h1>
           <p className="text-[13px] text-[var(--text-2)] mt-2 max-w-lg leading-relaxed font-light">
             {t('dash.overviewSub')}
           </p>
@@ -213,136 +287,72 @@ export default function DashboardPage() {
         {engineOnline !== null && (
           <div className="flex items-center gap-2">
             <span className="text-[10px] uppercase tracking-widest font-semibold text-[var(--text-3)]">{t('dash.engineStatus')}</span>
-            <button
-              type="button"
-              onClick={runDiagnose}
-              title="Click to run a full sidecar diagnostic"
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-sm border text-[11px] uppercase tracking-widest font-bold shadow-sm hover:opacity-85 transition-opacity ${
+            {/* Read-only now. It used to run a full sidecar diagnostic and dump
+                a per-check report with raw fix instructions — an operations
+                tool, not something a user of the product needs in front of them.
+                The offline banner above still reports a failure they can act on. */}
+            <span
+              className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold ${
                 engineOnline
-                  ? 'bg-[var(--bg-2)] border-[var(--border)] text-[var(--green)]'
-                  : 'bg-[var(--bg-2)] border-[var(--border)] text-[var(--amber)]'
-              }`}>
-              <Circle className={`w-2 h-2 fill-current ${engineOnline ? 'animate-pulse-dot' : ''}`} />
+                  ? 'border-[var(--green-edge)] text-[var(--green)]'
+                  : 'border-[var(--amber-edge)] text-[var(--amber)]'
+              }`}
+            >
+              <Circle className={`size-2 fill-current ${engineOnline ? 'animate-pulse-dot' : ''}`} aria-hidden />
               {engineOnline ? (engineModel ? `${t('common.online')} · ${engineModel}` : t('common.online')) : t('common.offline')}
-            </button>
+            </span>
           </div>
         )}
       </div>
-
-      {/* Live runtime resources (build host observability) */}
-      {engineOnline !== null && (
-        <div className="sutra-card p-5 animate-fade-up border-[var(--border)]">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-[11px] font-bold uppercase tracking-widest text-[var(--sutra-charcoal)] flex items-center gap-2">
-              <Activity className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
-              <span>Live Runtime Resources</span>
-            </h2>
-            <span className="text-[10px] font-mono text-[var(--text-3)]">CPU · Disk · Memory</span>
-          </div>
-          <ResourceGauges engineOnline className="max-w-2xl" />
-        </div>
-      )}
-
-      {/* Sidecar diagnostic report (lightweight observability) */}
-      {diagOpen && (
-        <div className="sutra-card p-5 animate-fade-up border-[var(--border)]">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-[11px] font-bold uppercase tracking-widest text-[var(--sutra-charcoal)]">OpenCode Sidecar Diagnostic</h2>
-            <button type="button" onClick={() => setDiagOpen(false)} className="text-[11px] uppercase tracking-widest font-semibold text-[var(--text-3)] hover:text-[var(--red)]">
-              Close
-            </button>
-          </div>
-          {diagLoading && <p className="text-[13px] text-[var(--text-2)]">Running live round-trip check…</p>}
-          {!diagLoading && diagnosis && (
-            <ul className="space-y-2">
-              {diagnosis.checks.map((c, i) => (
-                <li key={i} className="flex flex-col gap-0.5 border-b border-[var(--border)] pb-2 last:border-0">
-                  <div className="flex items-center gap-2">
-                    <span className={`w-1.5 h-1.5 rounded-full ${c.status === 'ok' ? 'bg-[var(--green)]' : c.status === 'warn' ? 'bg-[var(--amber)]' : 'bg-[var(--red)]'}`} />
-                    <span className="text-[12px] font-semibold text-[var(--text-1)]">{c.label}</span>
-                    <span className="text-[11px] text-[var(--text-3)] uppercase tracking-wider">{c.status}</span>
-                  </div>
-                  <p className="text-[12px] text-[var(--text-2)] pl-3.5">{c.detail}</p>
-                  {c.fix && (
-                    <pre className="ml-3.5 mt-1 p-2 bg-[var(--bg-1)] border border-[var(--border)] rounded-sm text-[11px] text-[var(--text-1)] whitespace-pre-wrap break-words max-h-32 overflow-y-auto">{c.fix}</pre>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-
       {/* Stat row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         {[
-          { label: t('dash.totalSolutions'), value: solutions.length, icon: Layers },
-          { label: t('dash.workspaces'), value: workspaces.length, icon: FolderKanban },
-          { label: t('dash.activeBuilds'), value: builds.length, icon: Rocket },
-          { label: t('dash.credits'), value: '1,450', icon: Zap },
+          { label: t('dash.totalSolutions'), value: solutions.length.toLocaleString(), icon: Layers },
+          { label: t('dash.workspaces'), value: workspaces.length.toLocaleString(), icon: FolderKanban },
+          // Labelled "active", so it counts only builds still in flight. It
+          // previously showed every build the account had ever made.
+          {
+            label: t('dash.activeBuilds'),
+            value: activeBuilds.toLocaleString(),
+            icon: Rocket,
+          },
+          // null means the balance could not be read; an em dash is honest, a
+          // number would not be.
+          {
+            label: t('dash.credits'),
+            value: credits === null ? '—' : credits.toLocaleString(),
+            icon: Zap,
+          },
         ].map((m) => {
           const Icon = m.icon;
           return (
-            <div key={m.label} className="sutra-card p-6 flex flex-col justify-between h-[120px] group hover:border-[var(--sutra-muted-gold)] transition-colors">
-              <div className="flex items-center justify-between text-[var(--text-2)]">
-                <span className="text-[10px] font-bold uppercase tracking-widest group-hover:text-[var(--sutra-charcoal)] transition-colors">{m.label}</span>
-                <Icon className="w-4 h-4 opacity-50 group-hover:opacity-100 group-hover:text-[var(--sutra-muted-gold)] transition-all" />
+            <Card key={m.label} interactive className="flex h-[120px] flex-col justify-between p-6 group">
+              <div className="flex items-center justify-between text-muted">
+                <span className="text-[10px] font-bold uppercase tracking-widest transition-colors group-hover:text-foreground">{m.label}</span>
+                <Icon className="size-4 opacity-50 transition-all group-hover:text-foreground group-hover:opacity-100" />
               </div>
-              <p className="text-3xl font-serif text-[var(--sutra-charcoal)]">{m.value}</p>
-            </div>
+              <p className="font-serif text-3xl">{m.value}</p>
+            </Card>
           );
         })}
       </div>
 
-      {/* Two paths */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" id="premade">
-
-        {/* Custom builder */}
-        <div className="sutra-card p-8 flex flex-col justify-between gap-8 bg-gradient-to-br from-[var(--bg)] to-[var(--bg-2)]">
-          <div className="space-y-4">
-            <h2 className="text-xl font-serif text-[var(--sutra-charcoal)] flex items-center gap-3 border-b border-[var(--border)] pb-4">
-              <div className="w-8 h-8 flex items-center justify-center border border-[var(--sutra-muted-gold)] bg-[var(--bg-2)]">
-                <span className="text-[var(--sutra-muted-gold)] font-serif italic text-lg leading-none">S</span>
-              </div>
-              {t('dash.aiSolutionBuilder')}
-            </h2>
-            <p className="text-[13px] text-[var(--text-2)] leading-relaxed">
-              {t('dash.aiSolutionBuilderDesc')}
-            </p>
-            <ul className="space-y-3 pt-2">
-              {[
-                t('dash.featContextual'),
-                t('dash.featArchitecture'),
-                t('dash.featDocs'),
-                t('dash.featScaffold'),
-              ].map((item) => (
-                <li key={item} className="flex items-center gap-3 text-[12px] font-medium text-[var(--sutra-charcoal)]">
-                  <span className="w-1.5 h-1.5 bg-[var(--sutra-muted-gold)]" />
-                  {item}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <Link
-            href="/chat?new=true"
-            className="btn btn-primary flex justify-center w-full shadow-md hover:shadow-lg"
-          >
-            {t('dash.startNewBuild')}
-            <ArrowUpRight className="w-4 h-4 ml-2 opacity-70" />
-          </Link>
-        </div>
-
-        {/* Premade apps */}
-        <div className="sutra-card p-8 space-y-6">
-          <div className="flex items-end justify-between border-b border-[var(--border)] pb-4">
+      {/* Premade apps. This was one half of a two-column "Two paths" grid beside
+          an AI Solution Builder pitch card; with that card removed there is a
+          single section, so the grid wrapper went too. */}
+      <Card interactive className="space-y-6 p-8">
+          <div className="flex items-end justify-between border-b pb-4">
             <div>
-              <h2 className="text-xl font-serif text-[var(--sutra-charcoal)] flex items-center gap-3">
-                <Zap className="w-5 h-5 text-[var(--text-3)]" />
+              <h2 className="flex items-center gap-3 font-serif text-xl">
+                <Zap className="size-5 text-muted" />
                 {t('dash.templates')}
               </h2>
-              <p className="text-[12px] text-[var(--text-2)] mt-1">{t('dash.templatesSub')}</p>
+              <p className="mt-1 text-[12px] text-muted">{t('dash.templatesSub')}</p>
             </div>
-            <button
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label="Refresh build status"
               onClick={async () => {
                 const refreshed: MVPBuild[] = [];
                 for (const b of builds) {
@@ -351,42 +361,45 @@ export default function DashboardPage() {
                 }
                 if (refreshed.length > 0) setBuilds(refreshed);
               }}
-              className="btn btn-ghost border border-[var(--border)] bg-[var(--bg)]"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
-            </button>
+              <RefreshCw />
+            </Button>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 max-h-[300px] overflow-y-auto pr-2">
-            {templates.map((tpl) => (
-              <div key={tpl.slug} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--sutra-muted-gold)] transition-colors group">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[13px] font-semibold text-[var(--sutra-charcoal)]">{tpl.title}</span>
-                    <span className="text-[9px] uppercase tracking-widest font-bold text-[var(--sutra-muted-gold)] bg-[var(--accent-dim)] px-2 py-0.5 rounded-sm">{tpl.industry}</span>
+          <ScrollArea className="max-h-[300px] pr-2">
+            <div className="grid grid-cols-1 gap-3 pr-3">
+              {templates.map((tpl) => (
+                <div key={tpl.slug} className="group flex flex-col justify-between gap-4 rounded-sm border bg-surface p-4 transition-colors hover:border-foreground sm:flex-row sm:items-center">
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex items-center gap-2">
+                      <span className="text-[13px] font-semibold">{tpl.title}</span>
+                      <Badge variant="secondary" className="bg-accent-dim text-[9px] font-bold uppercase tracking-widest text-foreground">
+                        {tpl.industry}
+                      </Badge>
+                    </div>
+                    <p className="truncate text-[11px] text-muted">{tpl.description}</p>
                   </div>
-                  <p className="text-[11px] text-[var(--text-2)] truncate">{tpl.description}</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => handleQuickBuild(tpl)}
+                    disabled={buildingSlug !== null}
+                  >
+                    {buildingSlug === tpl.slug ? (
+                      <><Loader2 className="animate-spin" />Building</>
+                    ) : (
+                      <><Rocket />Build App</>
+                    )}
+                  </Button>
                 </div>
-                <button
-                  onClick={() => handleQuickBuild(tpl)}
-                  disabled={buildingSlug !== null}
-                  className="btn btn-secondary shrink-0"
-                >
-                  {buildingSlug === tpl.slug ? (
-                    <><Loader2 className="w-3.5 h-3.5 animate-spin" />Building</>
-                  ) : (
-                    <><Rocket className="w-3.5 h-3.5" />Build App</>
-                  )}
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {actionErr && <p className="text-[11px] font-semibold text-[var(--red)] bg-[var(--bg-2)] border border-[var(--red)] p-3 shadow-sm">{actionErr}</p>}
+              ))}
+            </div>
+          </ScrollArea>
 
           {builds.length > 0 && (
-            <div className="space-y-4 pt-4 border-t border-[var(--border)]">
-              <h3 className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)]">Active Build Pipelines</h3>
+            <div className="space-y-4 border-t pt-4">
+              <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted">Active Build Pipelines</h3>
               {builds.map((build) => (
                 <BuildCard
                   key={build.build_id}
@@ -400,155 +413,153 @@ export default function DashboardPage() {
               ))}
             </div>
           )}
-        </div>
-      </div>
+        </Card>
 
       {/* Solutions */}
       <div className="space-y-6" id="blueprints">
-        <div className="flex items-end justify-between border-b border-[var(--border)] pb-4">
-          <div>
-            <h2 className="text-xl font-serif text-[var(--sutra-charcoal)]">Solution Blueprints</h2>
-            <p className="text-[12px] text-[var(--text-2)] mt-1">Orchestrated architecture specs, database schemas, and roadmaps</p>
-          </div>
-          <Link
-            href="/chat?new=true"
-            className="btn btn-secondary bg-[var(--bg)] border border-[var(--border)]"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            New Solution
-          </Link>
+        <div className="border-b pb-4">
+          <h2 className="font-serif text-xl">Solution Blueprints</h2>
+          <p className="mt-1 text-[12px] text-muted">Orchestrated architecture specs, database schemas, and roadmaps</p>
         </div>
 
         {solutions.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {solutions.map((sol) => (
-              <div key={sol.id} className="sutra-card p-6 flex flex-col justify-between gap-6 hover:shadow-md transition-shadow group cursor-pointer border-[var(--border)] hover:border-[var(--sutra-muted-gold)]">
+              <Card key={sol.id} interactive className="group flex cursor-pointer flex-col justify-between gap-6 p-6">
                 <div>
-                  <div className="flex items-start justify-between gap-3 mb-4">
-                    <span className="badge badge-amber">{sol.status}</span>
-                    <button
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <Badge variant="secondary" className="bg-accent-dim text-foreground">{sol.status}</Badge>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
                       onClick={(e) => { e.preventDefault(); handleDeleteSol(sol.id); }}
-                      className="text-[var(--text-3)] hover:text-[var(--red)] transition-colors p-1"
-                      title="Delete solution"
-                    ><Trash2 className="w-4 h-4" /></button>
+                      aria-label="Delete solution"
+                      className="text-muted hover:text-destructive"
+                    >
+                      <Trash2 />
+                    </Button>
                   </div>
-                  <h3 className="text-[15px] font-semibold text-[var(--sutra-charcoal)] leading-tight">{sol.title}</h3>
-                  <p className="text-[12px] text-[var(--text-2)] mt-2 leading-relaxed line-clamp-2">
+                  <h3 className="text-[15px] font-semibold leading-tight">{sol.title}</h3>
+                  <p className="mt-2 line-clamp-2 text-[12px] leading-relaxed text-muted">
                     {sol.description || 'Enterprise solution blueprint with architecture, schemas, and roadmap.'}
                   </p>
                 </div>
-                <div className="flex items-center justify-between pt-4 border-t border-[var(--border)]">
-                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest font-semibold text-[var(--text-3)]">
-                    <Clock className="w-3 h-3" />
-                    {new Date(sol.created_at).toLocaleDateString()}
+                <div className="flex items-center justify-between border-t pt-4">
+                  <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted">
+                    <Clock className="size-3" />
+                    <RelativeTime date={sol.created_at} />
                   </div>
                   <div className="flex items-center gap-3">
-                    <Link
-                      href={`/chat?solution_id=${sol.id}&app_name=${encodeURIComponent(sol.title)}`}
-                      className="flex items-center gap-1 text-[11px] font-medium text-[var(--text-2)] hover:text-[var(--sutra-muted-gold)] transition-colors"
-                      title="Open chat in AI Architect"
+                    <Button
+                      asChild
+                      variant="ghost"
+                      size="sm"
+                      className="text-[11px] font-medium text-muted hover:text-foreground"
                     >
-                      <MessageSquare className="w-3.5 h-3.5" />
-                      Chat
-                    </Link>
-                    <Link
-                      href={`/solution/${sol.id}`}
-                      className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-[var(--sutra-muted-gold)] hover:text-[var(--sutra-deep-gold)] transition-colors"
+                      <Link
+                        href={`/chat?solution_id=${sol.id}&app_name=${encodeURIComponent(sol.title)}`}
+                        title="Open chat in AI Architect"
+                      >
+                        <MessageSquare />
+                        Chat
+                      </Link>
+                    </Button>
+                    <Button
+                      asChild
+                      variant="ghost"
+                      size="sm"
+                      className="text-[11px] font-bold uppercase tracking-widest text-foreground hover:text-foreground"
                     >
-                      View Specs <ArrowUpRight className="w-3.5 h-3.5" />
-                    </Link>
+                      <Link href={`/solution/${sol.id}`}>
+                        View Specs <ArrowUpRight />
+                      </Link>
+                    </Button>
                   </div>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         ) : (
-          <div className="py-20 text-center sutra-card bg-[var(--bg-2)] border-dashed">
-            <Layers className="w-10 h-10 text-[var(--text-3)] mx-auto mb-4 opacity-50" />
-            <p className="text-[15px] font-serif text-[var(--sutra-charcoal)]">No solutions generated</p>
-            <p className="text-[13px] text-[var(--text-2)] mt-2 mb-6 font-light max-w-sm mx-auto">Start a custom AI builder session to generate your first architecture blueprint.</p>
-            <Link
-              href="/chat?new=true"
-              className="btn btn-primary shadow-sm"
-            >
-              Start Building
-            </Link>
-          </div>
+          <Card className="border-dashed py-20 text-center">
+            <Layers className="mx-auto mb-4 size-10 opacity-50 text-muted" />
+            <p className="font-serif text-[15px]">No solutions generated</p>
+            <p className="mx-auto mb-6 mt-2 max-w-sm text-[13px] font-light text-muted">Start a custom AI builder session to generate your first architecture blueprint.</p>
+            <Button asChild>
+              <Link href="/chat?new=true">Start Building</Link>
+            </Button>
+          </Card>
         )}
       </div>
 
-      {/* Bottom row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pb-12">
-        
-        {/* Industry templates */}
-        <div className="lg:col-span-2 sutra-card p-8 space-y-6" id="templates">
-          <div className="border-b border-[var(--border)] pb-4">
-            <h2 className="text-xl font-serif text-[var(--sutra-charcoal)] flex items-center gap-3">
-              <Compass className="w-5 h-5 text-[var(--text-3)]" /> Domain Templates
+        {/* Workspaces. This was a child of a three-column grid alongside the
+            Domain Templates card; with that removed it is a full-width section,
+            so the grid wrapper went with it. */}
+        <div id="workspaces" className="pb-12">
+          <Card interactive className="space-y-6 p-8">
+          <div className="border-b pb-4">
+            <h2 className="flex items-center gap-3 font-serif text-xl">
+              <FolderKanban className="size-5 text-muted" /> Workspaces
             </h2>
-            <p className="text-[12px] text-[var(--text-2)] mt-1">Pre-seeded vertical prompts to kick off a custom architecture session.</p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {INDUSTRY_PROMPTS.map((t) => (
-              <Link
-                key={t.title}
-                href={`/chat?prompt=${encodeURIComponent(t.prompt)}`}
-                className="p-5 bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--sutra-muted-gold)] transition-colors group h-full flex flex-col"
-              >
-                <p className="text-[13px] font-semibold text-[var(--sutra-charcoal)] group-hover:text-[var(--sutra-muted-gold)] transition-colors mb-2">{t.title}</p>
-                <p className="text-[11px] text-[var(--text-2)] leading-relaxed font-light mt-auto">{t.desc}</p>
-              </Link>
-            ))}
-          </div>
-        </div>
-
-        {/* Workspaces */}
-        <div className="sutra-card p-8 space-y-6" id="workspaces">
-          <div className="border-b border-[var(--border)] pb-4">
-            <h2 className="text-xl font-serif text-[var(--sutra-charcoal)] flex items-center gap-3">
-              <FolderKanban className="w-5 h-5 text-[var(--text-3)]" /> Workspaces
-            </h2>
-            <p className="text-[12px] text-[var(--text-2)] mt-1">Organize solutions by product line.</p>
+            <p className="mt-1 text-[12px] text-muted">Organize solutions by product line.</p>
           </div>
 
           <form onSubmit={handleCreateWs} className="flex gap-2">
-            <input
+            <Input
               type="text"
               value={newWsName}
               onChange={(e) => setNewWsName(e.target.value)}
               placeholder="New workspace..."
-              className="flex-1 px-4 py-2 bg-[var(--bg-2)] border border-[var(--border)] text-[12px] text-[var(--text)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors"
+              className="flex-1"
             />
-            <button
+            <Button
               type="submit"
+              variant="outline"
+              className="shrink-0"
               disabled={creatingWs || !newWsName.trim()}
-              className="btn btn-secondary shrink-0"
             >
               Add
-            </button>
+            </Button>
           </form>
 
-          <div className="space-y-2 max-h-[300px] overflow-y-auto">
-            {workspaces.map((ws) => (
-              <div
-                key={ws.id}
-                onClick={() => setSelectedWorkspace(ws.id)}
-                className={`p-4 cursor-pointer border transition-colors ${
-                  selectedWorkspace === ws.id
-                    ? 'bg-[var(--bg)] border-[var(--sutra-muted-gold)] shadow-sm'
-                    : 'bg-[var(--bg-2)] border-[var(--border)] hover:border-[var(--text-3)]'
-                }`}
-              >
-                <p className="text-[13px] font-semibold text-[var(--sutra-charcoal)]">{ws.name}</p>
-                {ws.description && <p className="text-[11px] text-[var(--text-2)] mt-1">{ws.description}</p>}
-              </div>
-            ))}
-          </div>
+          <ScrollArea className="max-h-[300px]">
+            <div className="space-y-2 pr-3">
+              {workspaces.map((ws) => (
+                <Card
+                  key={ws.id}
+                  onClick={() => setSelectedWorkspace(ws.id)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedWorkspace(ws.id);
+                    }
+                  }}
+                  aria-pressed={selectedWorkspace === ws.id}
+                  className={`cursor-pointer p-4 transition-colors ${
+                    selectedWorkspace === ws.id
+                      ? 'border-foreground bg-background shadow-sm'
+                      : 'bg-surface hover:border-muted-foreground'
+                  }`}
+                >
+                  <p className="text-[13px] font-semibold">{ws.name}</p>
+                  {ws.description && <p className="mt-1 text-[11px] text-muted">{ws.description}</p>}
+                </Card>
+              ))}
+            </div>
+          </ScrollArea>
+          </Card>
         </div>
-      </div>
 
       {deployTarget && <DeployModal build={deployTarget} onClose={() => setDeployTarget(null)} onDeployed={handleDeployed} />}
       {configureTarget && <ConfigureModal build={configureTarget} onClose={() => setConfigureTarget(null)} onConfigured={() => undefined} />}
+
+      {/* Transient action failures surface here instead of inside the panel that
+          raised them, so a message raised while scrolled away is still seen. */}
+      <ToastStack
+        toasts={toasts}
+        onDismiss={(id) => setToasts((prev) => prev.filter((toast) => toast.id !== id))}
+      />
     </div>
   );
 }

@@ -66,7 +66,7 @@ wait_for_sidecar() {
 run_migrations() {
   root_dir="${1:-$PWD}"
   log "Checking database migrations in $root_dir ..."
-  (cd "$root_dir" && $PYTHON_BIN scripts/run_migrations.py) || log "WARNING: Migration check returned non-zero status; proceeding."
+  (cd "$root_dir" && $PYTHON_BIN scripts/run_migrations.py)
   log "Database migration step complete."
 }
 

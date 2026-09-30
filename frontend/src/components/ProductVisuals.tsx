@@ -5,6 +5,9 @@ import { AlertTriangle, ImageOff, Loader2, Sparkles } from 'lucide-react';
 import { artifactApi } from '@/lib/api';
 import type { Artifact } from '@/types';
 
+import { Badge } from '@/components/ui/badge';
+import { Button } from "@/components/ui/button";
+
 interface ImageMeta {
   storage_key?: string;
   mime_type?: string;
@@ -104,8 +107,8 @@ function VisualCard({ entry }: { entry: VisualEntry }) {
       <div className="p-4 space-y-3 flex-1 flex flex-col">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Sparkles className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)] shrink-0" />
-            <h4 className="font-serif text-[var(--sutra-charcoal)] text-sm leading-tight">
+            <Sparkles className="w-3.5 h-3.5 text-[var(--sutra-strong)] shrink-0" />
+            <h4 className="font-serif text-[var(--sutra-ink)] text-sm leading-tight">
               {KIND_LABEL[artifact.artifact_type] || artifact.title}
             </h4>
           </div>
@@ -119,12 +122,12 @@ function VisualCard({ entry }: { entry: VisualEntry }) {
 
         {prompt && (
           <div className="mt-auto">
-            <button
+            <Button variant="ghost" size="icon-sm"
               onClick={() => setShowPrompt((v) => !v)}
-              className="text-[10px] uppercase tracking-widest font-semibold text-[var(--sutra-muted-gold)] hover:underline"
+              className="text-[10px] uppercase tracking-widest font-semibold text-[var(--sutra-strong)] hover:underline"
             >
               {showPrompt ? '− Hide prompt' : '+ Generation prompt'}
-            </button>
+            </Button>
             {showPrompt && (
               <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words bg-[var(--bg-2)] border border-[var(--border)] p-3 text-[10px] leading-relaxed text-[var(--text-2)] font-mono">
                 {prompt}
@@ -142,10 +145,10 @@ export default function ProductVisuals({ artifacts }: { artifacts: Artifact[] })
     return (
       <div className="h-[50vh] flex flex-col items-center justify-center text-center space-y-4 text-[var(--text-2)] p-8">
         <div className="p-4 border border-[var(--border)] bg-[var(--bg-2)]">
-          <ImageOff className="w-8 h-8 text-[var(--sutra-muted-gold)] opacity-80" />
+          <ImageOff className="w-8 h-8 text-[var(--sutra-strong)] opacity-80" />
         </div>
         <div>
-          <p className="text-[13px] font-medium text-[var(--sutra-charcoal)]">
+          <p className="text-[13px] font-medium text-[var(--sutra-ink)]">
             No visuals generated yet.
           </p>
           <p className="text-[11px] text-[var(--text-2)] max-w-sm mx-auto mt-2 font-light">
@@ -160,20 +163,20 @@ export default function ProductVisuals({ artifacts }: { artifacts: Artifact[] })
     <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between pb-4 border-b border-[var(--border)]">
         <div>
-          <h3 className="text-xl font-serif text-[var(--sutra-charcoal)]">Product Visuals</h3>
+          <h3 className="text-xl font-serif text-[var(--sutra-ink)]">Product Visuals</h3>
           <p className="text-[11px] text-[var(--text-2)] mt-2 font-light">
             Generated from the domain specification during the build. Each visual keeps the exact
             prompt that produced it.
           </p>
         </div>
-        <span className="badge badge-gray text-[10px] uppercase tracking-widest shrink-0">
+        <Badge variant="neutral" className="text-[10px] uppercase tracking-widest shrink-0">
           {artifacts.length} visual{artifacts.length === 1 ? '' : 's'}
-        </span>
+        </Badge>
       </div>
 
       {artifacts.some((a) => !a.content || !(a.content as { image?: unknown }).image) && (
         <div className="flex items-start gap-2 text-[11px] text-[var(--text-2)] bg-[var(--bg-2)] border border-[var(--border)] p-3">
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-[var(--sutra-muted-gold)]" />
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-[var(--sutra-strong)]" />
           <span>Some visuals have no stored image payload and cannot be displayed.</span>
         </div>
       )}

@@ -76,21 +76,15 @@ async def require_and_deduct_credit(
     if org is None:
         raise HTTPException(status_code=404, detail="Organization not found")
 
-    # Demo/guest account or NULL balance = unlimited credits; skip metering entirely.
-    user_email = (getattr(user, "email", "") or "").lower()
-    org_name = (getattr(org, "name", "") or "").lower()
-    is_demo = (
-        getattr(user, "is_anonymous", False)
-        or "demo" in user_email
-        or "guest" in user_email
-        or "demo" in org_name
-        or "guest" in org_name
-        or org.credits_remaining is None
-    )
-    if is_demo:
+    # A NULL balance is the plan's own "unlimited" signal, set deliberately by
+    # an enterprise contract. It used to also be granted to any account whose
+    # email or organisation name happened to contain "demo" or "guest", which
+    # handed unlimited generations to real users called guest@corp.com.
+    is_unlimited = org.credits_remaining is None
+    if is_unlimited:
         logger.info(
-            "Credit gating skipped (unlimited) user=%s org=%s action=%s cost=%s",
-            user_email,
+            "Credit gating skipped (unlimited plan) user=%s org=%s action=%s cost=%s",
+            getattr(user, "email", ""),
             org.id,
             action,
             cost,

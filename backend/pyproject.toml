@@ -29,7 +29,6 @@ module = [
   "langchain_core.*",
   "langgraph.*",
   "jwt.*",
-  "passlib.*",
   "sse_starlette.*",
   "pgvector.*",
   "slowapi.*",

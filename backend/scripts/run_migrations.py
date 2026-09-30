@@ -2,7 +2,7 @@
 
 Only the primary web container runs this on startup; the advisory lock keeps
 concurrent instances from racing migrations. Uses non-blocking pg_try_advisory_lock
-with bounded retries and timeouts to prevent startup hangs.
+with bounded retries and fails startup if the lock or migration cannot complete.
 """
 
 from __future__ import annotations
@@ -73,7 +73,7 @@ def main() -> int:
             return res.returncode
         except Exception as exc:
             print(f"[run_migrations] Migration check failed: {exc}", flush=True)
-            return 0
+            return 1
 
     url = normalize_database_url(raw_url)
     conn = None
@@ -103,10 +103,10 @@ def main() -> int:
         if not acquired:
             print(
                 f"[run_migrations] Migration lock held for >{MAX_LOCK_WAIT_SECONDS}s. "
-                "Assuming another instance is applying migrations; proceeding to start server.",
+                "Cannot safely start while another instance may be applying migrations.",
                 flush=True,
             )
-            return 0
+            return 1
 
         print(
             "[run_migrations] Migration lock acquired. Running alembic upgrade head...", flush=True
@@ -121,16 +121,16 @@ def main() -> int:
 
     except subprocess.TimeoutExpired:
         print(
-            f"[run_migrations] Alembic timed out after {ALEMBIC_TIMEOUT_SECONDS}s; proceeding to start server.",
+            f"[run_migrations] Alembic timed out after {ALEMBIC_TIMEOUT_SECONDS}s; aborting startup.",
             flush=True,
         )
-        return 0
+        return 1
     except Exception as exc:
         print(
-            f"[run_migrations] Warning: migration check failed ({exc}); proceeding to start server.",
+            f"[run_migrations] Migration check failed ({exc}); aborting startup.",
             flush=True,
         )
-        return 0
+        return 1
     finally:
         if conn:
             if acquired:

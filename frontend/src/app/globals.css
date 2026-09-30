@@ -1,331 +1,709 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
+/* dark: follows the toggle, and the system setting when nothing is saved. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) {
+      @slot;
+    }
+  }
+}
+
+:root {
+  color-scheme: light dark;
+  --background: light-dark(#ffffff, #0c0c0c);
+  --foreground: light-dark(#171717, #ededed);
+  --surface: light-dark(#f5f5f5, #161616);
+  --border: light-dark(#e5e5e5, #262626);
+  --muted: light-dark(#6b6b6b, #8f8f8f);
+  /* Deeper in light mode so white text on it clears 4.5:1 (5.2 vs 3.9). */
+  --danger: light-dark(#ce2c31, #e5484d);
+  /* Red pen ink for hand-drawn annotations, like the "new" mark. Kept apart
+     from danger so neither changes the other's meaning. */
+  --marker: light-dark(#d93d31, #ff6b5f);
+  /* Keyboard focus: the text colour at about a third, so it's clearly
+     there without a hard black line. Still over 3:1 against the page. */
+  --focus-ring: light-dark(oklch(0.2 0 0 / 0.38), oklch(0.95 0 0 / 0.45));
+  --shadow-raised:
+    0 0 0 1px light-dark(oklch(0 0 0 / 0.06), oklch(1 0 0 / 0.08)),
+    0 1px 2px light-dark(oklch(0 0 0 / 0.06), oklch(0 0 0 / 0.4)),
+    0 6px 16px -6px light-dark(oklch(0 0 0 / 0.12), oklch(0 0 0 / 0.6));
+  --shadow-wheel:
+    inset 0 1px 2px light-dark(oklch(0 0 0 / 0.08), oklch(0 0 0 / 0.5)),
+    inset 0 0 0 1px light-dark(oklch(0 0 0 / 0.04), oklch(1 0 0 / 0.04));
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+@theme inline {
+  /* One corner radius for controls. The hand-written screens were written
+     against `rounded-sm` while the shared Button and every lab component use
+     `rounded-lg`, which left buttons, inputs and cards each with their own
+     shape. Folding `sm` and `md` up to the `lg` value harmonises ~170 existing
+     call sites without touching any of them; new code should just use
+     `rounded-lg`, and `rounded-full` stays for circles. */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.5rem;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-border-2: var(--border-2);
+  --color-muted: var(--muted);
+  --color-danger: var(--danger);
+  --color-marker: var(--marker);
+  /* Tailwind namespaces for the tokens above, so bg-card, text-popover-foreground
+     and friends resolve instead of falling back to nothing.
+
+     These MUST live inside @theme inline. Tailwind v4 only registers theme
+     tokens declared within an @theme block, so when this sat in the :root body
+     it emitted no utilities at all: bg-popover, bg-card, bg-primary, bg-accent
+     and bg-destructive silently rendered nothing, which is what made menus,
+     dialogs and avatars look transparent. */
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --shadow-raised: var(--shadow-raised);
+  --shadow-wheel: var(--shadow-wheel);
+  --ease-sutra: var(--ease-sutra);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* The theme toggle drives this with a clip-path reveal instead. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Tailwind v4 makes a bare `border` inherit `currentColor`, so every element
+   that set a width without naming a colour drew a hairline in its own text
+   colour -- a near-black edge next to the ones written
+   `border-[var(--border)]`. That is the mixed-weight borders across the app.
+   Defaulting to the token instead means `border` alone is correct; an explicit
+   `border-<colour>` utility still wins, so the 190 call sites that already name
+   a colour and the 13 deliberate `border-transparent` are unaffected. */
 @layer base {
-  :root {
-    /* SUTRA Color Palette */
-    --sutra-warm-ivory: #FAF8F3;
-    --sutra-soft-cream: #F4F0E8;
-    --sutra-charcoal: #171A1C;
-    --sutra-muted-gold: #B08A4A;
-    --sutra-deep-gold: #8E6D38;
-    --sutra-warm-gray: #77736B;
-    --sutra-border: #E5DED1;
-    --sutra-surface: #FFFFFF;
-    
-    /* Semantic mapping for light theme dashboard */
-    --bg: var(--sutra-warm-ivory);
-    --bg-2: var(--sutra-surface);
-    --bg-3: var(--sutra-soft-cream);
-    --border: var(--sutra-border);
-    --border-2: #DCD5C5;
-    --text: var(--sutra-charcoal);
-    --text-2: var(--sutra-warm-gray);
-    --text-3: #9F9A91;
-    --accent: var(--sutra-deep-gold);
-    --accent-dim: #8E6D381A;
-    
-    /* System statuses */
-    --green: #2F8A4B;
-    --red: #C53B3B;
-    --amber: #B08A4A;
-  }
-
-  /* Landing page specific deep theme mapping (can be applied via a .dark or .sutra-landing class) */
-  .sutra-landing {
-    --bg: var(--sutra-charcoal);
-    --bg-2: #1D2123;
-    --bg-3: #24292B;
-    --border: #2D3336;
-    --border-2: #3E464A;
-    --text: var(--sutra-warm-ivory);
-    --text-2: var(--sutra-warm-gray);
-    --accent: var(--sutra-muted-gold);
-    --accent-dim: #B08A4A1A;
-  }
-
-  * {
+  *,
+  ::before,
+  ::after {
     border-color: var(--border);
-    box-sizing: border-box;
-  }
-
-  html {
-    scroll-behavior: smooth;
-    scrollbar-gutter: stable;
-  }
-
-  body {
-    background-color: var(--bg);
-    color: var(--text);
-    font-family: var(--font-inter), system-ui, -apple-system, sans-serif;
-    overflow-x: hidden;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    text-rendering: optimizeLegibility;
-  }
-
-  ::selection {
-    background-color: var(--sutra-muted-gold);
-    color: var(--sutra-warm-ivory);
-  }
-
-  :focus-visible {
-    outline: 2px solid var(--sutra-muted-gold);
-    outline-offset: 2px;
   }
 }
 
-/* ── SUTRA Surfaces & Layout ────────────────────────────── */
-.sutra-surface {
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  box-shadow: 0 1px 3px rgba(23, 26, 28, 0.02);
+@keyframes ul-draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
 }
 
-.sutra-card {
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(23, 26, 28, 0.04);
-}
-
-.sutra-card:hover {
-  box-shadow: 0 8px 24px rgba(23, 26, 28, 0.08);
-  transform: translateY(-2px);
-  border-color: var(--border-2);
-}
-
-.sutra-section {
-  padding: 48px 24px;
-}
-
-/* ── SUTRA Typography & Elements ───────────────────────── */
-.sutra-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-weight: 600;
-  color: var(--text-2);
-}
-
-.sutra-gold {
-  color: var(--sutra-muted-gold);
-}
-
-.sutra-border {
-  border: 1px solid var(--border);
-}
-
-/* ── Status dots ────────────────────────────────── */
-.dot-green  { width: 6px; height: 6px; border-radius: 9999px; background: var(--green); }
-.dot-amber  { width: 6px; height: 6px; border-radius: 9999px; background: var(--amber); }
-.dot-red    { width: 6px; height: 6px; border-radius: 9999px; background: var(--red);   }
-
-/* ── Button primitives ──────────────────────────── */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 20px;
-  border-radius: 2px; /* Precision geometric radius */
-  font-size: 13px;
-  font-weight: 500;
-  transition: all 0.2s ease;
-  cursor: pointer;
-  border: 1px solid transparent;
-  text-decoration: none;
-}
-
-.btn-primary {
-  background: var(--sutra-charcoal);
-  color: var(--sutra-warm-ivory);
-  border-color: var(--sutra-charcoal);
-}
-.btn-primary:hover { background: #262B2E; }
-.btn-primary:active { background: #171A1C; transform: scale(0.98); }
-.btn-primary:disabled { opacity: 0.45; pointer-events: none; }
-
-.btn-secondary {
-  background: var(--bg-2);
-  color: var(--text);
-  border: 1px solid var(--border);
-}
-.btn-secondary:hover { border-color: var(--sutra-muted-gold); }
-
-.btn-ghost {
-  background: transparent;
-  color: var(--text-2);
-  border-color: transparent;
-}
-.btn-ghost:hover { color: var(--text); }
-
-.sutra-landing .btn-primary {
-  background: var(--sutra-warm-ivory);
-  color: var(--sutra-charcoal);
-  border-color: var(--sutra-warm-ivory);
-}
-.sutra-landing .btn-primary:hover { background: var(--sutra-soft-cream); }
-
-.sutra-landing .btn-secondary {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--sutra-warm-ivory);
-  border-color: var(--border);
-}
-.sutra-landing .btn-secondary:hover { border-color: var(--sutra-muted-gold); background: rgba(255, 255, 255, 0.1); }
-
-/* ── Grid / Motif pattern ───────────────────────── */
-.bg-sutra-grid {
-  background-image:
-    linear-gradient(to right, rgba(23, 26, 28, 0.04) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(23, 26, 28, 0.04) 1px, transparent 1px);
-  background-size: 40px 40px;
-}
-.sutra-landing .bg-sutra-grid {
-  background-image:
-    linear-gradient(to right, rgba(250, 248, 243, 0.03) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(250, 248, 243, 0.03) 1px, transparent 1px);
-}
-
-.sutra-motif {
-  position: absolute;
-  width: 1px;
-  height: 100%;
-  background: var(--border);
-  opacity: 0.5;
-}
-.sutra-motif-h {
-  position: absolute;
-  height: 1px;
-  width: 100%;
-  background: var(--border);
-  opacity: 0.5;
-}
-
-/* ── Animations ─────────────────────────────────── */
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(16px); }
-  to   { opacity: 1; transform: translateY(0);   }
-}
-@keyframes fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-@keyframes slide-in-left {
-  from { opacity: 0; transform: translateX(-12px); }
-  to   { opacity: 1; transform: translateX(0);    }
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-.animate-fade-up    { animation: fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; }
-.animate-fade-in    { animation: fade-in 0.5s ease both; }
-.animate-slide-in   { animation: slide-in-left 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
-.animate-spin       { animation: spin 1s linear infinite; }
-
-/* "…"? Skeleton loading primitives "…"? */
-@keyframes sutra-shimmer {
-  from { background-position: 200% 0; }
-  to   { background-position: -200% 0; }
-}
-@keyframes sutra-pulse-soft {
-  0%, 100% { opacity: 0.45; }
-  50%      { opacity: 0.9; }
-}
-
-.skeleton {
-  background-image: linear-gradient(
-    90deg,
-    var(--bg-3) 0%,
-    var(--bg-2) 20%,
-    var(--bg-3) 40%,
-    var(--bg-3) 100%
-  );
-  background-size: 200% 100%;
-  animation: sutra-shimmer 1.4s ease-in-out infinite;
-  border-radius: 2px;
-}
-.skeleton-text {
-  background-image: linear-gradient(
-    90deg,
-    var(--bg-3) 0%,
-    var(--bg-2) 25%,
-    var(--bg-3) 50%,
-    var(--bg-3) 100%
-  );
-  background-size: 200% 100%;
-  animation: sutra-shimmer 1.4s ease-in-out infinite;
-  border-radius: 2px;
-  color: transparent !important;
-  user-select: none;
-}
-.skeleton-pulse { animation: sutra-pulse-soft 1.6s ease-in-out infinite; }
-
-/* Indeterminate sweep shown on the build bar while the pipeline is running but
-   hasn't reported a new percentage for a few seconds. Signals "still working"
-   without inflating the number past what the backend actually reported. */
-@keyframes sutra-indeterminate {
-  from { transform: translateX(-100%); }
-  to   { transform: translateX(400%); }
-}
-.progress-indeterminate {
-  animation: sutra-indeterminate 1.5s cubic-bezier(0.65, 0, 0.35, 1) infinite;
-  background-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    var(--sutra-muted-gold) 50%,
-    transparent 100%
-  );
+.ul-stroke {
+  stroke-dasharray: 1;
+  animation: ul-draw 700ms cubic-bezier(0.65, 0, 0.35, 1) 350ms both;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .skeleton,
-  .skeleton-text,
-  .skeleton-pulse,
-  .progress-indeterminate,
-  .animate-fade-up,
-  .animate-fade-in,
-  .animate-slide-in {
+  .ul-stroke { animation: none; }
+}
+
+/* Many experiments here are press-and-hold. On a phone, a long press on a
+   control would otherwise select its label and pop the text callout or
+   context menu over it. Layered as base, so any utility can still opt a
+   control back in. */
+@layer base {
+  button,
+  [role="button"],
+  [role="slider"],
+  [role="switch"] {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Tailwind v4's preflight resets every border with `border: 0 solid` and
+     no colour, so `border-color` is left to cascade. It inherits from the
+     parent, which means a bare `border` on a light-on-dark element resolves
+     to `currentColor` -- the near-white foreground. That is what draws the
+     stray pale hairlines around cards, panels, inputs and table cells
+     throughout the app.
+
+     Restoring a default here is the whole fix: any element that asks for a
+     border and does not name a colour gets the theme's hairline, and the
+     ~333 explicit `border-<colour>` utilities still override it, since a
+     utility in the utilities layer always beats a base-layer default. */
+  *,
+  ::before,
+  ::after,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--border);
+  }
+
+  /* Divides inherit the same way and read as borders in a table. */
+  hr {
+    border-color: var(--border);
+  }
+}
+
+/* One focus ring for the whole site. Components only say where the ring
+   goes (width and offset); its colour and its arrival live here. Left
+   outside any layer on purpose, so it wins over the per-component colour
+   utilities. It fades in and settles from a little further out, rather
+   than stamping on. An animation, not a transition, so it doesn't fight
+   the transition lists components set for their own motion. */
+:focus-visible,
+:focus-visible::after {
+  outline-color: var(--focus-ring);
+}
+:focus-visible {
+  animation: focus-ring 240ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+:focus-visible::after {
+  animation: focus-ring 240ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@keyframes focus-ring {
+  from {
+    outline-color: transparent;
+    outline-offset: 6px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :focus-visible,
+  :focus-visible::after {
     animation: none;
   }
 }
 
-/* ── Scrollbars ─────────────────────────────────── */
+/* ==========================================================================
+   App additions.
+
+   Everything below exists only because this app already depended on names the
+   theme above does not define. The theme stays the single source of truth for
+   colour: every rule here resolves to one of its tokens, so nothing below
+   carries a hex of its own.
+   ========================================================================== */
+
+:root {
+  /* -- shadcn semantics -----------------------------------------------------
+     The shadcn components (button, card, dialog, sheet, dropdown, input, ...)
+     are written against these names. Mapping them here re-skins the library
+     to this theme without touching a component file. */
+  --card: var(--surface);
+  --card-foreground: var(--foreground);
+  /* Menus, tooltips and popovers float above the page, so they must be the most
+     opaque thing on screen. Pointing these at `--surface` made every panel a
+     pale grey sitting on a white page with a faint ring, which reads as
+     see-through rather than raised. */
+  --popover: light-dark(#ffffff, #1c1c1c);
+  --popover-foreground: var(--foreground);
+  --primary: var(--foreground);
+  --primary-foreground: var(--background);
+  --secondary: var(--surface);
+  --secondary-foreground: var(--foreground);
+  --muted-foreground: var(--muted);
+  --accent: var(--surface);
+  --accent-foreground: var(--foreground);
+  --destructive: var(--danger);
+  --input: var(--border);
+  --ring: var(--focus-ring);
+
+  /* A neutral ramp: this theme has no accent hue to build one from. */
+  --chart-1: var(--foreground);
+  --chart-2: var(--muted);
+  --chart-3: light-dark(#a3a3a3, #5c5c5c);
+  --chart-4: light-dark(#d4d4d4, #3a3a3a);
+  --chart-5: light-dark(#e5e5e5, #262626);
+
+  --radius: 0.25rem;
+
+  /* ui/button.tsx rounds its size variants with min(var(--radius-md), 10|12px)
+     so a large control never looks like a lozenge. Without this the whole
+     declaration is invalid at computed-value time and the radius falls back
+     to whatever the browser default is, which is how small buttons ended up
+     with noticeably rounder corners than large ones. */
+  --radius-md: 0.375rem;
+
+  --sidebar: var(--background);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--foreground);
+  --sidebar-primary-foreground: var(--background);
+  --sidebar-accent: var(--surface);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--focus-ring);
+
+  /* The --color-* namespace for these lives in @theme inline above. */
+
+  /* -- this app's own variable names -----------------------------------------
+     The hand-written screens (dashboard, admin, billing, settings, sandbox,
+     MVP) read these as arbitrary values -- text-[var(--sutra-ink)],
+     bg-[var(--bg-2)] -- in several hundred places. Rather than rewrite every
+     call site, each name is declared here as the token that now means the same
+     thing. Delete a name only once its call sites are gone.
+
+     These are aliases, not palette entries. They exist so the ~500 call sites
+     read as intent ("ink", "raised", "line") instead of the literal colour they
+     resolve to. Three of the old names were `*-gold` and one was `-charcoal`;
+     the palette is monochrome, so those labels described a colour that no
+     longer exists and were renamed rather than left to mislead. */
+  --sutra-canvas: var(--background);
+  --sutra-ink: var(--foreground);
+  --sutra-strong: var(--foreground);
+  --sutra-muted: var(--muted);
+  --sutra-raised: var(--surface);
+  --sutra-line: var(--border);
+
+  --bg: var(--background);
+  --bg-1: var(--background);
+  --bg-2: var(--surface);
+  --bg-3: light-dark(#ebebeb, #1d1d1d);
+  --border-2: light-dark(#d4d4d4, #333333);
+  --text: var(--foreground);
+  --text-1: var(--foreground);
+  --text-2: var(--muted);
+  --text-3: light-dark(#9a9a9a, #6e6e6e);
+  /* --accent is deliberately NOT redeclared here. It is the shadcn hover/selection
+     surface, set to --surface at the top of this :root block. A second
+     `--accent: var(--foreground)` used to sit here; because it came later in the
+     same block it won, which made `focus:bg-accent` in dropdown-menu paint solid
+     foreground while `focus:text-accent-foreground` was also foreground, so a
+     keyboard-focused menu item's label disappeared against its own background.
+     The "accent = foreground" intent belongs to --sutra-strong, which already
+     carries it. */
+  --accent-dim: light-dark(oklch(0 0 0 / 0.06), oklch(1 0 0 / 0.08));
+
+  /* Status colours. The -wash and -edge pairs are the translucent forms, kept
+     as their own tokens so a tinted panel or hairline is one name rather than
+     a color-mix repeated at every call site. */
+  --green: light-dark(#1a7f43, #3fb950);
+  --red: var(--danger);
+  --amber: light-dark(#8a5a00, #d29922);
+  --info: light-dark(#1f5fa8, #58a6ff);
+  --green-wash: light-dark(#1a7f431a, #3fb95026);
+  --green-edge: light-dark(#1a7f4340, #3fb95059);
+  --red-wash: light-dark(#ce2c311a, #e5484d26);
+  --red-edge: light-dark(#ce2c3140, #e5484d59);
+  --amber-wash: light-dark(#8a5a001a, #d2992226);
+  --amber-edge: light-dark(#8a5a0040, #d2992259);
+  --info-wash: light-dark(#1f5fa81a, #58a6ff26);
+  --info-edge: light-dark(#1f5fa840, #58a6ff59);
+
+  /* House motion curve, shared with the framer-motion transitions. */
+  --ease-sutra: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* -- Component classes the hand-written screens use ------------------------- */
+
+* {
+
+    box-sizing: border-box;
+
+    border-color: var(--border);
+  }
+
+  html {
+
+    scroll-behavior: smooth;
+
+    scrollbar-gutter: stable;
+
+  }
+
+
+
+  body {
+
+    background-color: var(--bg);
+
+    color: var(--text);
+
+    font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+
+    overflow-x: hidden;
+
+    -webkit-font-smoothing: antialiased;
+
+    -moz-osx-font-smoothing: grayscale;
+
+    text-rendering: optimizeLegibility;
+
+  }
+
+  ::selection {
+
+    background-color: var(--sutra-strong);
+
+    color: var(--sutra-canvas);
+
+  }
+
+
+/* -- SUTRA Surfaces & Layout ------------------------------ */
+
+.sutra-raised {
+
+  background: var(--bg-2);
+
+  border: 1px solid var(--border);
+
+  box-shadow: var(--shadow-raised);
+
+}
+
+
+.sutra-card {
+
+  background: var(--bg-2);
+
+  border: 1px solid var(--border);
+
+  border-radius: 4px;
+
+  transition: box-shadow 0.2s var(--ease-sutra), transform 0.2s var(--ease-sutra), border-color 0.2s var(--ease-sutra);
+
+  box-shadow: var(--shadow-raised);
+
+}
+
+
+.sutra-card:hover {
+
+  box-shadow: var(--shadow-raised);
+
+  transform: translateY(-2px);
+
+  border-color: var(--border-2);
+
+}
+
+
+.sutra-section {
+
+  padding: 48px 24px;
+
+}
+
+
+/* -- SUTRA Typography & Elements ------------------------- */
+
+.sutra-label {
+
+  font-size: 11px;
+
+  text-transform: uppercase;
+
+  letter-spacing: 0.1em;
+
+  font-weight: 600;
+
+  color: var(--text-2);
+
+}
+
+
+.sutra-strong {
+
+  color: var(--sutra-strong);
+
+}
+
+
+.sutra-line {
+
+  border: 1px solid var(--border);
+
+}
+
+
+/* -- Status dots ---------------------------------- */
+
+.dot-green  { width: 6px; height: 6px; border-radius: 9999px; background: var(--green); }
+
+.dot-amber  { width: 6px; height: 6px; border-radius: 9999px; background: var(--amber); }
+
+.dot-red    { width: 6px; height: 6px; border-radius: 9999px; background: var(--red);   }
+
+
+/* -- Button primitives ---------------------------- */
+
+.sutra-motif {
+
+  position: absolute;
+
+  width: 1px;
+
+  height: 100%;
+
+  background: var(--border);
+
+  opacity: 0.5;
+
+}
+
+.sutra-motif-h {
+
+  position: absolute;
+
+  height: 1px;
+
+  width: 100%;
+
+  background: var(--border);
+
+  opacity: 0.5;
+
+}
+
+
+/* -- Animations ----------------------------------- */
+
+@keyframes fade-up {
+
+  from { opacity: 0; transform: translateY(16px); }
+
+  to   { opacity: 1; transform: translateY(0);   }
+
+}
+
+@keyframes fade-in {
+
+  from { opacity: 0; }
+
+  to   { opacity: 1; }
+
+}
+
+@keyframes slide-in-left {
+
+  from { opacity: 0; transform: translateX(-12px); }
+
+  to   { opacity: 1; transform: translateX(0);    }
+
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+
+.animate-fade-up    { animation: fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+.animate-fade-in    { animation: fade-in 0.5s ease both; }
+
+.animate-slide-in   { animation: slide-in-left 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+.animate-spin       { animation: spin 1s linear infinite; }
+
+
+/* Skeleton loading primitives */
+
+@keyframes sutra-shimmer {
+
+  from { background-position: 200% 0; }
+
+  to   { background-position: -200% 0; }
+
+}
+
+@keyframes sutra-pulse-soft {
+
+  0%, 100% { opacity: 0.45; }
+
+  50%      { opacity: 0.9; }
+
+}
+
+
+.skeleton {
+
+  background-image: linear-gradient(
+
+    90deg,
+
+    var(--bg-3) 0%,
+
+    var(--bg-2) 20%,
+
+    var(--bg-3) 40%,
+
+    var(--bg-3) 100%
+
+  );
+
+  background-size: 200% 100%;
+
+  animation: sutra-shimmer 1.4s ease-in-out infinite;
+
+  border-radius: 2px;
+
+}
+
+.skeleton-text {
+
+  background-image: linear-gradient(
+
+    90deg,
+
+    var(--bg-3) 0%,
+
+    var(--bg-2) 25%,
+
+    var(--bg-3) 50%,
+
+    var(--bg-3) 100%
+
+  );
+
+  background-size: 200% 100%;
+
+  animation: sutra-shimmer 1.4s ease-in-out infinite;
+
+  border-radius: 2px;
+
+  color: transparent !important;
+
+  user-select: none;
+
+}
+
+.skeleton-pulse { animation: sutra-pulse-soft 1.6s ease-in-out infinite; }
+
+
+/* Indeterminate sweep shown on the build bar while the pipeline is running but
+
+   hasn't reported a new percentage for a few seconds. Signals "still working"
+
+   without inflating the number past what the backend actually reported. */
+
+@keyframes sutra-indeterminate {
+
+  from { transform: translateX(-100%); }
+
+  to   { transform: translateX(400%); }
+
+}
+
+.progress-indeterminate {
+
+  animation: sutra-indeterminate 1.5s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+
+  background-image: linear-gradient(
+
+    90deg,
+
+    transparent 0%,
+
+    var(--sutra-strong) 50%,
+
+    transparent 100%
+
+  );
+
+}
+
+
+@media (prefers-reduced-motion: reduce) {
+
+  .skeleton,
+
+  .skeleton-text,
+
+  .skeleton-pulse,
+
+  .progress-indeterminate,
+
+  .animate-fade-up,
+
+  .animate-fade-in,
+
+  .animate-slide-in {
+
+    animation: none;
+
+  }
+
+}
+
+
+/* -- Scrollbars ----------------------------------- */
+
 ::-webkit-scrollbar              { width: 4px; height: 4px; }
+
 ::-webkit-scrollbar-track        { background: transparent; }
+
 ::-webkit-scrollbar-thumb        { background: var(--border-2); border-radius: 0px; }
-::-webkit-scrollbar-thumb:hover  { background: var(--sutra-muted-gold); }
+
+::-webkit-scrollbar-thumb:hover  { background: var(--sutra-strong); }
+
 *                                { scrollbar-width: thin; scrollbar-color: var(--border-2) transparent; }
 
-/* ── Typography helpers ─────────────────────────── */
+
+/* -- Typography helpers --------------------------- */
+
 .text-balance { text-wrap: balance; }
+
 .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
 .mono { font-family: var(--font-geist-mono), 'JetBrains Mono', monospace; }
-.font-serif { font-family: var(--font-playfair), Georgia, serif; }
+
+.font-serif { font-family: var(--font-geist-sans), system-ui, sans-serif; }
+
 .font-sanskrit { font-family: var(--font-sanskrit), serif; }
 
-/* ── Badge ──────────────────────────────────────── */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 2px;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-.badge-green  { background: #2F8A4B1A; color: #2F8A4B; border: 1px solid #2F8A4B33; }
-.badge-amber  { background: var(--accent-dim); color: var(--sutra-deep-gold); border: 1px solid var(--sutra-muted-gold); }
-.badge-red    { background: #C53B3B1A; color: #C53B3B; border: 1px solid #C53B3B33; }
-.badge-blue   { background: var(--accent-dim); color: var(--sutra-deep-gold); border: 1px solid var(--sutra-muted-gold); }
-.badge-gray   { background: var(--bg-2); color: var(--text-2); border: 1px solid var(--border); }
 
-/* ── RTL (Arabic / Urdu / Persian / Hebrew) ─────── */
+/* -- RTL (Arabic / Urdu / Persian / Hebrew) ------- */
+
 [dir="rtl"] .sutra-label,
+
 [dir="rtl"] .mono,
+
 [dir="rtl"] input,
+
 [dir="rtl"] textarea { text-align: right; }
+
 [dir="rtl"] .ml-auto { margin-left: 0; margin-right: auto; }
-.sutra-surface,
+
+.sutra-raised,
+
 .sutra-card,
+
 .bg-sutra-grid { background-position: right top; }

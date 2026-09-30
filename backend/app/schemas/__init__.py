@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 # ── Ingestion ──────────────────────────────────────
 
@@ -20,23 +20,9 @@ class UrlParseRequest(BaseModel):
 
 
 # ── Auth ──────────────────────────────────────────
-
-
-class UserRegister(BaseModel):
-    email: EmailStr
-    full_name: str = Field(..., min_length=2, max_length=255)
-    password: str = Field(..., min_length=8, max_length=128)
-    org_name: str = Field(..., min_length=2, max_length=255)
-
-
-class UserLogin(BaseModel):
-    email: EmailStr
-    password: str
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+# There are no credential schemas any more. Registration, login, password
+# reset and social connection all happen inside Auth0's Universal Login, and
+# the API only ever reads the resulting bearer token.
 
 
 class UserResponse(BaseModel):
@@ -45,7 +31,8 @@ class UserResponse(BaseModel):
     full_name: str
     role: str
     org_id: UUID | None = None
-    auth_provider: str = "local"
+    auth_provider: str = "auth0"
+    email_verified: bool = False
     is_anonymous: bool = False
     created_at: datetime
 
@@ -53,38 +40,17 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 
-class SocialProvidersResponse(BaseModel):
-    """List of fully configured social OAuth providers and anonymous auth status."""
-
-    providers: list[str] = Field(default_factory=list)
-    allow_anonymous: bool = True
-
-
-class AnonymousAuthResponse(BaseModel):
-    """Token response returned when creating a throwaway demo identity."""
-
-    access_token: str
-    token_type: str = "bearer"
-    is_anonymous: bool = True
-    credits_remaining: int | None = None
-    user: UserResponse
-
-
-class UpgradeAnonymousRequest(BaseModel):
-    """Converts a temporary anonymous account to a permanent registered account."""
-
-    email: EmailStr
-    password: str = Field(..., min_length=8, max_length=128)
-    full_name: str = Field(..., min_length=2, max_length=255)
-    org_name: str | None = None
-
-
 class UserSettingsUpdate(BaseModel):
-    """Profile settings used for deployments (tokens kept server-side only)."""
+    """Profile settings used for deployments (tokens kept server-side only).
 
-    github_token: str | None = Field(None, min_length=1, max_length=1000)
-    render_api_key: str | None = Field(None, min_length=1, max_length=1000)
-    vercel_token: str | None = Field(None, min_length=1, max_length=1000)
+    An empty string clears the stored value; omitting the field leaves it
+    untouched. That distinction is what lets the settings form show a
+    placeholder without wiping a secret the user cannot see.
+    """
+
+    github_token: str | None = Field(None, max_length=1000)
+    render_api_key: str | None = Field(None, max_length=1000)
+    vercel_token: str | None = Field(None, max_length=1000)
 
 
 # ── Organization ──────────────────────────────────

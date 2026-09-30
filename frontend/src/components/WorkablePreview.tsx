@@ -244,12 +244,12 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
       {/* Top Banner: Workable System Status */}
       <div className="p-5 border-b border-[var(--border)] bg-[var(--bg)] flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="w-10 h-10 border border-[var(--sutra-muted-gold)] text-[var(--sutra-muted-gold)] flex items-center justify-center">
+          <div className="w-10 h-10 border border-[var(--sutra-strong)] text-[var(--sutra-strong)] flex items-center justify-center">
             <Database className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center gap-3">
-              <h3 className="font-serif text-lg text-[var(--sutra-charcoal)]">Application Runtime</h3>
+              <h3 className="font-serif text-lg text-[var(--sutra-ink)]">Application Runtime</h3>
               <div className="flex items-center gap-1.5 badge badge-green">
                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--green)] animate-pulse" />
                 Live Schema
@@ -267,7 +267,7 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
             disabled={seeding}
             className="flex items-center gap-2 btn btn-secondary"
           >
-            {seeding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-[var(--sutra-muted-gold)]" />}
+            {seeding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-[var(--sutra-strong)]" />}
             <span>Seed Synthetic Records</span>
           </button>
 
@@ -299,7 +299,7 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
                 }}
                 className={`px-4 py-1.5 text-[11px] uppercase tracking-widest font-semibold transition-colors border ${
                   selectedModule === mod.name
-                    ? 'bg-[var(--bg)] text-[var(--sutra-charcoal)] border-[var(--border)] shadow-sm'
+                    ? 'bg-[var(--bg)] text-[var(--sutra-ink)] border-[var(--border)] shadow-sm'
                     : 'bg-transparent text-[var(--text-2)] border-transparent hover:text-[var(--text)]'
                 }`}
               >
@@ -321,8 +321,8 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
                 }}
                 className={`px-3 py-1.5 text-[12px] font-medium transition-colors border-b-2 ${
                   selectedEntity === ent.name
-                    ? 'border-[var(--sutra-muted-gold)] text-[var(--sutra-charcoal)]'
-                    : 'border-transparent text-[var(--text-2)] hover:text-[var(--sutra-charcoal)]'
+                    ? 'border-[var(--sutra-strong)] text-[var(--sutra-ink)]'
+                    : 'border-transparent text-[var(--text-2)] hover:text-[var(--sutra-ink)]'
                 }`}
               >
                 {ent.label}
@@ -335,13 +335,13 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
       {/* Action Toolbar */}
       <div className="px-5 py-4 flex items-center justify-between gap-4 bg-[var(--bg)] border-b border-[var(--border)]">
         <div className="relative flex-1 max-w-sm group">
-          <Search className="w-4 h-4 text-[var(--text-3)] absolute left-3 top-1/2 -translate-y-1/2 group-focus-within:text-[var(--sutra-muted-gold)] transition-colors" />
+          <Search className="w-4 h-4 text-[var(--text-3)] absolute left-3 top-1/2 -translate-y-1/2 group-focus-within:text-[var(--sutra-strong)] transition-colors" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={`Search ${activeEntity?.label || 'records'}...`}
-            className="w-full pl-10 pr-4 py-2 bg-[var(--bg-2)] border border-[var(--border)] text-[13px] text-[var(--text)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors"
+            className="w-full pl-10 pr-4 py-2 bg-[var(--bg-2)] border border-[var(--border)] text-[13px] text-[var(--text)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-strong)] transition-colors"
           />
         </div>
 
@@ -379,7 +379,7 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
                             {row[f.name] ? 'True' : 'False'}
                           </span>
                         ) : (
-                          <span className="font-medium text-[var(--sutra-charcoal)]">{row[f.name] !== undefined ? String(row[f.name]) : '-'}</span>
+                          <span className="font-medium text-[var(--sutra-ink)]">{row[f.name] !== undefined ? String(row[f.name]) : '-'}</span>
                         )}
                       </td>
                     ))}
@@ -400,7 +400,7 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
         ) : (
           <div className="h-64 flex flex-col items-center justify-center text-center space-y-4 text-[var(--text-2)] border border-[var(--border)] border-dashed bg-[var(--bg)] m-4">
             <Database className="w-8 h-8 text-[var(--text-3)]" />
-            <p className="text-[13px] font-medium text-[var(--sutra-charcoal)]">No records found in this operational table.</p>
+            <p className="text-[13px] font-medium text-[var(--sutra-ink)]">No records found in this operational table.</p>
             <button
               onClick={handleSeedSynthetic}
               className="btn btn-secondary text-xs mt-2"
@@ -415,10 +415,10 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
       {showApiDrawer && (
         <div className="absolute bottom-0 left-0 w-full p-6 border-t border-[var(--border)] bg-[var(--bg-2)] shadow-[0_-10px_40px_rgba(23,26,28,0.1)] z-20 transform transition-transform animate-fade-up">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-[11px] uppercase tracking-widest font-semibold text-[var(--sutra-charcoal)]">REST API Endpoint (Live)</span>
-            <button onClick={() => setShowApiDrawer(false)} className="text-[var(--text-2)] hover:text-[var(--sutra-charcoal)] text-[10px] uppercase tracking-widest font-semibold">Close</button>
+            <span className="text-[11px] uppercase tracking-widest font-semibold text-[var(--sutra-ink)]">REST API Endpoint (Live)</span>
+            <button onClick={() => setShowApiDrawer(false)} className="text-[var(--text-2)] hover:text-[var(--sutra-ink)] text-[10px] uppercase tracking-widest font-semibold">Close</button>
           </div>
-          <div className="p-4 bg-[var(--sutra-charcoal)] border border-[var(--border)] text-[var(--sutra-muted-gold)] font-mono text-xs select-all overflow-x-auto">
+          <div className="p-4 bg-[var(--sutra-ink)] border border-[var(--border)] text-[var(--sutra-strong)] font-mono text-xs select-all overflow-x-auto">
             GET /api/v1/workable/{solutionId}/{selectedModule}/{selectedEntity}
           </div>
         </div>
@@ -426,9 +426,9 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
 
       {/* Add Record Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-[var(--sutra-charcoal)]/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 bg-[var(--sutra-ink)]/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
           <div className="w-full max-w-md bg-[var(--bg)] border border-[var(--border)] p-8 shadow-2xl space-y-6">
-            <h4 className="text-xl font-serif text-[var(--sutra-charcoal)] border-b border-[var(--border)] pb-4">
+            <h4 className="text-xl font-serif text-[var(--sutra-ink)] border-b border-[var(--border)] pb-4">
               Create New {activeEntity?.label}
             </h4>
 
@@ -444,7 +444,7 @@ export default function WorkablePreview({ solutionId }: WorkablePreviewProps) {
                     value={formData[f.name] || ''}
                     onChange={(e) => setFormData({ ...formData, [f.name]: f.type === 'number' ? Number(e.target.value) : e.target.value })}
                     placeholder={`Enter ${f.name}...`}
-                    className="w-full px-4 py-2.5 bg-[var(--bg-2)] border border-[var(--border)] text-[13px] text-[var(--text)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors"
+                    className="w-full px-4 py-2.5 bg-[var(--bg-2)] border border-[var(--border)] text-[13px] text-[var(--text)] focus:outline-none focus:border-[var(--sutra-strong)] transition-colors"
                   />
                 </div>
               ))}

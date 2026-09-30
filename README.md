@@ -425,20 +425,12 @@ generated code is visible instantly).
 > running to process queued builds. If running the backend locally outside Docker without
 > the worker daemon, set `WORKER_MODE=inline` in your `.env` so builds execute directly.
 
-> **Production guard:** the backend image boots as `APP_ENV=production` and refuses
-> to start unless `JWT_SECRET_KEY` is a strong, unique secret (≥ 32 chars). Set one
-> in your `.env` before `docker compose up` — the placeholder in `.env.example` will
-> fail fast with a clear message. On boot it also runs `alembic upgrade head`
-> automatically, so schema migrations apply before the server accepts traffic.
+> **Production guard:** with `APP_ENV=production`, the API requires Auth0 (`AUTH0_DOMAIN`,
+> `AUTH0_AUDIENCE`) and `SECRET_ENCRYPTION_KEY`. Anonymous and dev bypass authentication
+> are disabled. Database migration failures abort startup rather than serving against
+> a stale schema.
 
-### 3. (Optional) Seed a demo account
-```bash
-cd backend
-python scripts/seed_demo.py
-# demo@aibuilder.example / DemoPass123!  — a Free-plan demo org + workspace
-```
-
-### 4. Try an MVP build end-to-end
+### 3. Try an MVP build end-to-end
 1. Log in and create a workspace/solution, then generate its artifacts (Phases 1–3).
 2. `GET /api/v1/mvp/templates` → pick a template (`todo`, `calculator`, `portfolio`).
 3. `POST /api/v1/mvp/{solution_id}/build` with `{"template": "todo", "app_name": "…"}`.
@@ -450,11 +442,12 @@ python scripts/seed_demo.py
 
 ## 🌐 Deployment
 
-The repo is deployable today as a **single instance** and has Phase-0 pre-flight
-hardening built in:
+The repo has a single-instance Render blueprint and a separate Fly.io configuration.
+Neither has been deployed from this checkout; configure and verify the provider accounts
+and external data stores before launch:
 
-- **JWT secret guard** — the backend refuses to boot when `APP_ENV=production`
-  unless `JWT_SECRET_KEY` is unique and ≥ 32 chars (see `backend/app/core/config.py`).
+- **Auth0 production guard** — the backend refuses to boot unless Auth0 issuer/audience
+  and the separate deploy-secret encryption key are configured.
 - **Migrations on boot** — the backend image runs `alembic upgrade head` before
   starting uvicorn (`backend/docker-entrypoint.sh`).
 - **Frontend image** — `frontend/Dockerfile` builds a standalone Next.js output
@@ -463,36 +456,46 @@ hardening built in:
 - **Health checks** — `/health`, `/ready`, `/metrics` on the backend; the compose
   healthchecks gate frontend → backend → postgres/redis/opencode startup ordering.
 
+The checked-in Render blueprint runs the unified `app.Dockerfile` image. It keeps
+Next.js, FastAPI, OpenCode, and inline MVP build execution together so generated files
+are visible to the API, and attaches `/workspace` to a persistent disk. PostgreSQL with
+pgvector and Redis remain external managed services. This is a single-instance design;
+the persistent disk prevents horizontal scaling. For independent API/worker scaling,
+move build artifacts to shared object storage before separating those processes.
+
+For Vercel frontend deployments, configure `BACKEND_URL` as a server-side environment
+variable so Next.js rewrites `/api/*` to the API origin. Set the exact frontend origin in
+backend `CORS_ORIGINS`; production no longer allows arbitrary `*.vercel.app` or
+`*.onrender.com` origins.
+
 Recommended production topology:
 
 1. **Serverless Data Stores (Zero instance management)**:
    - **PostgreSQL + pgvector**: [Neon](https://neon.tech/) serverless PostgreSQL with native `pgvector` support and scale-to-zero compute. Raw connection URLs (`postgresql://...sslmode=require`) are normalized automatically to `postgresql+asyncpg://` with `ssl=require`.
    - **Cache & Queue**: [Upstash Redis](https://upstash.com/) serverless Redis with TLS (`rediss://`).
 2. **Application Services**:
-   - Backend API (`uvicorn`), Background Build Worker (`app.worker`), and OpenCode sidecar (`opencode serve`) co-located on Render or Fly.io.
-   - Frontend on Vercel (zero-config) or the `frontend/` standalone Docker image.
+   - Use the unified Render blueprint, or deploy frontend/backend separately after configuring the API proxy and exact CORS origin.
 
 ### Production Deployment Blueprints
 
 The repository includes ready-to-deploy root manifests:
 
 1. **Render (`render.yaml`)**:
-   - 2-service production topology (Render containers can't reach each other's
-     `127.0.0.1`, so each service that builds **runs its own sidecar in-container**):
-     - `ai-solution-builder-app`: Public web service (FastAPI + `opencode serve`
-       at `127.0.0.1:4096`, `ENABLE_OPENCODE_SIDECAR=true`, `/ready` health check);
-       connects to Neon & Upstash.
-     - `ai-solution-builder-builder`: Background worker service running `app.worker`
-       plus its own `opencode serve` on the same localhost.
-   - LLM keys: set `OPENCODE_ZEN_API_KEY` (secret, https://opencode.ai/zen) in **both**
-     services for the default `opencode/big-pickle` model; alternatively set
-     `OPENCODE_MODEL=groq/openai/gpt-oss-120b` and use `GROQ_API_KEY`.
-   - `/workspace` is per-container **ephemeral disk** (wiped on redeploy). Generated
-     code is packaged and summarized immediately; set `STORAGE_BACKEND=cloudinary`
-     with credentials for durable ZIP/build-artifact retention.
-   - Free-tier instances sleep and can exceed build timeouts — use a paid plan for
-     always-on sidecar builds. `keep_alive` CI pings the app to reduce cold starts.
-   - Continuous deployment triggered automatically or via Render Blueprint sync.
+   - One paid web service using `app.Dockerfile`, with a persistent `/workspace` disk,
+     inline builds, and `/ready` health checks.
+   - Required values: `DATABASE_URL` (Postgres with pgvector), `REDIS_URL`,
+     `AUTH0_DOMAIN`, `AUTH0_AUDIENCE`, `SECRET_ENCRYPTION_KEY`, `GROQ_API_KEY`,
+     `OPENCODE_ZEN_API_KEY` (for the configured OpenCode Zen model), and the
+     frontend build values `NEXT_PUBLIC_AUTH0_DOMAIN`, `NEXT_PUBLIC_AUTH0_CLIENT_ID`,
+     and `NEXT_PUBLIC_AUTH0_AUDIENCE`.
+   - `NEXT_PUBLIC_*` values are public and embedded into the frontend during the
+     image build; changing them triggers a rebuild. Keep provider secrets server-side.
+   - If the existing database contains credentials encrypted with the old
+     `JWT_SECRET_KEY`, keep that same value configured alongside the new
+     `SECRET_ENCRYPTION_KEY` during migration. The app can then decrypt old values
+     and re-encrypt them on save; remove the old key after the vault is migrated.
+   - If you add a custom domain, update `FRONTEND_URL`, `CORS_ORIGINS`, and the Auth0
+     Allowed Callback, Logout, and Web Origins values to that exact origin.
 
 2. **Container Registry (GHCR)**:
    - Multi-stage, Dockle security-scanned production images published to **GitHub Container Registry** on `main` pushes:
