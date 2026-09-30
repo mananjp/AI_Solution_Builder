@@ -35,15 +35,16 @@ function cspDirectives(): string[] {
 
   return [
     "default-src 'self'",
-    `script-src 'self' 'unsafe-inline' https://checkout.razorpay.com${isDev ? " 'unsafe-eval'" : ""}`,
+    `script-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://*.razorpay.com${isDev ? " 'unsafe-eval'" : ""}`,
+    `script-src-elem 'self' 'unsafe-inline' https://checkout.razorpay.com https://*.razorpay.com${isDev ? " 'unsafe-eval'" : ""}`,
     // Shiki injects a <style> per token, and the theme-toggle and skill
     // components set inline styles, so inline style has to be permitted.
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: https:",
+    "img-src 'self' data: blob: https: https://*.razorpay.com",
     "font-src 'self' data:",
-    `connect-src ${connect.join(" ")} https://lumberjack.razorpay.com https://api.razorpay.com`,
+    `connect-src ${connect.join(" ")} https://lumberjack.razorpay.com https://lumberjack-cx.razorpay.com https://api.razorpay.com https://*.razorpay.com`,
     // Razorpay checkout renders its payment form in an iframe.
-    "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com",
+    "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com https://*.razorpay.com",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",

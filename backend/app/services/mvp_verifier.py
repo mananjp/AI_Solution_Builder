@@ -408,3 +408,43 @@ async def verify_and_repair(
         errors=errors,
         report=report,
     )
+
+
+def verify_mvp_quality(workspace_dir: Path, spec: Any = None) -> list[str]:
+    """Audit build for visual quality, real imagery, and zero leftover scaffolding placeholders."""
+    workspace_dir = Path(workspace_dir)
+    app_dir = workspace_dir / "frontend" / "src" / "app"
+    issues: list[str] = []
+
+    if not app_dir.exists():
+        return ["frontend/src/app directory is missing"]
+
+    # 1. Search for raw scaffold placeholders
+    placeholder_patterns = [
+        ("__APP_TITLE__", "Raw app title placeholder"),
+        ("__MODULE_LINKS__", "Raw module links placeholder"),
+        ("Lorem ipsum", "Lorem ipsum filler text"),
+    ]
+
+    has_image = False
+    for tsx in app_dir.rglob("*.tsx"):
+        try:
+            content = tsx.read_text(encoding="utf-8", errors="replace")
+            for token, msg in placeholder_patterns:
+                if token in content:
+                    issues.append(f"{tsx.relative_to(workspace_dir)}: Contains {msg}")
+            if "<img" in content or "Image" in content or "image_url" in content or "unsplash" in content:
+                has_image = True
+        except Exception:
+            pass
+
+    # 2. Check visual app kinds for imagery requirement
+    visual_kinds = {"landing", "catalog", "portfolio", "marketplace"}
+    app_kind = getattr(spec, "app_kind", "") if spec else ""
+    if app_kind in visual_kinds and not has_image:
+        credits_file = workspace_dir / "CREDITS.json"
+        if not credits_file.exists():
+            issues.append(f"Visual application kind '{app_kind}' has no image assets or CREDITS.json configured")
+
+    return issues
+

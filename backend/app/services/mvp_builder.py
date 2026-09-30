@@ -3051,208 +3051,31 @@ async def run_build(
     allow_offline: bool = False,
     progress_cb: Callable[[int, int, str], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
-    """Run an OpenCode MVP build synchronously. Returns build result metadata.
-
-    ``progress_cb(idx, percentage, message)`` is awaited at each pipeline stage
-    (analyzing → scaffolding → coding → verifying → packaging) so callers can
-    persist live progress for the UI.
-    """
-    if not allow_offline and not await health():
-        raise MVPBuilderError(
-            "OpenCode sidecar is unreachable. Ensure the opencode service is running."
-        )
-
-    async def _notify(step_idx: int, percentage: int, message: str) -> None:
-        if progress_cb is not None:
-            await progress_cb(step_idx, percentage, message)
-
-    from app.services.app_spec import AppSpec, generate_app_spec
-
-    spec_data = ai_state.get("app_spec")
-    spec: AppSpec | None = None
-    if isinstance(spec_data, dict):
-        try:
-            spec = AppSpec.model_validate(spec_data)
-        except Exception:
-            spec = None
-    if spec is None:
-        effective_prompt = (
-            user_prompt
-            or ai_state.get("user_message", "")
-            or ai_state.get("business_description", "")
-            or title
-            or "Custom Application"
-        )
-        effective_uploaded = uploaded_context or ai_state.get("uploaded_context", "") or ""
-        effective_history = conversation_history or ai_state.get("conversation_history") or None
-        try:
-            spec = await generate_app_spec(
-                ai_state,
-                effective_prompt,
-                uploaded_context=effective_uploaded,
-                conversation_history=effective_history,
-            )
-            ai_state["app_spec"] = spec.model_dump()
-            logger.info(
-                "Generated AppSpec '%s' for run_build (solution=%s)", spec.app_name, solution_id
-            )
-        except Exception as exc:
-            logger.warning("generate_app_spec bypassed (%s); generating fallback AppSpec", exc)
-            from app.services.app_spec import fallback_app_spec
-
-            spec = fallback_app_spec(
-                ai_state,
-                effective_prompt,
-                uploaded_context=effective_uploaded,
-                conversation_history=effective_history,
-            )
-            ai_state["app_spec"] = spec.model_dump()
-
-    if spec is None:
-        from app.services.app_spec import fallback_app_spec
-
-        spec = fallback_app_spec(
-            ai_state,
-            title or "Custom Application",
-            uploaded_context=uploaded_context,
-            conversation_history=conversation_history,
-        )
-        ai_state["app_spec"] = spec.model_dump()
+    """Run an OpenCode MVP build via unified build orchestrator."""
+    from app.services.build_orchestrator import BuildContext, run_build_pipeline
 
     target_dir = _container_target(solution_id, build_number)
     local_dir = build_workspace_dir(solution_id, build_number)
 
-    app_title = title or (
-        spec.app_name
-        if spec
-        else (ai_state.get("solution_title") or ai_state.get("business_description") or "MVP")
-    )
-    modules = (
-        [e.name for e in spec.entities]
-        if spec
-        else (ai_state.get("confirmed_modules") or ai_state.get("identified_solutions", []))
-    )
-    scaffold_build(
-        local_dir,
-        app_title=app_title,
-        inject_modules=[str(m) for m in modules],
+    async def _adapt_progress(phase: str, step_idx: int, pct: int, msg: str) -> None:
+        if progress_cb is not None:
+            await progress_cb(step_idx, pct, msg)
+
+    ctx = BuildContext(
+        solution_id=solution_id,
+        build_number=build_number,
+        workspace_dir=local_dir,
+        target_dir=target_dir,
         ai_state=ai_state,
-        spec=spec,
+        user_prompt=user_prompt or title or "",
+        uploaded_context=uploaded_context,
+        conversation_history=conversation_history,
+        progress_cb=_adapt_progress,
+        check_npm=check_npm,
+        allow_offline=allow_offline,
     )
-    arch_name = (
-        "Next.js Fullstack"
-        if (spec and getattr(spec, "architecture", "") == "next_fullstack")
-        else "FastAPI + Next.js Unified"
-    )
-    await _notify(1, 40, f"Scaffolded full-stack codebase ({arch_name})...")
+    return await run_build_pipeline(ctx)
 
-    prompt = build_mvp_prompt(spec if spec else ai_state, target_dir, app_title=title)
-    await _notify(0, 10, "Analyzing solution artifacts and build plan...")
-
-    session_id: str = "auto-synthesized"
-    sidecar_seed = str(solution_id)
-    sidecar_ok = await health()
-    quality: dict[str, Any] | None = None
-    sidecar_url: str | None = None
-    await _notify(2, 60, "Synthesizing domain models, APIs, and UI...")
-    if sidecar_ok:
-        try:
-            session_id = await create_session(
-                f"MVP Build - {title or solution_id}", seed=sidecar_seed
-            )
-            sidecar_url = _sidecar_base_by_session.get(session_id)
-            logger.info(
-                "Starting MVP build for solution=%s (session=%s, sidecar=%s)",
-                solution_id,
-                session_id,
-                sidecar_url,
-            )
-            response = await send_build_prompt(session_id, prompt, seed=sidecar_seed)
-            logger.info(
-                "MVP build finished for solution=%s (session=%s, %s)",
-                solution_id,
-                session_id,
-                response.get("info") and response["info"].get("error", "ok"),
-            )
-
-            # Verification Checkpoint & Bounded Repair Turn
-            await _notify(3, 85, "Verifying generated code & repairing issues...")
-            from app.services.mvp_verifier import verify_and_repair
-
-            verification = await verify_and_repair(
-                local_dir,
-                session_id=session_id,
-                target_dir=target_dir,
-                send_prompt_fn=lambda s, t: send_build_prompt(s, t, seed=sidecar_seed),
-                check_npm=check_npm,
-            )
-            if spec:
-                tests = verification.get("tests") or {}
-                quality = {
-                    "tests_passed": int(tests.get("passed", 0)),
-                    "tests_failed": int(tests.get("failed", 0)),
-                    "repair_turns": int(verification.get("repair_turns", 0)),
-                    "actions": [a.name for a in spec.actions],
-                }
-        except Exception as exc:
-            # Let verification failures propagate so the build is marked failed
-            # honestly rather than shipping broken code as "complete".
-            if session_id and session_id != "auto-synthesized":
-                with contextlib.suppress(Exception):
-                    await abort_session(session_id, seed=sidecar_seed)
-
-            from app.services.mvp_verifier import VerificationError
-
-            if isinstance(exc, VerificationError):
-                raise MVPBuilderError(f"Build verification failed: {exc}") from exc
-            if isinstance(exc, MVPBuilderError):
-                raise exc
-
-            if spec and any(spec.actions):
-                logger.info(
-                    "OpenCode sidecar encountered an issue; utilizing synthesized business actions for %d action(s)",
-                    len(spec.actions),
-                )
-
-            from app.services.mvp_verifier import verify_workspace
-
-            fallback_errors = verify_workspace(local_dir, check_npm=check_npm)
-            if fallback_errors:
-                logger.warning(
-                    "Synthesized fallback build verification warnings: %s", fallback_errors
-                )
-    else:
-        logger.info(
-            "OpenCode sidecar offline; pure-CRUD build synthesized from blueprint for solution=%s",
-            solution_id,
-        )
-        # Even in offline mode, verify the synthesized output so broken
-        # scaffolds are never silently shipped as "complete".
-        await _notify(3, 85, "Verifying generated code offline...")
-        from app.services.mvp_verifier import verify_workspace
-
-        errors = verify_workspace(local_dir, check_npm=False)
-        if errors:
-            logger.warning("Synthesized build verification warnings: %s", errors)
-
-    await _notify(4, 95, "Packaging artifact...")
-    files = list_build_files(local_dir)
-    res: dict[str, Any] = {
-        "session_id": session_id,
-        "sidecar_url": sidecar_url,
-        "local_dir": str(local_dir),
-        "file_count": len(files),
-        "files": relative_paths(local_dir),
-    }
-    if spec:
-        res["app_spec"] = spec.model_dump()
-        res["quality"] = quality or {
-            "tests_passed": 0,
-            "tests_failed": 0,
-            "repair_turns": 0,
-            "actions": [a.name for a in spec.actions],
-        }
-    return res
 
 
 async def run_premade_build(

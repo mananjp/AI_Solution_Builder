@@ -554,6 +554,10 @@ export const solutionApi = {
     });
   },
 
+  async getClarifications(id: string): Promise<ClarificationResponse> {
+    return request<ClarificationResponse>(`/mvp/${id}/clarifications`);
+  },
+
   async delete(id: string) {
     return request<void>(`/solutions/${id}`, {
       method: 'DELETE',
@@ -849,6 +853,10 @@ async getStatus(buildId: string): Promise<MVPBuild> {
       }
     );
   },
+
+  async getClarifications(solutionId: string): Promise<ClarificationResponse> {
+    return request<ClarificationResponse>(`/mvp/${solutionId}/clarifications`);
+  },
 };
 
 // ── Billing & Credits ────────────────────────────
@@ -881,6 +889,13 @@ export const billingApi = {
     return request<CheckoutSession>('/billing/checkout', {
       method: 'POST',
       body: JSON.stringify(payload),
+    });
+  },
+
+  async simulateCapture(order_id: string): Promise<{ status: string; credits: number }> {
+    return request<{ status: string; credits: number }>('/billing/simulate-capture', {
+      method: 'POST',
+      body: JSON.stringify({ order_id }),
     });
   },
 };
@@ -1181,7 +1196,32 @@ export const opencodeApi = {
   async diagnose(): Promise<OpenCodeDiagnosis> {
     return request<OpenCodeDiagnosis>('/opencode/diagnose');
   },
+  async probeClarifications(prompt: string): Promise<ClarificationResponse> {
+    return request<ClarificationResponse>('/opencode/chat/clarify', {
+      method: 'POST',
+      body: JSON.stringify({ prompt }),
+    });
+  },
 };
+
+export interface ClarificationOption {
+  label: string;
+  value: string;
+  description?: string;
+}
+
+export interface ClarificationQuestion {
+  id: string;
+  field: string;
+  question: string;
+  rationale: string;
+  options: ClarificationOption[];
+}
+
+export interface ClarificationResponse {
+  has_gaps: boolean;
+  questions: ClarificationQuestion[];
+}
 
 export async function sendOpenCodeChatStream(
   payload: OpenCodeChatPayload,

@@ -22,6 +22,11 @@ import { ResizableSidecar } from '@/components/chat/ResizableSidecar';
 import { ArtifactsPanel } from '@/components/chat/ArtifactsPanel';
 import { SendButton } from '@/components/lab/send-button';
 import { ThreadSkeleton, ThinkingBubble } from '@/components/chat/Skeleton';
+import {
+  ClarificationPanel,
+  type ClarificationOption,
+  type ClarificationQuestion,
+} from '@/components/chat/ClarificationPanel';
 import { mvpApi, opencodeApi, sendOpenCodeChatStream, solutionApi } from '@/lib/api';
 import { ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
 import { useI18n } from '@/components/I18nProvider';
@@ -104,8 +109,12 @@ function ChatContent() {
   }, [state.solutionId, router, searchParams]);
 
   // ── Load the conversation whenever the active id changes ──
+  const prevSolutionIdRef = useRef<string | null>(state.solutionId);
   useEffect(() => {
-    void hydrate(state.solutionId);
+    if (prevSolutionIdRef.current !== state.solutionId) {
+      prevSolutionIdRef.current = state.solutionId;
+      void hydrate(state.solutionId);
+    }
   }, [state.solutionId, hydrate]);
 
   // ── Engine health probe ──
@@ -189,6 +198,13 @@ function ChatContent() {
                   dispatch({ type: 'stream/progress', progress: data as never });
                   if (data.solution_id) void syncHistoryEntry(data.solution_id as string);
                   break;
+                case 'clarification_needed': {
+                  const payload = data as { has_gaps?: boolean; questions?: ClarificationQuestion[] };
+                  if (payload.questions && payload.questions.length > 0) {
+                    dispatch({ type: 'set-clarifications', questions: payload.questions });
+                  }
+                  break;
+                }
                 case 'message':
                   if (data.message) {
                     dispatch({
@@ -262,9 +278,24 @@ function ChatContent() {
     (e?: React.FormEvent) => {
       e?.preventDefault();
       if (!state.input.trim() || state.streaming || sendingRef.current) return;
-      void send(state.buildRequested);
+      const shouldBuild =
+        state.buildRequested ||
+        /\b(build|create|make|generate|design|develop|landing\s+page|storefront|app)\b/i.test(state.input);
+      void send(shouldBuild);
     },
     [state.input, state.streaming, state.buildRequested, send]
+  );
+
+  const handleSelectClarification = useCallback(
+    (question: ClarificationQuestion, option: ClarificationOption) => {
+      const addition = `${question.field}: ${option.label}`;
+      const nextInput = state.input.trim()
+        ? `${state.input.trim()} [${addition}]`
+        : `Build an app with ${addition}`;
+      dispatch({ type: 'set-input', value: nextInput });
+      dispatch({ type: 'dismiss-clarifications' });
+    },
+    [state.input, dispatch]
   );
 
   // ── Build actions ──
@@ -484,9 +515,78 @@ function ChatContent() {
             {showThreadSkeleton ? (
               <ThreadSkeleton />
             ) : (
-              state.messages.map((m, i) => (
-                <ChatMessage key={i} role={m.role} content={m.content} agent={m.agent} />
-              ))
+              <>
+                {state.messages.map((m, i) => (
+                  <ChatMessage key={i} role={m.role} content={m.content} agent={m.agent} />
+                ))}
+
+                {state.messages.length <= 1 && (
+                  <div className="mt-8 space-y-3 animate-fade-in border-t border-[var(--border)] pt-6">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] uppercase tracking-wider font-bold text-[var(--sutra-ink)] font-mono">
+                        Quick Start Blueprints &amp; Examples
+                      </span>
+                      <span className="text-[10px] text-[var(--text-3)]">· Click any to auto-fill</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {[
+                        {
+                          icon: "🍦",
+                          title: "Ice Cream Vendor Landing Page",
+                          desc: "Storefront with Vanilla ($10) & Chocolate ($20) and ordering",
+                          prompt: "i am an ice cream vendor build me a landing page with my two icecreams that is vanilla and chocolate with their prices 10 and 20 respectively along with any appropriate images",
+                          app: "Artisanal Creamery",
+                        },
+                        {
+                          icon: "🏋️",
+                          title: "Gym & Fitness Studio Portal",
+                          desc: "Memberships, personal trainers, and workout classes",
+                          prompt: "Build a gym and fitness studio management app with memberships, personal trainers, and workout classes",
+                          app: "IronPulse Gym",
+                        },
+                        {
+                          icon: "📦",
+                          title: "Warehouse Inventory System",
+                          desc: "Stock tracking, suppliers, and reorder levels",
+                          prompt: "Create a modern warehouse inventory tracker with stock reordering and supplier management",
+                          app: "StockFlow Manager",
+                        },
+                        {
+                          icon: "🏨",
+                          title: "Boutique Hotel Booking",
+                          desc: "Room availability, guest check-in, and reservations",
+                          prompt: "Build a boutique hotel booking system with room availability, guest registry, and reservation payments",
+                          app: "Azure Suites",
+                        },
+                      ].map((chip, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            dispatch({ type: 'set-input', value: chip.prompt });
+                            dispatch({ type: 'set-app-name', value: chip.app });
+                            dispatch({ type: 'toggle-build-requested', value: true });
+                          }}
+                          className="group flex items-start gap-3 p-3.5 text-left rounded-xl border border-[var(--border)] bg-[var(--bg-2)] hover:border-[var(--sutra-strong)] hover:bg-[var(--bg)] transition-all shadow-sm cursor-pointer"
+                        >
+                          <span className="text-xl shrink-0 p-2 rounded-lg bg-[var(--bg)] border border-[var(--border)] group-hover:scale-110 transition-transform">
+                            {chip.icon}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <span className="block text-xs font-bold text-[var(--sutra-ink)] group-hover:text-[var(--sutra-strong)] transition-colors">
+                              {chip.title}
+                            </span>
+                            <span className="block text-[11px] text-[var(--text-3)] line-clamp-1 mt-0.5 font-light">
+                              {chip.desc}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
             {state.streaming && state.stage === 'thinking' && <div className="mt-3"><ThinkingBubble /></div>}
@@ -518,6 +618,15 @@ function ChatContent() {
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
+            )}
+
+            {state.clarifications && state.clarifications.length > 0 && (
+              <ClarificationPanel
+                questions={state.clarifications}
+                onSelectOption={handleSelectClarification}
+                onDismiss={() => dispatch({ type: 'dismiss-clarifications' })}
+                loading={state.streaming}
+              />
             )}
 
             <form onSubmit={handleSubmit}>

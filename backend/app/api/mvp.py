@@ -665,6 +665,20 @@ async def update_spec(
     return {"status": "success", "app_spec": validated.model_dump()}
 
 
+@router.get("/{solution_id}/clarifications")
+async def get_solution_clarifications(
+    solution_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Inspect the solution's state and detect architectural value gaps requiring clarification."""
+    from app.services.clarification import propose_clarification
+
+    solution = await _get_solution_for_user(db, solution_id, current_user)
+    prompt = solution.description or solution.title or ""
+    return propose_clarification(prompt, solution.ai_state)
+
+
 async def _get_build_for_user(db: AsyncSession, build_id: UUID, user: User) -> MVPBuild:
     build = await db.get(MVPBuild, build_id)
     if build is None:

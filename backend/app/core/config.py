@@ -213,6 +213,7 @@ class Settings(BaseSettings):
     MVP_VERIFY_BUILD_TIMEOUT: int = 120  # seconds for npm run build in checkpoint
     MVP_MAX_REPAIR_TURNS: int = 4
     MVP_TEST_TIMEOUT_S: int = 180
+    MVP_QUALITY_GATE: bool = False  # Enforce strict zero-placeholder and visual quality gate
 
     # ── Product Image Generation (Gemini) ───────────
     # Optional. When no key is configured the build's "illustrating" phase is
