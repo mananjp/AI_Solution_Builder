@@ -61,7 +61,7 @@ def _get_jwks_client() -> jwt.PyJWKClient:
         return _jwks_client
 
     domain = settings.auth0_domain
-    if not domain or "/.auth0.com" not in domain:
+    if not domain or ".auth0.com" not in domain:
         raise RuntimeError(
             "AUTH0_DOMAIN is not configured, so the API cannot verify bearer tokens. "
             "Set it to the bare tenant domain, e.g. 'your-tenant.us.auth0.com', and restart."

@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     DB_POOL_SIZE: int = 3
     DB_MAX_OVERFLOW: int = 2
     DB_POOL_RECYCLE: int = 300
+    # Disable connection pooling entirely (NullPool). Every checkout opens a fresh
+    # connection and returns it on release, so no connection can outlive the event
+    # loop that opened it. Required for the test suite, where one process drives
+    # several loops across the run.
+    DB_POOL_DISABLE: bool = False
 
     # ── Redis ─────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -86,6 +91,7 @@ class Settings(BaseSettings):
     # unset on a fresh deployment, and safe to delete once every stored secret
     # has been re-saved.
     JWT_SECRET_KEY: str = ""
+
 
     # ── AI / LLM Provider ─────────────────────────
     # Premade apps build directly through the OpenCode sidecar; this provider
