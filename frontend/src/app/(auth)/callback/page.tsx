@@ -1,13 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth0 } from '@auth0/auth0-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { logError } from '@/lib/logger';
 
 /**
  * Auth0 redirect landing page.
@@ -80,39 +79,19 @@ function landingPath(appState: unknown): string {
 
 export default function Auth0CallbackPage() {
   const router = useRouter();
-  const { isLoading, isAuthenticated, error, handleRedirectCallback } = useAuth0();
-
-  const [exchangeError, setExchangeError] = useState<string | null>(null);
+  const { isLoading, isAuthenticated, error } = useAuth0();
 
   useEffect(() => {
     void (async () => {
       if (isLoading) return;
       if (isAuthenticated) {
-        // Already-signed-in visit (e.g. a back-navigation). No exchange result to
-        // read, so `landingPath` falls back to the history entry, then /dashboard.
-        router.replace(landingPath(undefined));
-        return;
-      }
-      try {
-        // Idempotent: the SDK no-ops when there is no code to exchange, which
-        // is what makes a refresh of this page safe.
-        const result = await handleRedirectCallback();
-        // Read the resolved value directly rather than via state: `setAppState`
-        // does not take effect until the next render, which is after the
-        // navigation this line performs.
-        const resolved =
-          result && typeof result === 'object' && 'appState' in result
-            ? (result as { appState?: unknown }).appState
-            : null;
-        router.replace(landingPath(resolved));
-      } catch (err) {
-        logError('Auth0 redirect callback failed', err);
-        setExchangeError(readFailure(err) ?? 'Could not complete sign-in.');
+        const state = window.history.state as { auth0AppState?: unknown } | null;
+        router.replace(landingPath(state?.auth0AppState));
       }
     })();
-  }, [isLoading, isAuthenticated, handleRedirectCallback, router]);
+  }, [isLoading, isAuthenticated, router]);
 
-  const message = exchangeError ?? readFailure(error);
+  const message = readFailure(error);
 
   if (message) {
     return (
