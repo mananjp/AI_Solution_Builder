@@ -345,11 +345,7 @@ class Settings(BaseSettings):
 
     @property
     def auth0_admin_emails(self) -> set[str]:
-        return {
-            e.strip().lower()
-            for e in self.AUTH0_ADMIN_EMAILS.split(",")
-            if e.strip()
-        }
+        return {e.strip().lower() for e in self.AUTH0_ADMIN_EMAILS.split(",") if e.strip()}
 
     @property
     def cors_origins_list(self) -> list[str]:

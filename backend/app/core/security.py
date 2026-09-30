@@ -422,9 +422,7 @@ async def _provision_user(
     await db.commit()
     await db.refresh(user)
 
-    logger.info(
-        "Provisioned Auth0 user sub=%s email=%s org=%s", subject, email, org.id
-    )
+    logger.info("Provisioned Auth0 user sub=%s email=%s org=%s", subject, email, org.id)
     return user
 
 

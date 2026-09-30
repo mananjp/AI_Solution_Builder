@@ -190,9 +190,7 @@ app.add_middleware(
     # Accepting every *.vercel.app or *.onrender.com deployment here lets
     # unrelated customer projects make credentialed requests to this API.
     allow_origin_regex=(
-        None
-        if settings.APP_ENV == "production"
-        else r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+        None if settings.APP_ENV == "production" else r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
     ),
     allow_credentials=True,
     allow_methods=["*"],

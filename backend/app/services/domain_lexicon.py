@@ -22,7 +22,12 @@ import re
 # Used when a noun is lifted straight out of the prompt: the noun decides the
 # shape of its own record so a "member" does not end up with a `price` column.
 _FIELD_HINTS: dict[str, list[tuple[str, str]]] = {
-    "member": [("full_name", "string"), ("email", "string"), ("phone", "string"), ("status", "string")],
+    "member": [
+        ("full_name", "string"),
+        ("email", "string"),
+        ("phone", "string"),
+        ("status", "string"),
+    ],
     "trainer": [("full_name", "string"), ("email", "string"), ("specialization", "string")],
     "class": [("title", "string"), ("schedule", "string"), ("capacity", "int")],
     "subscription": [("plan_name", "string"), ("price", "float"), ("renews_on", "date")],
@@ -30,14 +35,24 @@ _FIELD_HINTS: dict[str, list[tuple[str, str]]] = {
     "supplier": [("name", "string"), ("email", "string"), ("phone", "string")],
     "movement": [("quantity", "int"), ("reason", "string"), ("occurred_on", "date")],
     "warehouse": [("name", "string"), ("location", "string")],
-    "patient": [("full_name", "string"), ("email", "string"), ("phone", "string"), ("date_of_birth", "date")],
+    "patient": [
+        ("full_name", "string"),
+        ("email", "string"),
+        ("phone", "string"),
+        ("date_of_birth", "date"),
+    ],
     "doctor": [("full_name", "string"), ("email", "string"), ("specialization", "string")],
     "appointment": [("scheduled_for", "datetime"), ("status", "string"), ("reason", "string")],
     "customer": [("full_name", "string"), ("email", "string"), ("phone", "string")],
     "order": [("placed_on", "datetime"), ("status", "string"), ("total", "float")],
     "invoice": [("client_name", "string"), ("amount", "float"), ("issued_on", "date")],
     "expense": [("description", "string"), ("amount", "float"), ("incurred_on", "date")],
-    "employee": [("full_name", "string"), ("email", "string"), ("job_title", "string"), ("status", "string")],
+    "employee": [
+        ("full_name", "string"),
+        ("email", "string"),
+        ("job_title", "string"),
+        ("status", "string"),
+    ],
     "department": [("name", "string"), ("location", "string")],
     "course": [("title", "string"), ("credits", "int"), ("instructor", "string")],
     "student": [("full_name", "string"), ("email", "string"), ("enrolled_on", "date")],
@@ -63,12 +78,26 @@ _NAME_FIELDS = [("name", "string"), ("description", "string")]
 # domains (clinic) are not swallowed by broad ones (booking).
 _LEXICON: list[tuple[tuple[str, ...], list[tuple[str, str, list[tuple[str, str]]]]]] = [
     (
-        ("clinic", "hospital", "patient", "doctor", "appointment", "medical", "dentist", "pharmacy"),
+        (
+            "clinic",
+            "hospital",
+            "patient",
+            "doctor",
+            "appointment",
+            "medical",
+            "dentist",
+            "pharmacy",
+        ),
         [
             (
                 "patient",
                 "patients",
-                [("full_name", "string"), ("email", "string"), ("phone", "string"), ("date_of_birth", "date")],
+                [
+                    ("full_name", "string"),
+                    ("email", "string"),
+                    ("phone", "string"),
+                    ("date_of_birth", "date"),
+                ],
             ),
             (
                 "doctor",
@@ -88,18 +117,43 @@ _LEXICON: list[tuple[tuple[str, ...], list[tuple[str, str, list[tuple[str, str]]
             (
                 "member",
                 "members",
-                [("full_name", "string"), ("email", "string"), ("phone", "string"), ("status", "string")],
+                [
+                    ("full_name", "string"),
+                    ("email", "string"),
+                    ("phone", "string"),
+                    ("status", "string"),
+                ],
             ),
-            ("trainer", "trainers", [("full_name", "string"), ("email", "string"), ("specialization", "string")]),
-            ("class", "classes", [("title", "string"), ("schedule", "string"), ("capacity", "int")]),
-            ("subscription", "subscriptions", [("plan_name", "string"), ("price", "float"), ("renews_on", "date")]),
+            (
+                "trainer",
+                "trainers",
+                [("full_name", "string"), ("email", "string"), ("specialization", "string")],
+            ),
+            (
+                "class",
+                "classes",
+                [("title", "string"), ("schedule", "string"), ("capacity", "int")],
+            ),
+            (
+                "subscription",
+                "subscriptions",
+                [("plan_name", "string"), ("price", "float"), ("renews_on", "date")],
+            ),
         ],
     ),
     (
         ("inventory", "warehouse", "stock", "supply chain"),
         [
-            ("product", "products", [("name", "string"), ("sku", "string"), ("price", "float"), ("stock", "int")]),
-            ("supplier", "suppliers", [("name", "string"), ("email", "string"), ("phone", "string")]),
+            (
+                "product",
+                "products",
+                [("name", "string"), ("sku", "string"), ("price", "float"), ("stock", "int")],
+            ),
+            (
+                "supplier",
+                "suppliers",
+                [("name", "string"), ("email", "string"), ("phone", "string")],
+            ),
             (
                 "stock_movement",
                 "stock_movements",
@@ -113,69 +167,138 @@ _LEXICON: list[tuple[tuple[str, ...], list[tuple[str, str, list[tuple[str, str]]
             (
                 "employee",
                 "employees",
-                [("full_name", "string"), ("email", "string"), ("job_title", "string"), ("status", "string")],
+                [
+                    ("full_name", "string"),
+                    ("email", "string"),
+                    ("job_title", "string"),
+                    ("status", "string"),
+                ],
             ),
             ("department", "departments", [("name", "string"), ("location", "string")]),
-            ("leave_request", "leave_requests", [("start_date", "date"), ("end_date", "date"), ("status", "string")]),
+            (
+                "leave_request",
+                "leave_requests",
+                [("start_date", "date"), ("end_date", "date"), ("status", "string")],
+            ),
         ],
     ),
     (
         ("restaurant", "cafe", "catering", "menu", "dine", "bakery"),
         [
-            ("menu_item", "menu_items", [("name", "string"), ("price", "float"), ("category", "string")]),
-            ("table_order", "table_orders", [("table_number", "int"), ("status", "string"), ("total", "float")]),
+            (
+                "menu_item",
+                "menu_items",
+                [("name", "string"), ("price", "float"), ("category", "string")],
+            ),
+            (
+                "table_order",
+                "table_orders",
+                [("table_number", "int"), ("status", "string"), ("total", "float")],
+            ),
         ],
     ),
     (
         ("school", "college", "university", "student", "course", "lms", "exam", "grade"),
         [
-            ("student", "students", [("full_name", "string"), ("email", "string"), ("enrolled_on", "date")]),
-            ("course", "courses", [("title", "string"), ("credits", "int"), ("instructor", "string")]),
+            (
+                "student",
+                "students",
+                [("full_name", "string"), ("email", "string"), ("enrolled_on", "date")],
+            ),
+            (
+                "course",
+                "courses",
+                [("title", "string"), ("credits", "int"), ("instructor", "string")],
+            ),
             ("enrollment", "enrollments", [("status", "string"), ("enrolled_on", "date")]),
         ],
     ),
     (
         ("property", "rental", "tenant", "landlord", "real estate", "listing", "airbnb"),
         [
-            ("property", "properties", [("title", "string"), ("address", "string"), ("nightly_rate", "float")]),
-            ("tenant", "tenants", [("full_name", "string"), ("email", "string"), ("phone", "string")]),
-            ("booking", "bookings", [("starts_on", "date"), ("ends_on", "date"), ("status", "string")]),
+            (
+                "property",
+                "properties",
+                [("title", "string"), ("address", "string"), ("nightly_rate", "float")],
+            ),
+            (
+                "tenant",
+                "tenants",
+                [("full_name", "string"), ("email", "string"), ("phone", "string")],
+            ),
+            (
+                "booking",
+                "bookings",
+                [("starts_on", "date"), ("ends_on", "date"), ("status", "string")],
+            ),
         ],
     ),
     (
         ("ecommerce", "e-commerce", "shop", "store", "cart", "checkout", "product catalog"),
         [
             ("product", "products", [("name", "string"), ("price", "float"), ("stock", "int")]),
-            ("customer", "customers", [("full_name", "string"), ("email", "string"), ("phone", "string")]),
-            ("order", "orders", [("placed_on", "datetime"), ("status", "string"), ("total", "float")]),
+            (
+                "customer",
+                "customers",
+                [("full_name", "string"), ("email", "string"), ("phone", "string")],
+            ),
+            (
+                "order",
+                "orders",
+                [("placed_on", "datetime"), ("status", "string"), ("total", "float")],
+            ),
         ],
     ),
     (
         ("invoice", "billing", "expense", "finance", "payment", "accounting", "budget"),
         [
-            ("invoice", "invoices", [("client_name", "string"), ("amount", "float"), ("issued_on", "date")]),
-            ("expense", "expenses", [("description", "string"), ("amount", "float"), ("incurred_on", "date")]),
+            (
+                "invoice",
+                "invoices",
+                [("client_name", "string"), ("amount", "float"), ("issued_on", "date")],
+            ),
+            (
+                "expense",
+                "expenses",
+                [("description", "string"), ("amount", "float"), ("incurred_on", "date")],
+            ),
         ],
     ),
     (
         ("hotel", "hostel", "resort", "room booking", "front desk"),
         [
-            ("room", "rooms", [("number", "string"), ("capacity", "int"), ("nightly_rate", "float")]),
+            (
+                "room",
+                "rooms",
+                [("number", "string"), ("capacity", "int"), ("nightly_rate", "float")],
+            ),
             ("guest", "guests", [("full_name", "string"), ("email", "string")]),
-            ("booking", "bookings", [("check_in", "date"), ("check_out", "date"), ("status", "string")]),
+            (
+                "booking",
+                "bookings",
+                [("check_in", "date"), ("check_out", "date"), ("status", "string")],
+            ),
         ],
     ),
     (
         ("support", "ticket", "helpdesk", "help desk", "service desk"),
         [
-            ("ticket", "tickets", [("title", "string"), ("priority", "string"), ("status", "string")]),
+            (
+                "ticket",
+                "tickets",
+                [("title", "string"), ("priority", "string"), ("status", "string")],
+            ),
             ("customer", "customers", [("full_name", "string"), ("email", "string")]),
         ],
     ),
     (
         ("task", "project", "todo", "kanban", "sprint", "backlog"),
         [
-            ("project", "projects", [("title", "string"), ("status", "string"), ("due_date", "date")]),
+            (
+                "project",
+                "projects",
+                [("title", "string"), ("status", "string"), ("due_date", "date")],
+            ),
             ("task", "tasks", [("title", "string"), ("status", "string"), ("due_date", "date")]),
         ],
     ),
@@ -184,16 +307,88 @@ _LEXICON: list[tuple[tuple[str, ...], list[tuple[str, str, list[tuple[str, str]]
 # Words that describe the *app*, not a record type. Treating these as entities
 # produces exactly the "My Inventory Management System" table nobody wants.
 _STOP_NOUNS = {
-    "system", "systems", "app", "application", "applications", "platform", "software",
-    "website", "site", "web", "tool", "portal", "dashboard", "project", "projects",
-    "management", "manager", "service", "services", "solution", "solutions", "business",
-    "company", "organization", "organisation", "team", "user", "users", "thing",
-    "things", "stuff", "data", "information", "content", "page", "pages", "feature",
-    "features", "thing", "need", "needs", "want", "wants", "make", "build", "create",
-    "create", "generate", "help", "please", "with", "and", "for", "the", "that", "this",
-    "me", "my", "our", "we", "i", "you", "it", "can", "should", "would", "will", "have",
-    "has", "are", "is", "be", "do", "does", "able", "simple", "basic", "modern", "full",
-    "stack", "frontend", "backend", "web app", "web application", "website",
+    "system",
+    "systems",
+    "app",
+    "application",
+    "applications",
+    "platform",
+    "software",
+    "website",
+    "site",
+    "web",
+    "tool",
+    "portal",
+    "dashboard",
+    "project",
+    "projects",
+    "management",
+    "manager",
+    "service",
+    "services",
+    "solution",
+    "solutions",
+    "business",
+    "company",
+    "organization",
+    "organisation",
+    "team",
+    "user",
+    "users",
+    "thing",
+    "things",
+    "stuff",
+    "data",
+    "information",
+    "content",
+    "page",
+    "pages",
+    "feature",
+    "features",
+    "need",
+    "needs",
+    "want",
+    "wants",
+    "make",
+    "build",
+    "create",
+    "generate",
+    "help",
+    "please",
+    "with",
+    "and",
+    "for",
+    "the",
+    "that",
+    "this",
+    "me",
+    "my",
+    "our",
+    "we",
+    "i",
+    "you",
+    "it",
+    "can",
+    "should",
+    "would",
+    "will",
+    "have",
+    "has",
+    "are",
+    "is",
+    "be",
+    "do",
+    "does",
+    "able",
+    "simple",
+    "basic",
+    "modern",
+    "full",
+    "stack",
+    "frontend",
+    "backend",
+    "web app",
+    "web application",
 }
 
 _PLURAL_RE = re.compile(r"ies$|ses$|xes$|zes$|ches$|shes$|s$", re.IGNORECASE)
@@ -202,19 +397,88 @@ _TOKEN_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9_]*")
 # Python keywords/builtins that cannot be used as a generated class or table
 # name — "class" and "order" are both extremely common domain nouns.
 _RESERVED_ENTITY_NAMES = {
-    "class", "import", "def", "return", "lambda", "global", "pass", "from",
-    "for", "while", "if", "else", "try", "except", "with", "as", "in", "is",
-    "not", "and", "or", "None", "True", "False", "self", "property", "type",
-    "id", "input", "list", "dict", "set", "str", "int", "float", "bool",
-    "object", "super", "range", "min", "max", "sum", "len", "print", "next",
-    "open", "format", "hash", "help", "filter", "map", "zip", "sorted",
+    "class",
+    "import",
+    "def",
+    "return",
+    "lambda",
+    "global",
+    "pass",
+    "from",
+    "for",
+    "while",
+    "if",
+    "else",
+    "try",
+    "except",
+    "with",
+    "as",
+    "in",
+    "is",
+    "not",
+    "and",
+    "or",
+    "None",
+    "True",
+    "False",
+    "self",
+    "property",
+    "type",
+    "id",
+    "input",
+    "list",
+    "dict",
+    "set",
+    "str",
+    "int",
+    "float",
+    "bool",
+    "object",
+    "super",
+    "range",
+    "min",
+    "max",
+    "sum",
+    "len",
+    "print",
+    "next",
+    "open",
+    "format",
+    "hash",
+    "help",
+    "filter",
+    "map",
+    "zip",
+    "sorted",
 }
 
 # Common verbs/intent verbs that follow "track"/"manage" etc.
 _STOP_VERBS = {
-    "track", "manage", "handle", "build", "create", "make", "add", "generate",
-    "want", "need", "please", "let", "allow", "enable", "support", "show",
-    "display", "list", "view", "see", "get", "set", "use", "have", "help",
+    "track",
+    "manage",
+    "handle",
+    "build",
+    "create",
+    "make",
+    "add",
+    "generate",
+    "want",
+    "need",
+    "please",
+    "let",
+    "allow",
+    "enable",
+    "support",
+    "show",
+    "display",
+    "list",
+    "view",
+    "see",
+    "get",
+    "set",
+    "use",
+    "have",
+    "help",
 }
 
 
@@ -266,8 +530,16 @@ def _title_from_prompt(prompt: str) -> str:
 
     # Drop trailing scaffolding nouns that describe the artefact, not the product.
     while words and singularize(words[-1]) in {
-        "system", "app", "application", "platform", "website", "web app", "tool",
-        "portal", "software", "project",
+        "system",
+        "app",
+        "application",
+        "platform",
+        "website",
+        "web app",
+        "tool",
+        "portal",
+        "software",
+        "project",
     }:
         words.pop()
 
@@ -328,14 +600,15 @@ def infer_entities(prompt: str, limit: int = 4) -> list[tuple[str, str, list[tup
     """
     text = re.sub(r"\s+", " ", (prompt or "").strip().lower())
     if not text:
-        return [("item", "items", list(_DEFAULT_FIELDS)), ("category", "categories", [("name", "string")])]
+        return [
+            ("item", "items", list(_DEFAULT_FIELDS)),
+            ("category", "categories", [("name", "string")]),
+        ]
 
     # 1. Curated vertical.
     for keywords, entities in _LEXICON:
         if any(k in text for k in keywords):
-            return [
-                (_safe_entity_name(n), p, list(f)) for n, p, f in entities
-            ]
+            return [(_safe_entity_name(n), p, list(f)) for n, p, f in entities]
 
     # 2. Nouns the user actually typed, in the order they appear.
     found: list[tuple[str, str, list[tuple[str, str]]]] = []
@@ -359,7 +632,10 @@ def infer_entities(prompt: str, limit: int = 4) -> list[tuple[str, str, list[tup
     if found:
         return found
 
-    return [("item", "items", list(_DEFAULT_FIELDS)), ("category", "categories", [("name", "string")])]
+    return [
+        ("item", "items", list(_DEFAULT_FIELDS)),
+        ("category", "categories", [("name", "string")]),
+    ]
 
 
 def pluralize_local(word: str) -> str:

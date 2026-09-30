@@ -52,7 +52,9 @@ def upgrade() -> None:
         # permanent default of false would make a later failed verification
         # look like a successful one on any insert that omits the column.
         op.execute(
-            sa.text("UPDATE users SET email_verified = true WHERE email IS NOT NULL AND email <> ''")
+            sa.text(
+                "UPDATE users SET email_verified = true WHERE email IS NOT NULL AND email <> ''"
+            )
         )
         op.alter_column("users", "email_verified", server_default=None)
 

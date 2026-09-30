@@ -1046,7 +1046,6 @@ async def chat_edit_build(
     )
 
 
-
 @router.get("/builds/{build_id}/download")
 async def download_build(
     build_id: UUID,
