@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import type { AppState } from '@auth0/auth0-react';
 import { Auth0Provider as SdkProvider } from '@auth0/auth0-react';
 
 import { AuthProvider } from '@/components/auth/AuthProvider';
@@ -26,7 +27,19 @@ export function Auth0Wrapper({ children }: { children: ReactNode }) {
   }
 
   return (
-    <SdkProvider {...auth0Config}>
+    <SdkProvider
+      {...auth0Config}
+      onRedirectCallback={(appState?: AppState) => {
+        // The SDK completes the code exchange before this callback. Preserve
+        // its return path for /callback, and remove OAuth parameters from the
+        // address bar without discarding that state.
+        window.history.replaceState(
+          { ...window.history.state, auth0AppState: appState },
+          document.title,
+          window.location.pathname,
+        );
+      }}
+    >
       <AuthProvider>{children}</AuthProvider>
     </SdkProvider>
   );

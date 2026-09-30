@@ -1,9 +1,6 @@
 // AI Solution Builder — Offline Service Worker
-const CACHE_NAME = 'ai-solution-builder-v1';
+const CACHE_NAME = 'ai-solution-builder-v2';
 const PRECACHE_URLS = [
-  '/',
-  '/dashboard',
-  '/chat',
   '/manifest.json'
 ];
 
@@ -28,8 +25,17 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Only handle GET requests and skip API calls
-  if (event.request.method !== 'GET' || event.request.url.includes('/api/')) {
+  // Always fetch navigations and auth/API routes from the network. In
+  // particular, caching /callback can replay an old page around Auth0's
+  // one-time state value and cause "Invalid state" after a deploy.
+  const url = new URL(event.request.url);
+  const isAuthRoute = ['/login', '/register', '/callback'].includes(url.pathname);
+  if (
+    event.request.method !== 'GET' ||
+    event.request.mode === 'navigate' ||
+    isAuthRoute ||
+    url.pathname.startsWith('/api/')
+  ) {
     return;
   }
 
