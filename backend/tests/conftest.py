@@ -1,5 +1,26 @@
-"""Shared fixtures for the backend integration test suite (real dev DB)."""
+"""Shared fixtures for the backend test suite.
 
+Lifecycle contract
+------------------
+The whole run happens on one session-scoped event loop
+(``pyproject.toml: asyncio_default_test_loop_scope``), so exactly one engine is
+created for the session and disposed on that same loop. Disposing on a loop that
+no longer runs is what produces ``RuntimeError: Event loop is closed`` from
+asyncpg, which SQLAlchemy's pool logs as ``Exception terminating connection``.
+
+Two settings keep that from being reachable:
+
+* ``DB_POOL_DISABLE=1`` puts the shared app engine on ``NullPool``, so a
+  connection is closed on release instead of being parked in the pool.
+* the session engine is disposed inside ``db_engine``'s teardown, i.e. while the
+  owning loop is still running.
+
+The suite writes real rows and issues ``CREATE``/``DROP SCHEMA``, so it refuses
+to run against a database whose name does not contain ``test`` unless
+``ALLOW_NON_TEST_DB=1`` is set.
+"""
+
+import asyncio
 import os
 import uuid
 
@@ -10,34 +31,51 @@ os.environ["STORAGE_BACKEND"] = "local"
 # Isolate deployment tests from developer credentials in .env.
 os.environ["GITHUB_TOKEN"] = ""
 os.environ["RENDER_API_KEY"] = ""
+# Close every connection on release: nothing outlives the request that opened it.
+os.environ["DB_POOL_DISABLE"] = "1"
 
 import httpx
 import pytest_asyncio
 from httpx import ASGITransport
 from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 import app.models  # noqa: F401  (registers all tables on Base.metadata)
 from app.core.config import settings
-from app.core.database import Base, get_db, normalize_database_url
+from app.core.database import Base, dispose_engine, get_db, normalize_database_url
 from app.core.database import engine as app_engine
 
 settings.LLM_PROVIDER = "mock"
 settings.GROQ_API_KEY = ""
 settings.GITHUB_TOKEN = ""
 settings.RENDER_API_KEY = ""
+settings.DB_POOL_DISABLE = True
+
 from main import app  # noqa: E402
 
 
-@pytest_asyncio.fixture()
-async def db_engine():
-    import asyncio
+def _resolve_test_database_url() -> str:
+    """Return the normalized test database URL, refusing non-test databases."""
+    url = normalize_database_url(settings.DATABASE_URL)
+    name = url.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+    if "test" not in name.lower() and os.environ.get("ALLOW_NON_TEST_DB") != "1":
+        raise RuntimeError(
+            f"Refusing to run tests against database {name!r}. This suite writes real "
+            "rows and runs CREATE SCHEMA / DROP SCHEMA ... CASCADE, so it must target a "
+            "dedicated test database. Point DATABASE_URL at one (its name must contain "
+            "'test') or set ALLOW_NON_TEST_DB=1 to override."
+        )
+    return url
 
-    engine = create_async_engine(
-        normalize_database_url(settings.DATABASE_URL),
-        echo=False,
-        pool_pre_ping=True,
-    )
+
+TEST_DATABASE_URL = _resolve_test_database_url()
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def db_engine():
+    """One engine for the whole session, disposed on the loop that owns its pool."""
+    engine = create_async_engine(TEST_DATABASE_URL, echo=False, poolclass=NullPool)
     for attempt in range(3):
         try:
             async with engine.begin() as conn:
@@ -49,10 +87,11 @@ async def db_engine():
                 raise
             await asyncio.sleep(0.5)
     yield engine
+    # Still inside the session loop here, so asyncpg can terminate cleanly.
     await engine.dispose()
-    # The engine introspection path uses the app's module-level engine; clear
-    # its pool so no connection is reused across pytest event loops.
-    await app_engine.dispose()
+    # The app's module-level engine is reached by code that bypasses Depends(get_db)
+    # (audit middleware, chat streams, workable provisioning, /ready, worker).
+    await dispose_engine()
 
 
 @pytest_asyncio.fixture()
@@ -132,3 +171,16 @@ async def workspace_solution(auth_client):
         "workspace_id": workspace_id,
         "solution_id": solution_id,
     }
+
+
+__all__ = [
+    "TEST_DATABASE_URL",
+    "app",
+    "app_engine",
+    "auth_client",
+    "client",
+    "db_engine",
+    "register_user",
+    "session_factory",
+    "workspace_solution",
+]

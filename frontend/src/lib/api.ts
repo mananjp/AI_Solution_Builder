@@ -382,8 +382,14 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       // threw the user straight back to /login, making the bypass useless even
       // though the route guard was correctly bypassed.
       if (response.status === 401 && !isAuthBypassed) {
-        setTokenProvider(null);
-        if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        if (token) {
+          setTokenProvider(null);
+        }
+        if (
+          typeof window !== 'undefined' &&
+          !window.location.pathname.startsWith('/login') &&
+          !window.location.pathname.startsWith('/callback')
+        ) {
           const returnTo = `${window.location.pathname}${window.location.search}`;
           // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- api layer has no router access
           window.location.href = `/login?returnTo=${encodeURIComponent(returnTo)}`;

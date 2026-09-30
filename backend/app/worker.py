@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.mvp import execute_build_job
 from app.core.config import settings
-from app.core.database import async_session_factory
+from app.core.database import async_session_factory, dispose_engine
 from app.core.redis import close_redis, init_redis
 from app.models.build_job import BuildJob
 from app.models.mvp_build import MVPBuild
@@ -254,6 +254,10 @@ def main() -> None:
     try:
         loop.run_until_complete(run_worker())
     finally:
+        # Dispose the pool from the loop that opened its connections, otherwise the
+        # closing loop below leaves asyncpg connections that can never be terminated.
+        with contextlib.suppress(Exception):
+            loop.run_until_complete(dispose_engine())
         loop.close()
 
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+import httpx
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -173,6 +174,48 @@ def decode_token(token: str) -> dict[str, Any]:
         raise _unauthorized("Invalid token") from exc
 
 
+def _extract_email_from_claims(claims: dict[str, Any]) -> str | None:
+    """Extract an email address from standard or custom namespaced Auth0 claims."""
+    for key in ("email", "upn", "preferred_username", "unique_name"):
+        val = claims.get(key)
+        if isinstance(val, str) and "@" in val:
+            return val.strip().lower()
+
+    for key, val in claims.items():
+        if isinstance(val, str) and "@" in val and (key.endswith("/email") or key.endswith(":email")):
+            return val.strip().lower()
+
+    return None
+
+
+async def _fetch_userinfo(token: str) -> dict[str, Any]:
+    """Fetch user profile from Auth0's /userinfo endpoint using the bearer token.
+
+    Auth0 API access tokens do not include profile claims (email, name) by default.
+    Querying /userinfo with the access token is the standard OIDC way to obtain profile details.
+    """
+    domain = settings.auth0_domain
+    if not domain:
+        return {}
+    url = f"https://{domain}/userinfo"
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, dict):
+                    return data
+            else:
+                logger.warning("Auth0 /userinfo returned status %s: %s", resp.status_code, resp.text)
+    except Exception as exc:
+        logger.warning("Could not reach Auth0 /userinfo (%s); proceeding with token claims", exc)
+    return {}
+
+
+
 async def get_current_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
@@ -206,7 +249,7 @@ async def get_current_user(
         raise _unauthorized("Token missing subject claim")
 
     issuer = str(claims.get("iss") or settings.auth0_issuer)
-    email = str(claims.get("email") or "").strip().lower() or None
+    email = _extract_email_from_claims(claims)
 
     result = await db.execute(
         select(User).where(
@@ -218,6 +261,17 @@ async def get_current_user(
     user = result.scalar_one_or_none()
 
     if user is None:
+        # If user is not yet provisioned and email or name is missing,
+        # fetch user profile from Auth0's /userinfo endpoint.
+        if not email or not (claims.get("name") or claims.get("given_name")):
+            userinfo = await _fetch_userinfo(credentials.credentials)
+            if userinfo:
+                if not email and userinfo.get("email"):
+                    email = str(userinfo["email"]).strip().lower()
+                for k, v in userinfo.items():
+                    if k not in claims:
+                        claims[k] = v
+
         user = await _provision_user(
             db=db,
             claims=claims,
@@ -368,17 +422,9 @@ async def _provision_user(
     from app.models.workspace import Workspace
 
     if not email:
-        # Without an email there is nothing to key the org name or the account
-        # on, and Auth0 database connections always supply one, so this only
-        # happens for a misconfigured social connection.
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Your Auth0 profile has no email address. Add an email claim to the "
-                "connection (Auth0 Dashboard -> Connections -> your connection -> "
-                "Settings -> 'Add the email scope')."
-            ),
-        )
+        clean_sub = subject.split("|")[-1] if "|" in subject else subject
+        email = f"user_{clean_sub[:16]}@auth0.local"
+        logger.info("Auth0 profile has no email claim; assigned fallback %s for sub=%s", email, subject)
 
     name = (
         str(claims.get("name") or "").strip()

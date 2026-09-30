@@ -1,5 +1,5 @@
 """
-Workable System end-to-end smoke test (requires dev DB on localhost:5433).
+Workable System end-to-end smoke test (requires a running test database).
 
 Covers:
   register → workspace → solution → mock pipeline → provision → seed → module index → CRUD
@@ -7,18 +7,12 @@ Covers:
 
 import uuid
 
-import httpx
 import pytest_asyncio
-from httpx import ASGITransport
 from sqlalchemy import text as sa_text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.future import select
 
 from app.agents.graph import discovery_graph
-from app.core.config import settings
-from app.core.database import Base, get_db, normalize_database_url
 from app.models.solution import Solution
-from main import app
 
 TEST_USER = {
     "email": f"test-workable-{uuid.uuid4().hex[:8]}@example.com",
@@ -29,33 +23,13 @@ TEST_USER = {
 
 
 @pytest_asyncio.fixture()
-async def client_and_db():
-    engine = create_async_engine(normalize_database_url(settings.DATABASE_URL), echo=False)
-    async with engine.begin() as conn:
-        await conn.execute(sa_text("CREATE EXTENSION IF NOT EXISTS vector"))
-        await conn.run_sync(Base.metadata.create_all)
+async def client_and_db(client, session_factory, db_engine):
+    """Reuse the shared client and session-scoped engine instead of a second pool.
 
-    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-    async def override_get_db():
-        async with session_factory() as session:
-            try:
-                yield session
-                await session.commit()
-            except Exception:
-                await session.rollback()
-                raise
-            finally:
-                await session.close()
-
-    app.dependency_overrides[get_db] = override_get_db
-    transport = ASGITransport(app=app)
-    async with httpx.AsyncClient(
-        transport=transport, base_url="http://testserver", follow_redirects=True
-    ) as client:
-        yield client, session_factory, engine
-    app.dependency_overrides.clear()
-    await engine.dispose()
+    A second engine meant a second set of asyncpg connections with its own teardown
+    ordering, which is what surfaced ``RuntimeError: Event loop is closed``.
+    """
+    return client, session_factory, db_engine
 
 
 async def test_workable_end_to_end(client_and_db):

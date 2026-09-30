@@ -30,7 +30,7 @@ from app.api.upload import router as upload_router
 from app.api.workable import router as workable_router
 from app.api.workspaces import router as workspaces_router
 from app.core.config import settings
-from app.core.database import Base, engine
+from app.core.database import Base, dispose_engine, engine
 from app.core.errors import register_exception_handlers
 from app.core.metrics import MetricsMiddleware
 from app.core.middleware import (
@@ -167,7 +167,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     await close_redis()
-    await engine.dispose()
+    await dispose_engine()
     logger.info("Application shutdown complete")
 
 

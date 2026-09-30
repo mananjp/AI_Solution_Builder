@@ -22,6 +22,7 @@ import { Solution, Workspace, MVPBuild, MVPTemplate, MVPDeployResult } from '@/t
 import { errorMessage } from '@/lib/errors';
 import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
 import { useI18n } from '@/components/I18nProvider';
+import { useAuthSession } from '@/components/auth/AuthProvider';
 
 const FALLBACK_TEMPLATES: MVPTemplate[] = [
   { slug: 'todo', title: 'Todo List', description: 'Simple CRUD app with items, tags, and completion states.', app_name: 'todo-app', industry: 'Productivity' },
@@ -32,6 +33,7 @@ const FALLBACK_TEMPLATES: MVPTemplate[] = [
 
 export default function DashboardPage() {
   const { t } = useI18n();
+  const { user } = useAuthSession();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [solutions, setSolutions] = useState<Solution[]>([]);
   const [selectedWorkspace, setSelectedWorkspace] = useState('');
@@ -83,6 +85,7 @@ export default function DashboardPage() {
 
   // Load workspaces + solutions
   useEffect(() => {
+    if (!user) return;
     let cancelled = false;
     async function load() {
       setLoadError(null);
@@ -121,7 +124,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [reloadToken]);
+  }, [user, reloadToken]);
 
   // Ping engine
   useEffect(() => {
@@ -140,12 +143,14 @@ export default function DashboardPage() {
 
   // Load templates
   useEffect(() => {
+    if (!user) return;
     mvpApi.listTemplates().then((l) => { if (l?.length > 0) setTemplates(l); }).catch(() => undefined);
-  }, []);
+  }, [user]);
 
   // Credit balance. A failure leaves the tile as an em dash rather than a
   // number, so an unreadable balance is never reported as a real one.
   useEffect(() => {
+    if (!user) return;
     let cancelled = false;
     billingApi
       .getUsage()
@@ -158,11 +163,11 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [user]);
 
   // Poll active builds
   useEffect(() => {
-    if (!activeBuilds.length) return;
+    if (!user || !activeBuilds.length) return;
     const t = setInterval(async () => {
       for (const id of activeBuilds) {
         try {
@@ -172,7 +177,7 @@ export default function DashboardPage() {
       }
     }, 3000);
     return () => clearInterval(t);
-  }, [activeBuilds]);
+  }, [user, activeBuilds]);
 
   const handleCreateWs = async (e: React.FormEvent) => {
     e.preventDefault();
