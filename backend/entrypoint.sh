@@ -169,10 +169,12 @@ start_api() {
     log "OpenCode sidecar disabled (ENABLE_OPENCODE_SIDECAR=false) to conserve RAM."
   fi
 
-  if [ "${WORKER_MODE:-inline}" = "worker" ]; then
+  if [ "${WORKER_MODE:-inline}" = "worker" ] && [ "$ENABLE_OPENCODE_SIDECAR" = "true" ]; then
     log "Starting dedicated build worker ..."
     (cd /app && $PYTHON_BIN -m app.worker) &
     WORKER_PID=$!
+  elif [ "${WORKER_MODE:-inline}" = "worker" ]; then
+    log "Build worker runs in the separate builder service."
   fi
 
   API_PIDS=("$API_PID")
@@ -184,8 +186,15 @@ start_api() {
 
 start_builder() {
   seed_opencode_auth
-  log "Starting opencode serve on 0.0.0.0:4096 ..."
-  (cd /workspace && NODE_OPTIONS="--max-old-space-size=256" opencode serve --port 4096 --hostname 0.0.0.0 2>&1 | sed 's/^/[opencode] /') &
+  log "Starting opencode serve on 0.0.0.0:4096 (Node heap cap: ${OPENCODE_NODE_HEAP_MB:-160}MB) ..."
+  (
+    while true; do
+      cd /workspace
+      NODE_OPTIONS="--max-old-space-size=${OPENCODE_NODE_HEAP_MB:-160}" opencode serve --port 4096 --hostname 0.0.0.0 2>&1 | sed 's/^/[opencode] /' || true
+      log "OpenCode sidecar exited; auto-restarting in 2s..."
+      sleep 2
+    done
+  ) &
   OPENCODE_PID=$!
   wait_for_sidecar
 

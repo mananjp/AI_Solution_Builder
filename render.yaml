@@ -1,41 +1,172 @@
-# Single-instance production topology: Next.js, FastAPI, OpenCode, and the
-# queue worker share one container and one persistent workspace disk.
-# PostgreSQL (with pgvector) and Redis are managed external services.
+# Split 512 MB API and builder services. The builder owns its workspace disk;
+# completed ZIP artifacts are shared through Cloudinary.
 services:
   - type: web
-    name: ai-solution-builder-app
+    name: mvp-812be879
     runtime: docker
-    plan: standard
-    dockerfilePath: ./app.Dockerfile
+    plan: starter
+    dockerfilePath: ./backend.Dockerfile
     dockerContext: .
-    dockerCommand: app
+    dockerCommand: api
     healthCheckPath: /ready
     maxShutdownDelaySeconds: 120
-    disk:
-      name: ai-solution-builder-workspace
-      mountPath: /workspace
-      sizeGB: 10
     envVars:
       - key: APP_NAME
         value: AI Solution Builder
       - key: APP_ENV
         value: production
       - key: APP_ROLE
-        value: app
+        value: api
       - key: CORS_ORIGINS
-        value: https://ai-solution-builder-app.onrender.com
+        value: https://ai-solution-builder-delta.vercel.app
       - key: FRONTEND_URL
-        value: https://ai-solution-builder-app.onrender.com
-      - key: NEXT_PUBLIC_API_URL
-        value: /api/v1
-      - key: NEXT_PUBLIC_AUTH0_DOMAIN
-        sync: false
-      - key: NEXT_PUBLIC_AUTH0_CLIENT_ID
-        sync: false
-      - key: NEXT_PUBLIC_AUTH0_AUDIENCE
-        sync: false
-      - key: NEXT_PUBLIC_AUTH0_CALLBACK_URL
-        value: https://ai-solution-builder-app.onrender.com/callback
+        value: https://ai-solution-builder-delta.vercel.app
+      - key: DATABASE_URL
+        fromService:
+          type: pserv
+          name: ai-solution-builder-builder
+          envVarKey: DATABASE_URL
+      - key: REDIS_URL
+        fromService:
+          type: pserv
+          name: ai-solution-builder-builder
+          envVarKey: REDIS_URL
+      - key: AUTH0_DOMAIN
+        fromService:
+          type: pserv
+          name: ai-solution-builder-builder
+          envVarKey: AUTH0_DOMAIN
+      - key: AUTH0_AUDIENCE
+        fromService:
+          type: pserv
+          name: ai-solution-builder-builder
+          envVarKey: AUTH0_AUDIENCE
+      - key: AUTH0_ENABLED
+        value: "true"
+      - key: DEV_AUTH_BYPASS
+        value: "false"
+      - key: SECRET_ENCRYPTION_KEY
+        fromService:
+          type: pserv
+          name: ai-solution-builder-builder
+          envVarKey: SECRET_ENCRYPTION_KEY
+      - key: GROQ_API_KEY
+        fromService:
+          type: pserv
+          name: ai-solution-builder-builder
+          envVarKey: GROQ_API_KEY
+      - key: LLM_PROVIDER
+        value: groq
+      - key: GROQ_MODEL_NAME
+        value: openai/gpt-oss-120b
+      - key: OPENCODE_ZEN_API_KEY
+        fromService:
+          type: pserv
+          name: ai-solution-builder-builder
+          envVarKey: OPENCODE_ZEN_API_KEY
+      - key: OPENCODE_SERVER_USERNAME
+        value: opencode
+      - key: OPENCODE_SERVER_PASSWORD
+        fromService:
+          type: pserv
+          name: ai-solution-builder-builder
+          envVarKey: OPENCODE_SERVER_PASSWORD
+      - key: OPENCODE_SERVER_URL
+        fromService:
+          type: pserv
+          name: ai-solution-builder-builder
+          property: hostport
+      - key: OPENCODE_MODEL
+        value: opencode/big-pickle
+      - key: OPENCODE_AGENT
+        value: mvp-builder
+      - key: ENABLE_OPENCODE_SIDECAR
+        value: "false"
+      - key: WORKER_MODE
+        value: worker
+      - key: MVP_BUILD_DIR
+        value: /tmp/mvp-build-cache
+      - key: UPLOAD_DIR
+        value: /tmp/uploads
+      - key: EXPORT_DIR
+        value: /tmp/exports
+      - key: SECURITY_QUARANTINE_DIR
+        value: /tmp/quarantine
+      - key: STORAGE_BACKEND
+        value: cloudinary
+      - key: CLOUDINARY_CLOUD_NAME
+        fromService:
+          type: pserv
+          name: ai-solution-builder-builder
+          envVarKey: CLOUDINARY_CLOUD_NAME
+      - key: CLOUDINARY_API_KEY
+        fromService:
+          type: pserv
+          name: ai-solution-builder-builder
+          envVarKey: CLOUDINARY_API_KEY
+      - key: CLOUDINARY_API_SECRET
+        fromService:
+          type: pserv
+          name: ai-solution-builder-builder
+          envVarKey: CLOUDINARY_API_SECRET
+      - key: GEMINI_API_KEY
+        fromService:
+          type: pserv
+          name: ai-solution-builder-builder
+          envVarKey: GEMINI_API_KEY
+      - key: GEMINI_IMAGE_MODEL
+        value: gemini-2.5-flash-image
+      - key: IMAGE_GENERATION_ENABLED
+        value: "true"
+      - key: SECURITY_SCAN_ENABLED
+        value: "true"
+      - key: SECURITY_SCAN_BLOCK_THRESHOLD
+        value: suspicious
+      - key: SECURITY_SCAN_FAIL_UNAVAILABLE_MODE
+        value: allow
+      - key: VIRUSTOTAL_ENABLED
+        value: "true"
+      - key: VIRUSTOTAL_ACK_TOS
+        value: "true"
+      - key: VIRUSTOTAL_API_KEY
+        fromService:
+          type: pserv
+          name: ai-solution-builder-builder
+          envVarKey: VIRUSTOTAL_API_KEY
+      - key: MVP_BUILD_TIMEOUT
+        value: "600"
+      - key: MVP_VERIFY_INSTALL_TIMEOUT
+        value: "180"
+      - key: MVP_VERIFY_BUILD_TIMEOUT
+        value: "120"
+      - key: MVP_VERIFY_NPM
+        value: "false"
+      - key: DB_POOL_SIZE
+        value: "1"
+      - key: DB_MAX_OVERFLOW
+        value: "0"
+      - key: UVICORN_WORKERS
+        value: "1"
+
+  - type: pserv
+    name: ai-solution-builder-builder
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./builder.Dockerfile
+    dockerContext: .
+    dockerCommand: builder
+    maxShutdownDelaySeconds: 120
+    disk:
+      name: ai-solution-builder-workspace
+      mountPath: /workspace
+      sizeGB: 5
+    envVars:
+      - key: APP_NAME
+        value: AI Solution Builder
+      - key: APP_ENV
+        value: production
+      - key: APP_ROLE
+        value: builder
       - key: DATABASE_URL
         sync: false
       - key: REDIS_URL
@@ -49,11 +180,11 @@ services:
       - key: DEV_AUTH_BYPASS
         value: "false"
       - key: SECRET_ENCRYPTION_KEY
-        generateValue: true
-      - key: LLM_PROVIDER
-        value: groq
+        sync: false
       - key: GROQ_API_KEY
         sync: false
+      - key: LLM_PROVIDER
+        value: groq
       - key: GROQ_MODEL_NAME
         value: openai/gpt-oss-120b
       - key: OPENCODE_ZEN_API_KEY
@@ -62,12 +193,14 @@ services:
         value: opencode
       - key: OPENCODE_SERVER_PASSWORD
         sync: false
+      - key: OPENCODE_SERVER_URL
+        value: http://127.0.0.1:4096
       - key: OPENCODE_MODEL
         value: opencode/big-pickle
       - key: OPENCODE_AGENT
         value: mvp-builder
-      - key: OPENCODE_SERVER_URL
-        value: http://127.0.0.1:4096
+      - key: OPENCODE_NODE_HEAP_MB
+        value: "160"
       - key: ENABLE_OPENCODE_SIDECAR
         value: "true"
       - key: WORKER_MODE
@@ -81,7 +214,31 @@ services:
       - key: SECURITY_QUARANTINE_DIR
         value: /workspace/quarantine
       - key: STORAGE_BACKEND
-        value: local
+        value: cloudinary
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_IMAGE_MODEL
+        value: gemini-2.5-flash-image
+      - key: IMAGE_GENERATION_ENABLED
+        value: "true"
+      - key: SECURITY_SCAN_ENABLED
+        value: "true"
+      - key: SECURITY_SCAN_BLOCK_THRESHOLD
+        value: suspicious
+      - key: SECURITY_SCAN_FAIL_UNAVAILABLE_MODE
+        value: allow
+      - key: VIRUSTOTAL_ENABLED
+        value: "true"
+      - key: VIRUSTOTAL_ACK_TOS
+        value: "true"
+      - key: VIRUSTOTAL_API_KEY
+        sync: false
       - key: MVP_BUILD_TIMEOUT
         value: "600"
       - key: MVP_VERIFY_INSTALL_TIMEOUT
@@ -91,8 +248,8 @@ services:
       - key: MVP_VERIFY_NPM
         value: "false"
       - key: DB_POOL_SIZE
-        value: "3"
-      - key: DB_MAX_OVERFLOW
-        value: "2"
-      - key: UVICORN_WORKERS
         value: "1"
+      - key: DB_MAX_OVERFLOW
+        value: "0"
+      - key: WORKER_POLL_INTERVAL
+        value: "3"

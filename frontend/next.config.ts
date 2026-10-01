@@ -96,11 +96,9 @@ const nextConfig: NextConfig = {
       process.env.BACKEND_URL ||
       process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/v1\/?$/, "") ||
       (process.env.VERCEL
-        ? (process.env.NEXT_PUBLIC_RENDER_BACKEND_URL || "https://ai-solution-builder.onrender.com")
+        ? (process.env.NEXT_PUBLIC_RENDER_BACKEND_URL || "https://mvp-812be879.onrender.com")
         : "http://127.0.0.1:8000");
-    const backendUrl = rawBackend
-      .replace("ai-solution-builder-app.onrender.com", "ai-solution-builder.onrender.com")
-      .replace(/\/+$/, "");
+    const backendUrl = rawBackend.replace(/\/+$/, "");
 
     return [
       {
