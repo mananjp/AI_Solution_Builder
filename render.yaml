@@ -58,6 +58,10 @@ services:
         value: openai/gpt-oss-120b
       - key: OPENCODE_ZEN_API_KEY
         sync: false
+      - key: OPENCODE_SERVER_USERNAME
+        value: opencode
+      - key: OPENCODE_SERVER_PASSWORD
+        sync: false
       - key: OPENCODE_MODEL
         value: opencode/big-pickle
       - key: OPENCODE_AGENT

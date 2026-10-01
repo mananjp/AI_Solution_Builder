@@ -102,20 +102,6 @@ async def lifespan(app: FastAPI):
                         "WHERE status = 'failed' AND (error_message ILIKE '%signature%' OR error_message ILIKE '%api_secret%' OR error_message ILIKE '%cloudinary%')"
                     )
                 )
-                await conn.execute(
-                    text(
-                        "UPDATE mvp_builds SET status = 'failed', "
-                        "error_message = 'Build interrupted by server restart. Please click build to retry.' "
-                        "WHERE status IN ('building', 'queued', 'pending') AND (updated_at IS NULL OR updated_at < NOW() - INTERVAL '3 minutes')"
-                    )
-                )
-                await conn.execute(
-                    text(
-                        "UPDATE build_jobs SET status = 'failed', "
-                        "error_message = 'Build interrupted by server restart. Please click build to retry.' "
-                        "WHERE status IN ('running', 'queued') AND (updated_at IS NULL OR updated_at < NOW() - INTERVAL '3 minutes')"
-                    )
-                )
             else:
                 # SQLite-compatible hygiene (LIKE is case-insensitive for ASCII)
                 with suppress(Exception):
@@ -130,22 +116,6 @@ async def lifespan(app: FastAPI):
                         text(
                             "UPDATE build_jobs SET status = 'completed', error_message = NULL "
                             "WHERE status = 'failed' AND (error_message LIKE '%signature%' OR error_message LIKE '%api_secret%' OR error_message LIKE '%cloudinary%')"
-                        )
-                    )
-                with suppress(Exception):
-                    await conn.execute(
-                        text(
-                            "UPDATE mvp_builds SET status = 'failed', "
-                            "error_message = 'Build interrupted by server restart. Please click build to retry.' "
-                            "WHERE status IN ('building', 'queued', 'pending') AND (updated_at IS NULL OR updated_at < datetime('now', '-3 minutes'))"
-                        )
-                    )
-                with suppress(Exception):
-                    await conn.execute(
-                        text(
-                            "UPDATE build_jobs SET status = 'failed', "
-                            "error_message = 'Build interrupted by server restart. Please click build to retry.' "
-                            "WHERE status IN ('running', 'queued') AND (updated_at IS NULL OR updated_at < datetime('now', '-3 minutes'))"
                         )
                     )
         logger.info(

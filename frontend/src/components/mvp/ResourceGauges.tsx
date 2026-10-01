@@ -74,10 +74,11 @@ export function ResourceGauges({
         // Narrowed to locals first: a property read is not narrowed inside the
         // updater closure, so reading it there would still be `number | null`.
         const { cpu_percent: cpu, disk_percent: disk, memory: mem } = r;
-        if (cpu != null) setCpu((s) => push(s, cpu));
-        if (disk != null) setDisk((s) => push(s, disk));
+        // API percentages are 0–100. Intl's percent formatter expects 0–1.
+        if (cpu != null) setCpu((s) => push(s, cpu / 100));
+        if (disk != null) setDisk((s) => push(s, disk / 100));
         const used = mem?.percent;
-        if (used != null) setMem((s) => push(s, used));
+        if (used != null) setMem((s) => push(s, used / 100));
       } catch {
         if (cancelled) return;
         setRes(null);

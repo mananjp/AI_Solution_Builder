@@ -18,7 +18,6 @@ chosen by this service and passed inside the generated prompt, so multiple
 builds never collide.
 """
 
-import contextlib
 import hashlib
 import io
 import json
@@ -416,9 +415,11 @@ def _get_base_url() -> str:
 
 def _client(base_url: str | None = None) -> httpx.AsyncClient:
     url = base_url or _get_base_url()
+    password = settings.OPENCODE_SERVER_PASSWORD
     return httpx.AsyncClient(
         base_url=url,
         headers=_auth_headers(),
+        auth=(settings.OPENCODE_SERVER_USERNAME or "opencode", password) if password else None,
         timeout=settings.MVP_BUILD_TIMEOUT,
     )
 
@@ -570,6 +571,11 @@ def _fix_for_error(exc: Exception) -> str:
     """Map common sidecar/LLM failures to a copy-paste fix string."""
     text = str(exc)
     lowered = f"{type(exc).__name__}: {text}".lower()
+    if "401" in lowered and ("global/health" in lowered or "/api/info" in lowered):
+        return (
+            "OpenCode server authentication failed. Set OPENCODE_SERVER_PASSWORD on the API "
+            "service to the same password as the sidecar; the username defaults to 'opencode'."
+        )
     if "401" in lowered or "403" in lowered or "unauthorized" in lowered or "denied" in lowered:
         return "LLM provider rejected the key. Set OPENCODE_ZEN_API_KEY in the sidecar env (default model opencode/big-pickle), or override OPENCODE_MODEL to a groq/* model and use GROQ_API_KEY."
     if "timed out" in lowered or "connecterror" in lowered or "connect" in lowered:
@@ -3096,10 +3102,7 @@ async def run_build(
 
     spec_data = ai_state.get("app_spec")
     spec: AppSpec | None = None
-    if (
-        isinstance(spec_data, dict)
-        and ai_state.get("app_spec_input_hash") == source_hash
-    ):
+    if isinstance(spec_data, dict) and ai_state.get("app_spec_input_hash") == source_hash:
         try:
             spec = AppSpec.model_validate(spec_data)
         except Exception:
@@ -3149,6 +3152,10 @@ async def run_build(
         if progress_cb is not None:
             await progress_cb(step_idx, pct, msg)
 
+    # Import here to break the module cycle: the orchestrator imports this
+    # module for its lower-level scaffold and verification helpers.
+    from app.services.build_orchestrator import BuildContext, run_build_pipeline
+
     ctx = BuildContext(
         solution_id=solution_id,
         build_number=build_number,
@@ -3163,7 +3170,6 @@ async def run_build(
         allow_offline=allow_offline,
     )
     return await run_build_pipeline(ctx)
-
 
 
 async def run_premade_build(

@@ -53,8 +53,14 @@ EOF
 
 wait_for_sidecar() {
   for i in $(seq 1 15); do
-    if curl -fsS http://127.0.0.1:4096/api/info >/dev/null 2>&1 \
-      || curl -fsS http://127.0.0.1:4096/global/health >/dev/null 2>&1; then
+    # A protected OpenCode endpoint returns 401 without Basic Auth, which still
+    # proves the process is listening. The API client performs the authenticated
+    # readiness check before advertising the engine as healthy.
+    local api_status health_status
+    api_status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:4096/api/info 2>/dev/null || true)"
+    health_status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:4096/global/health 2>/dev/null || true)"
+    if [[ "$api_status" =~ ^[23][0-9][0-9]$ || "$api_status" == "401" \
+      || "$health_status" =~ ^[23][0-9][0-9]$ || "$health_status" == "401" ]]; then
       log "OpenCode sidecar is ready on :4096."
       return 0
     fi

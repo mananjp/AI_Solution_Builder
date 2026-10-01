@@ -92,7 +92,6 @@ class Settings(BaseSettings):
     # has been re-saved.
     JWT_SECRET_KEY: str = ""
 
-
     # ── AI / LLM Provider ─────────────────────────
     # Premade apps build directly through the OpenCode sidecar; this provider
     # only backs the legacy LangGraph analysis pipeline. "mock" keeps the app
@@ -197,6 +196,8 @@ class Settings(BaseSettings):
 
     # ── OpenCode MVP Builder (sidecar) ────────────
     OPENCODE_SERVER_URL: str = "http://127.0.0.1:4096"
+    OPENCODE_SERVER_USERNAME: str = "opencode"
+    OPENCODE_SERVER_PASSWORD: str = ""
     # Comma-separated sidecar endpoints (e.g. "http://opencode-1:4096,http://opencode-2:4096").
     # When set, concurrent builds are spread across containers and each session is
     # deterministically pinned to one member of the pool (parallel multi-user builds).
@@ -231,6 +232,9 @@ class Settings(BaseSettings):
     # ── Worker Process / Queue ────────────────────
     WORKER_MODE: str = "inline"  # "worker" (separate process) | "inline" (in-process fallback)
     WORKER_POLL_INTERVAL: float = 2.0  # seconds
+    WORKER_HEARTBEAT_INTERVAL: float = 10.0
+    WORKER_HEARTBEAT_STALE_SECONDS: int = 180
+    WORKER_RETRY_DELAY_SECONDS: int = 10
 
     # ── Frontend origin ───────────────────────────
     # Used for CORS and the Auth0 post-login redirect allow-list check.
