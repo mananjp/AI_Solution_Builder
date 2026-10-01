@@ -1,8 +1,5 @@
-# AI Solution Builder — Dedicated Backend (FastAPI API, Python-only)
-# Optimized for split deployment: Next.js on Vercel + Backend on Render.
-# Python-only runtime: the `api` role never runs the OpenCode sidecar, so the
-# Node/OpenCode CLI (several hundred MB) is omitted to keep image pulls fast.
-# RAM footprint: ~160 MB (leaves >350 MB free headroom on Render's 512MB tier).
+# AI Solution Builder — Dedicated Backend (FastAPI API + OpenCode + worker)
+# Used for split deployment: Next.js on Vercel + API/build worker on Render.
 
 FROM python:3.12-slim AS runtime
 
@@ -16,7 +13,7 @@ ENV PYTHONUNBUFFERED=1 \
     OPENCODE_SERVER_URL=http://127.0.0.1:4096 \
     MVP_BUILD_DIR=/workspace \
     MALLOC_ARENA_MAX=2 \
-    ENABLE_OPENCODE_SIDECAR=false
+    ENABLE_OPENCODE_SIDECAR=true
 
 WORKDIR /app
 
@@ -24,14 +21,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         bash \
         git \
+        nodejs \
+        npm \
     && rm -rf /var/lib/apt/lists/* \
+    && NODE_OPTIONS="" npm install -g opencode-ai@1.18.32 \
+    && command -v opencode \
+    && opencode --version \
     && groupadd --system app && useradd --system --gid app --create-home --home-dir /home/app app
 
 # Workspace + runtime dirs
 RUN mkdir -p /workspace \
              /app/.data/uploads \
              /app/.data/exports \
+             /home/app/.config/opencode/agents \
     && chmod -R 777 /workspace
+
+COPY backend/opencode/config.json /home/app/.config/opencode/opencode.json
+COPY backend/opencode/agents/ /home/app/.config/opencode/agents/
 
 # Python backend
 COPY backend/requirements.txt .

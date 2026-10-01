@@ -145,6 +145,7 @@ start_api() {
   done
 
   OPENCODE_PID=""
+  WORKER_PID=""
   if [ "$ENABLE_OPENCODE_SIDECAR" = "true" ]; then
     seed_opencode_auth
     log "Starting OpenCode sidecar on 0.0.0.0:4096 (with auto-restart supervisor) ..."
@@ -162,8 +163,17 @@ start_api() {
     log "OpenCode sidecar disabled (ENABLE_OPENCODE_SIDECAR=false) to conserve RAM."
   fi
 
-  trap 'log "Shutting down (API=$API_PID, OpenCode=${OPENCODE_PID:-none})..."; kill $API_PID ${OPENCODE_PID:-} 2>/dev/null || true; wait' INT TERM
-  wait -n "$API_PID" 2>/dev/null || wait
+  if [ "${WORKER_MODE:-inline}" = "worker" ]; then
+    log "Starting dedicated build worker ..."
+    (cd /app && $PYTHON_BIN -m app.worker) &
+    WORKER_PID=$!
+  fi
+
+  API_PIDS=("$API_PID")
+  [ -n "$OPENCODE_PID" ] && API_PIDS+=("$OPENCODE_PID")
+  [ -n "$WORKER_PID" ] && API_PIDS+=("$WORKER_PID")
+  trap 'log "Shutting down API processes (${API_PIDS[*]})..."; kill "${API_PIDS[@]}" 2>/dev/null || true; wait' INT TERM
+  wait -n "${API_PIDS[@]}" 2>/dev/null || wait
 }
 
 start_builder() {
