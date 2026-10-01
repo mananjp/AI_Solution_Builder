@@ -202,7 +202,7 @@ app.include_router(chat_router)
 app.include_router(legacy_repo_router)
 
 
-@app.get("/", tags=["System"])
+@app.api_route("/", methods=["GET", "HEAD"], tags=["System"])
 async def root():
     return {
         "message": f"Welcome to {settings.APP_NAME} API",

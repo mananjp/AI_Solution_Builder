@@ -26,7 +26,7 @@ router = APIRouter(tags=["System"])
 resources_router = APIRouter(prefix="/api/v1/system", tags=["System Resources"])
 
 
-@router.get("/health")
+@router.api_route("/health", methods=["GET", "HEAD"])
 async def health_check() -> dict[str, Any]:
     """Liveness probe — the process is running."""
     return {
@@ -37,7 +37,7 @@ async def health_check() -> dict[str, Any]:
     }
 
 
-@router.get("/ready")
+@router.api_route("/ready", methods=["GET", "HEAD"])
 async def readiness_check() -> dict[str, Any]:
     """Readiness probe — verifies database and Redis connectivity."""
     db_up = True
