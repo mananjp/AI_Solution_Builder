@@ -38,6 +38,7 @@ import {
 import type { MVPBuild, MVPDeployResult, OpenCodeChatComplete, Solution } from '@/types';
 
 const ACTIVE_SOLUTION_KEY = 'sutra_active_solution_id';
+const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
 function readStoredSolutionId(): string | null {
   if (typeof window === 'undefined') return null;
@@ -162,6 +163,7 @@ function ChatContent() {
       dispatch({ type: 'stream/start', build: finalize, now: Date.now() });
 
       const hadContext = state.context;
+      let completedSolutionId: string | null = null;
 
       try {
         await sendOpenCodeChatStream(
@@ -171,7 +173,10 @@ function ChatContent() {
             solution_id: solutionIdRef.current || undefined,
             session_id: state.sessionId,
             uploaded_context: hadContext?.text,
-            build_requested: finalize,
+            // Save this chat turn first. Actual builds are queued through the
+            // MVP worker below so chat streaming never runs a second scaffold
+            // implementation inside the API request.
+            build_requested: false,
           },
           {
             onEvent: (event, data) => {
@@ -220,6 +225,7 @@ function ChatContent() {
             },
             onComplete: async (data) => {
               const c = data as OpenCodeChatComplete;
+              completedSolutionId = c.solution_id || solutionIdRef.current;
               dispatch({
                 type: 'stream/agent-start',
                 sessionId: c.session_id ?? null,
@@ -249,7 +255,7 @@ function ChatContent() {
                 }
               }
               if (c.solution_id) void syncHistoryEntry(c.solution_id);
-              dispatch({ type: 'stream/finish' });
+              if (!finalize) dispatch({ type: 'stream/finish' });
             },
             onError: (err) => {
               const msg =
@@ -260,6 +266,53 @@ function ChatContent() {
             },
           }
         );
+
+        if (finalize) {
+          if (!completedSolutionId) {
+            throw new Error('The chat turn finished without a solution ID, so the worker could not start a build.');
+          }
+
+          let build = await mvpApi.triggerBuild(completedSolutionId, {
+            app_name: state.appName.trim() || undefined,
+            force: true,
+          });
+          const startedAt = Date.now();
+
+          const reflectWorkerBuild = (current: MVPBuild) => {
+            dispatch({ type: 'builds/upsert', build: current });
+            dispatch({
+              type: 'stream/progress',
+              progress: {
+                phase: current.status === 'complete' ? 'completed' : current.progress?.stage || 'analyzing',
+                step: current.progress?.step || 1,
+                total_steps: current.progress?.total_steps || 7,
+                percentage: current.status === 'complete' ? 100 : current.progress?.percentage || 0,
+                message: current.progress?.message || (current.status === 'queued'
+                  ? 'Waiting for the OpenCode build worker...'
+                  : 'OpenCode worker is building your app...'),
+                solution_id: current.solution_id,
+                build_id: current.build_id,
+                file_count: current.file_count,
+              },
+            });
+          };
+
+          reflectWorkerBuild(build);
+          while (build.status === 'queued' || build.status === 'pending' || build.status === 'building') {
+            if (Date.now() - startedAt > 15 * 60_000) {
+              throw new Error('The build is still running after 15 minutes. Check the Render worker logs for this build.');
+            }
+            await wait(1500);
+            build = await mvpApi.getStatus(build.build_id);
+            reflectWorkerBuild(build);
+          }
+
+          if (build.status !== 'complete') {
+            throw new Error(build.error_message || `OpenCode worker build ended with status: ${build.status}.`);
+          }
+          await syncHistoryEntry(completedSolutionId);
+          dispatch({ type: 'stream/finish' });
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Unable to reach SUTRA intelligence layer.';
         dispatch({ type: 'stream/fail', message: msg });
@@ -464,21 +517,32 @@ function ChatContent() {
         </div>
       </header>
 
-      {state.capability?.simulation && (
+      {state.capability && (!state.capability.sidecar_online || state.capability.simulation) && (
         <div className="mb-3 flex items-start gap-2.5 rounded-sm border border-[var(--amber)] bg-[var(--bg)] px-4 py-3 shadow-sm shrink-0">
           <AlertTriangle className="w-4 h-4 text-[var(--amber)] shrink-0 mt-0.5" />
           <div className="text-[11px] leading-relaxed min-w-0">
             <p className="font-bold uppercase tracking-widest text-[var(--sutra-ink)] text-[10px]">
-              Simulation mode — no live AI engine connected
+              {state.capability.sidecar_online
+                ? 'Simulation mode — no live AI engine connected'
+                : 'OpenCode build worker is unavailable'}
             </p>
             <p className="text-[var(--text-2)] mt-1">
-              No LLM API key configured (
-              <code className="font-mono bg-[var(--bg-2)] px-1">LLM_PROVIDER={state.capability.llm_provider}</code>)
-              and the OpenCode sidecar is offline. Builds use a deterministic template scaffold.
-              Set <code className="font-mono bg-[var(--bg-2)] px-1">GROQ_API_KEY</code> or{' '}
-              <code className="font-mono bg-[var(--bg-2)] px-1">OPENAI_API_KEY</code> plus{' '}
-              <code className="font-mono bg-[var(--bg-2)] px-1">LLM_PROVIDER</code> and start the sidecar for real
-              AI generation.
+              {!state.capability.sidecar_online ? (
+                <>
+                  Custom MVP builds require a healthy OpenCode sidecar and will fail instead of using the fallback scaffold. Enable{' '}
+                  <code className="font-mono bg-[var(--bg-2)] px-1">ENABLE_OPENCODE_SIDECAR=true</code>,
+                  configure the model credentials, and restart the backend. Chat responses may still use{' '}
+                  <code className="font-mono bg-[var(--bg-2)] px-1">LLM_PROVIDER={state.capability.llm_provider}</code>.
+                  {' '}Build queue mode: <code className="font-mono bg-[var(--bg-2)] px-1">{state.capability.worker_mode || 'unknown'}</code>.
+                </>
+              ) : (
+                <>
+                  No LLM API key is configured for{' '}
+                  <code className="font-mono bg-[var(--bg-2)] px-1">LLM_PROVIDER={state.capability.llm_provider}</code>.
+                  Set <code className="font-mono bg-[var(--bg-2)] px-1">GROQ_API_KEY</code> or{' '}
+                  <code className="font-mono bg-[var(--bg-2)] px-1">OPENAI_API_KEY</code> to enable AI planning.
+                </>
+              )}
             </p>
           </div>
         </div>

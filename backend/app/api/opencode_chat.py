@@ -615,6 +615,7 @@ async def health() -> dict[str, Any]:
         "healthy": True,
         "sidecar_healthy": sidecar_ok,
         "mode": "opencode-sidecar" if sidecar_ok else "integrated-synthesizer",
+        "worker_mode": settings.WORKER_MODE,
     }
     if info.get("version"):
         payload["version"] = info["version"]
@@ -1159,6 +1160,7 @@ async def chat(
                             "llm_provider": settings.LLM_PROVIDER,
                             "llm_authenticated": llm_creds,
                             "simulation": simulation,
+                            "worker_mode": settings.WORKER_MODE,
                             "mode": "opencode-sidecar" if sidecar_ok else "integrated-synthesizer",
                         }
                     ),

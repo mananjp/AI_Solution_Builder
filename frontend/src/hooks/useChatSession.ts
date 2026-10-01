@@ -19,6 +19,7 @@ export interface BuildCapability {
   llm_authenticated: boolean;
   simulation: boolean;
   mode: string;
+  worker_mode?: string;
 }
 
 export interface Milestone {

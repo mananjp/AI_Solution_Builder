@@ -303,7 +303,6 @@ async def execute_build_job(build_id: UUID) -> None:
                     uploaded_context=uploaded_ctx,
                     conversation_history=conv_history,
                     check_npm=settings.MVP_VERIFY_NPM,
-                    allow_offline=True,
                     progress_cb=save_progress,
                 )
                 # Persist any generated spec back to the solution

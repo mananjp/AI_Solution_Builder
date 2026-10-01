@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # AI Solution Builder — unified container entrypoint
 #
-# APP_ROLE=app      -> run alembic migration, start FastAPI (127.0.0.1:8000)
-#                       and the Next.js server (PORT, proxy /api -> uvicorn).
+# APP_ROLE=app      -> run alembic migration, start FastAPI (127.0.0.1:8000),
+#                       Next.js, OpenCode, and (WORKER_MODE=worker) build worker.
 # APP_ROLE=builder  -> run alembic migration, start opencode serve (4096) and
 #                       the background build worker (shared /workspace).
 # APP_ROLE=worker   -> legacy alias, worker only (used by local docker-compose).
@@ -93,6 +93,7 @@ start_app() {
   NEXT_PID=$!
 
   OPENCODE_PID=""
+  WORKER_PID=""
   if [ "$ENABLE_OPENCODE_SIDECAR" = "true" ]; then
     # Brief pause to let Next.js finish its initial compilation/cache warmup
     sleep 2
@@ -112,8 +113,17 @@ start_app() {
     log "OpenCode sidecar disabled (ENABLE_OPENCODE_SIDECAR=false) to conserve RAM."
   fi
 
-  trap 'log "Shutting down (API=$API_PID, Next=$NEXT_PID, OpenCode=${OPENCODE_PID:-none})..."; kill $API_PID $NEXT_PID ${OPENCODE_PID:-} 2>/dev/null || true; wait' INT TERM
-  wait -n "$API_PID" "$NEXT_PID" 2>/dev/null || wait
+  if [ "${WORKER_MODE:-inline}" = "worker" ]; then
+    log "Starting dedicated build worker in the app container ..."
+    (cd /app && $PYTHON_BIN -m app.worker) &
+    WORKER_PID=$!
+  fi
+
+  APP_PIDS=("$API_PID" "$NEXT_PID")
+  [ -n "$OPENCODE_PID" ] && APP_PIDS+=("$OPENCODE_PID")
+  [ -n "$WORKER_PID" ] && APP_PIDS+=("$WORKER_PID")
+  trap 'log "Shutting down app processes (${APP_PIDS[*]})..."; kill "${APP_PIDS[@]}" 2>/dev/null || true; wait' INT TERM
+  wait -n "${APP_PIDS[@]}" 2>/dev/null || wait
 }
 
 start_api() {

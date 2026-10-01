@@ -1,5 +1,5 @@
-# Single-instance production topology: Next.js, FastAPI, OpenCode and inline
-# build execution share one container and one persistent workspace disk.
+# Single-instance production topology: Next.js, FastAPI, OpenCode, and the
+# queue worker share one container and one persistent workspace disk.
 # PostgreSQL (with pgvector) and Redis are managed external services.
 services:
   - type: web
@@ -67,7 +67,7 @@ services:
       - key: ENABLE_OPENCODE_SIDECAR
         value: "true"
       - key: WORKER_MODE
-        value: inline
+        value: worker
       - key: MVP_BUILD_DIR
         value: /workspace
       - key: UPLOAD_DIR
