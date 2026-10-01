@@ -429,8 +429,8 @@ async def execute_build_job(build_id: UUID) -> None:
             if job:
                 job.status = "completed"
 
-            # Push the artifact to object storage (Cloudinary if healthy,
-            # falling back gracefully to local disk so builds never fail on remote errors).
+            # The API runs in a separate service, so a durable shared artifact is
+            # required before this build can be reported complete.
             key = _storage_key(build)
             local_dir = Path(result["local_dir"])
             local_zip_path = local_dir.with_suffix(".zip")
@@ -441,17 +441,21 @@ async def execute_build_job(build_id: UUID) -> None:
             try:
                 storage = get_storage()
                 uploaded_key = await asyncio.wait_for(
-                    storage.upload_bytes(zip_data, key), timeout=15.0
+                    storage.upload_bytes(zip_data, key), timeout=60.0
                 )
                 if uploaded_key:
                     storage_key = key
                 logger.info("Artifact uploaded to remote storage: %s", key)
             except Exception as store_err:
                 logger.warning(
-                    "Remote object storage upload failed (%s); saved to local disk fallback (%s)",
+                    "Remote object storage upload failed (%s); local archive is at %s",
                     store_err,
                     local_zip_path,
                 )
+                if settings.STORAGE_BACKEND.lower() == "cloudinary":
+                    raise RuntimeError(
+                        "Build artifact could not be saved to Cloudinary; check the shared storage credentials."
+                    ) from store_err
 
             del zip_data
             import gc
@@ -922,8 +926,8 @@ async def build_status(
     return await _build_response(build, include_files=(build.status in _STATUS_END_STATES))
 
 
-def _resolve_workspace_dir(build: MVPBuild) -> Path:
-    """Resolve and ensure the local workspace directory exists for a build."""
+async def _resolve_workspace_dir(build: MVPBuild) -> Path:
+    """Resolve a build workspace, restoring its archive from shared storage if needed."""
     target_dir = builder.build_workspace_dir(build.solution_id, build.build_number)
 
     # 1. Prefer explicit workspace_path if present on disk
@@ -951,6 +955,20 @@ def _resolve_workspace_dir(build: MVPBuild) -> Path:
     if chat_dir.exists() and any(chat_dir.iterdir()):
         return chat_dir
 
+    # API and builder run in separate Render services, so their disks are not
+    # shared. Restore the durable artifact into the API's ephemeral workspace
+    # cache for file reads and sandbox edits.
+    storage_key = build.storage_key
+    if storage_key and not storage_key.startswith("local:"):
+        try:
+            archive = await get_storage().download_raw(storage_key)
+            target_dir.mkdir(parents=True, exist_ok=True)
+            safe_extract_zip(archive, target_dir)
+            if any(target_dir.iterdir()):
+                return target_dir
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not restore build %s from object storage: %s", build.id, exc)
+
     return target_dir
 
 
@@ -968,12 +986,14 @@ async def get_build_file(
             status_code=409, detail=f"Build is not complete (status={build.status})"
         )
 
-    local_dir = _resolve_workspace_dir(build)
+    local_dir = await _resolve_workspace_dir(build)
     target_path = (local_dir / file_path).resolve()
 
     # Security: Ensure target_path is inside local_dir
-    if not str(target_path).startswith(str(local_dir.resolve())):
-        raise HTTPException(status_code=403, detail="Access denied")
+    try:
+        target_path.relative_to(local_dir.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied") from None
 
     if not target_path.exists() or not target_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
@@ -1020,7 +1040,12 @@ async def chat_edit_build(
             status_code=409, detail=f"Build must be complete to apply edits (status={build.status})"
         )
 
-    local_dir = _resolve_workspace_dir(build)
+    local_dir = await _resolve_workspace_dir(build)
+    if not local_dir.exists() or not any(local_dir.iterdir()):
+        raise HTTPException(
+            status_code=410,
+            detail="Build files are unavailable. Verify the Cloudinary artifact and retry.",
+        )
     rel_files = builder.relative_paths(local_dir)
 
     # Identify primary file to edit or inspect
@@ -1206,7 +1231,9 @@ async def chat_edit_build(
         r_path = f["path"]
         content = f["content"]
         target_f = (local_dir / r_path).resolve()
-        if not str(target_f).startswith(str(local_dir.resolve())):
+        try:
+            target_f.relative_to(local_dir.resolve())
+        except ValueError:
             continue
         target_f.parent.mkdir(parents=True, exist_ok=True)
         target_f.write_text(content, encoding="utf-8")
@@ -1221,8 +1248,18 @@ async def chat_edit_build(
         local_zip = local_dir.with_suffix(".zip")
         zip_bytes = builder.build_bytes(local_dir)
         local_zip.write_bytes(zip_bytes)
-        del zip_bytes
+        storage_key = build.storage_key or _storage_key(build)
+        try:
+            stored_key = await get_storage().upload_bytes(zip_bytes, storage_key)
+        except Exception as storage_err:  # noqa: BLE001
+            raise HTTPException(
+                status_code=502,
+                detail=f"Could not save the edited build to object storage: {storage_err}",
+            ) from storage_err
+        build.storage_key = stored_key or storage_key
     except Exception as zip_err:
+        if isinstance(zip_err, HTTPException):
+            raise
         logger.warning("Could not re-package build zip on edit: %s", zip_err)
 
     cfg = dict(build.app_config or {})

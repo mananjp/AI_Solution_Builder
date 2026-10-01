@@ -9,7 +9,9 @@ ENV NODE_ENV=production \
     APP_ROLE=builder \
     OPENCODE_ENDPOINT=0.0.0.0 \
     OPENCODE_PORT=4096 \
+    OPENCODE_NODE_HEAP_MB=160 \
     MVP_BUILD_DIR=/workspace \
+    MALLOC_ARENA_MAX=2 \
     WORKER_MODE=worker
 
 WORKDIR /app
@@ -48,7 +50,7 @@ WORKDIR /workspace
 EXPOSE 4096
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD node -e "fetch('http://localhost:4096/global/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))" || exit 1
+  CMD sh -c 'status=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 3 http://localhost:4096/global/health || true); [ "$status" = "401" ] || { [ "$status" -ge 200 ] && [ "$status" -lt 400 ]; }' || exit 1
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["builder"]

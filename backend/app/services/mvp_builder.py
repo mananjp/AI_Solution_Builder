@@ -351,18 +351,25 @@ def _pool_urls() -> list[str]:
     pooled: list[str] = []
     for raw in (settings.OPENCODE_POOL_URLS or "").split(","):
         url = raw.strip().rstrip("/")
-        if not url or "ai-solution-builder-builder" in url:
+        if not url:
             continue
         if url not in pooled:
             pooled.append(url)
     return pooled
 
 
+def _normalize_server_url(value: str) -> str:
+    """Accept Render's host:port service reference as well as a full URL."""
+    url = value.strip().rstrip("/")
+    if url and "://" not in url:
+        url = f"http://{url}"
+    return url
+
+
 def _candidate_urls() -> list[str]:
     candidates: list[str] = []
-    configured = (settings.OPENCODE_SERVER_URL or "").strip().rstrip("/")
-    # Filter out unreachable builder worker hostnames from legacy configs
-    if configured and "ai-solution-builder-builder" not in configured:
+    configured = _normalize_server_url(settings.OPENCODE_SERVER_URL or "")
+    if configured:
         candidates.append(configured)
     for pooled in _pool_urls():
         if pooled not in candidates:
@@ -621,7 +628,7 @@ async def diagnose() -> dict[str, Any]:
             }
         )
 
-    configured_url = (settings.OPENCODE_SERVER_URL or "").strip()
+    configured_url = _normalize_server_url(settings.OPENCODE_SERVER_URL or "")
     if not configured_url:
         checks.append(
             {
@@ -639,7 +646,7 @@ async def diagnose() -> dict[str, Any]:
                 "detail": f"configured={configured_url}",
                 "fix": None
                 if configured_url in _candidate_urls()
-                else "URL is filtered out (contains 'ai-solution-builder-builder') — update it to the sidecar address.",
+                else "Set OPENCODE_SERVER_URL to the private URL of the builder service.",
             }
         )
 
