@@ -353,3 +353,128 @@ def test_security_exceptions():
 
     err4 = sec_types.ArchiveRejectedError("rejected")
     assert isinstance(err4, sec_types.ScanBlockedError)
+
+
+# ── System Resources ──────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_system_resources_sampling(monkeypatch, tmp_path):
+    from app.services import resources
+
+    assert resources._read_number("/non/existent/path") is None
+
+    p = tmp_path / "num.txt"
+    p.write_text("12345", encoding="ascii")
+    assert resources._read_number(str(p)) == 12345
+
+    p_max = tmp_path / "max.txt"
+    p_max.write_text("max", encoding="ascii")
+    assert resources._read_number(str(p_max)) is None
+
+    # Test sampling runs and produces well-shaped dict
+    res = await resources.system_resources()
+    assert "cpu_percent" in res
+    assert "cpu_count" in res
+    assert "sample_ts" in res
+
+
+# ── Security Rate Limit ───────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_virustotal_rate_limit(monkeypatch):
+    from app.services.security import ratelimit
+
+    # 1. When Redis is None (fails open)
+    monkeypatch.setattr(ratelimit, "redis_client", lambda: None)
+    assert await ratelimit.acquire_virustotal_quota() is True
+
+    # 2. When Redis client returns valid pipeline counts under quota
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute = AsyncMock(return_value=[1, True, 10, True])
+    mock_redis = MagicMock()
+    mock_redis.pipeline.return_value = mock_pipeline
+    monkeypatch.setattr(ratelimit, "redis_client", lambda: mock_redis)
+    assert await ratelimit.acquire_virustotal_quota() is True
+
+    # 3. When RPM exceeded
+    mock_pipeline.execute = AsyncMock(return_value=[99999, True, 10, True])
+    assert await ratelimit.acquire_virustotal_quota() is False
+
+    # 4. When Daily exceeded
+    mock_pipeline.execute = AsyncMock(return_value=[1, True, 99999, True])
+    assert await ratelimit.acquire_virustotal_quota() is False
+
+    # 5. When Redis raises exception (fail-open)
+    mock_pipeline.execute = AsyncMock(side_effect=RuntimeError("Redis connection lost"))
+    assert await ratelimit.acquire_virustotal_quota() is True
+
+
+# ── Row-Level Security ────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_rls_helpers():
+    from app.services import rls
+
+    sql_statements = rls.build_policy_sql("my_schema", "my_table")
+    assert len(sql_statements) == 3
+    assert any("ENABLE ROW LEVEL SECURITY" in s for s in sql_statements)
+
+    assert rls.tables_with_org_column([("users", "org_id"), ("items", "id")]) == ["users"]
+
+    mock_conn = MagicMock()
+    mock_conn.execute = AsyncMock()
+
+    await rls.set_request_org(mock_conn, "test-org-123")
+    mock_conn.execute.assert_awaited_once()
+
+    # Test enable_org_rls with exception tolerance
+    mock_result = MagicMock()
+    mock_result.all.return_value = [("t1", "org_id")]
+    mock_conn.execute = AsyncMock(side_effect=[mock_result, Exception("Failed DDL"), None, None])
+    await rls.enable_org_rls(mock_conn, "public", "org-1")
+
+
+# ── Vercel Deployer ───────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_vercel_deployer_methods(monkeypatch):
+    from app.services.vercel_deployer import VercelDeployer
+
+    deployer = VercelDeployer(token="test_tok", team_id="team_1")
+    assert deployer._params() == {"teamId": "team_1"}
+
+    # Mock create_or_get_project success
+    async def handler_create(request: httpx.Request) -> Response:
+        if request.method == "POST" and "/v9/projects" in request.url.path:
+            return Response(200, json={"id": "prj_1", "name": "my-app"})
+        if request.method == "POST" and "/v10/projects/prj_1/env" in request.url.path:
+            return Response(201, json={"id": "env_1"})
+        if request.method == "POST" and "/v13/deployments" in request.url.path:
+            return Response(
+                200, json={"id": "dpl_1", "url": "my-app.vercel.app", "readyState": "READY"}
+            )
+        if request.method == "GET" and "/v13/deployments/dpl_1" in request.url.path:
+            return Response(
+                200, json={"id": "dpl_1", "url": "my-app.vercel.app", "readyState": "READY"}
+            )
+        return Response(404)
+
+    client = httpx.AsyncClient(transport=MockTransport(handler_create))
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *args, **kwargs: client)
+
+    prj = await deployer.create_or_get_project("my_app", "mananjp/repo")
+    assert prj["id"] == "prj_1"
+
+    env_ok = await deployer.set_env_variable("prj_1", "NEXT_PUBLIC_API", "https://api.com")
+    assert env_ok is True
+
+    dpl = await deployer.trigger_deployment("my_app", "mananjp/repo")
+    assert dpl["id"] == "dpl_1"
+    assert "https://" in dpl["url"]
+
+    status = await deployer.get_deployment_status("dpl_1")
+    assert status["readyState"] == "READY"
