@@ -98,6 +98,7 @@ async def test_dispose_engine_warns_and_drops_pool_from_dead_owner_loop(monkeypa
     try:
         with caplog.at_level(logging.WARNING):
             await database.dispose_engine()
+        assert database._engine_loop is None
     finally:
         monkeypatch.undo()
 
@@ -105,7 +106,6 @@ async def test_dispose_engine_warns_and_drops_pool_from_dead_owner_loop(monkeypa
     warnings = _ownership_warnings(caplog)
     assert len(warnings) == 1, f"expected one explanatory warning, got {warnings}"
     assert "owner loop closed=True" in warnings[0]
-    assert database._engine_loop is None
 
 
 async def test_dispose_engine_is_silent_on_the_owning_loop(caplog, monkeypatch):
