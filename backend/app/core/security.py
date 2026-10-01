@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
+import bcrypt
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt.exceptions import PyJWTError
-from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,7 +28,6 @@ if TYPE_CHECKING:
 
 # ── Password Hashing ─────────────────────────────
 logger = logging.getLogger(__name__)
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ── Bearer Token Scheme ──────────────────────────
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -36,12 +35,16 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 def hash_password(password: str) -> str:
     """Hash a plaintext password using bcrypt."""
-    return cast(str, pwd_context.hash(password))
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a plaintext password against its bcrypt hash."""
-    return cast(bool, pwd_context.verify(plain_password, hashed_password))
+    try:
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    except Exception:
+        return False
 
 
 def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
