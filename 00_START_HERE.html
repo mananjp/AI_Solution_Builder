@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Solution Builder — Hackathon Technical Submission & Project Handover</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: rgba(22, 27, 44, 0.7);
+      --card-border: rgba(99, 102, 241, 0.2);
+      --accent: #6366f1;
+      --accent-glow: rgba(99, 102, 241, 0.4);
+      --accent-cyan: #06b6d4;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+      --success: #10b981;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    body {
+      background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #090d16 60%);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 2.5rem 1.5rem;
+      line-height: 1.6;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .header {
+      text-align: center;
+      padding: 3rem 1rem 2rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      margin-bottom: 2.5rem;
+    }
+    .badge {
+      display: inline-block;
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(6, 182, 212, 0.2));
+      border: 1px solid var(--accent);
+      color: #a5b4fc;
+      font-size: 0.85rem;
+      font-weight: 600;
+      padding: 0.35rem 1rem;
+      border-radius: 9999px;
+      margin-bottom: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    h1 {
+      font-size: 2.75rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, #818cf8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.75rem;
+    }
+    .subtitle {
+      font-size: 1.15rem;
+      color: var(--text-muted);
+      max-width: 780px;
+      margin: 0 auto 1.5rem;
+    }
+    .quick-links {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.7rem 1.4rem;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.95rem;
+      transition: all 0.2s ease;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #6366f1, #4f46e5);
+      color: #fff;
+      box-shadow: 0 4px 14px var(--accent-glow);
+    }
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #4f46e5, #4338ca);
+      transform: translateY(-2px);
+    }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      color: #e2e8f0;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      transform: translateY(-2px);
+    }
+    .team-box {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 2.5rem;
+      backdrop-filter: blur(10px);
+    }
+    .team-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .team-member {
+      background: rgba(0, 0, 0, 0.25);
+      padding: 1rem;
+      border-radius: 8px;
+      border-left: 3px solid var(--accent);
+    }
+    .team-member strong { display: block; color: #fff; font-size: 1rem; }
+    .team-member span { font-size: 0.85rem; color: var(--text-muted); }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2.5rem;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      transition: all 0.2s ease;
+      backdrop-filter: blur(10px);
+    }
+    .card:hover {
+      border-color: rgba(99, 102, 241, 0.5);
+      transform: translateY(-3px);
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
+    }
+    .card-num {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 0.25rem;
+    }
+    .card h3 {
+      font-size: 1.25rem;
+      color: #fff;
+      margin-bottom: 0.6rem;
+    }
+    .card p {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      margin-bottom: 1rem;
+    }
+    .card-links {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .card-links a {
+      color: #a5b4fc;
+      text-decoration: none;
+      font-size: 0.88rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .card-links a:hover {
+      color: #c7d2fe;
+      text-decoration: underline;
+    }
+    .usps {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 2rem;
+      margin-bottom: 2.5rem;
+    }
+    .usps h2 { font-size: 1.5rem; margin-bottom: 1rem; color: #fff; }
+    .usp-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1rem;
+    }
+    .usp-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      font-size: 0.92rem;
+    }
+    .usp-item span.icon {
+      color: var(--success);
+      font-weight: 800;
+      line-height: 1;
+    }
+    footer {
+      text-align: center;
+      padding: 2rem 0;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="badge">CHAOS2COMMIT Hackathon 2026 — Final Project Handover</div>
+      <h1>AI Solution Builder</h1>
+      <p class="subtitle">
+        Enterprise-grade AI platform that converts business ideas, BRDs, SOPs, and legacy schemas into live, working software systems with isolated PostgreSQL schemas, dynamic REST APIs, full-stack MVP code generation, and interactive previews.
+      </p>
+      <div class="quick-links">
+        <a href="https://github.com/mananjp/AI_Solution_Builder" target="_blank" class="btn btn-primary">
+          <span>GitHub Repository (main)</span>
+        </a>
+        <a href="https://ai-solution-builder.onrender.com" target="_blank" class="btn btn-secondary">
+          <span>Live Cloud Deployment</span>
+        </a>
+        <a href="07_Presentation_Assets/AI_Solution_Builder_Voiceover.mp4" class="btn btn-secondary">
+          <span>Watch Demo Video (MP4)</span>
+        </a>
+        <a href="SUBMISSION.md" class="btn btn-secondary">
+          <span>Read SUBMISSION.md</span>
+        </a>
+      </div>
+    </header>
+
+    <div class="team-box">
+      <h3 style="color: #fff; margin-bottom: 0.5rem;">Team Details</h3>
+      <p style="color: var(--text-muted); font-size: 0.9rem;">CHAOS2COMMIT Hackathon 2026 | Futurrizon Technologies Pvt Ltd</p>
+      <div class="team-grid">
+        <div class="team-member">
+          <strong>MANAN PANCHAL</strong>
+          <span>Team Lead / Full-Stack & AI</span>
+          <br><small style="color: #64748b;">mananjpanchal11@gmail.com</small>
+        </div>
+        <div class="team-member">
+          <strong>Ansh Dhanani</strong>
+          <span>Frontend & UI/UX</span>
+          <br><small style="color: #64748b;">dhananiansh01@gmail.com</small>
+        </div>
+        <div class="team-member">
+          <strong>Nil Lad</strong>
+          <span>Backend & Database Architect</span>
+          <br><small style="color: #64748b;">ladnil03@gmail.com</small>
+        </div>
+        <div class="team-member">
+          <strong>Tirth Bhanderi</strong>
+          <span>Mobile, DevOps & Testing</span>
+          <br><small style="color: #64748b;">d25aiml081@charusat.edu.in</small>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="card-num">Folder 01</div>
+        <h3>Source Code</h3>
+        <p>Complete project source code including FastAPI async backend, Next.js 16 frontend, Capacitor Android shell, and infrastructure files.</p>
+        <div class="card-links">
+          <a href="01_Source_Code/">Browse Source Code Directory &rarr;</a>
+          <a href="01_Source_Code/backend/">Backend (FastAPI, LangGraph)</a>
+          <a href="01_Source_Code/frontend/">Frontend (Next.js 16, Capacitor)</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-num">Folder 02</div>
+        <h3>Project Manuals</h3>
+        <p>Comprehensive step-by-step guides for end-users, software developers, DevOps deployment, and mobile compilation.</p>
+        <div class="card-links">
+          <a href="02_Project_Manuals/USER_MANUAL.md">User Manual &rarr;</a>
+          <a href="02_Project_Manuals/DEVELOPER_MANUAL.md">Developer Manual &rarr;</a>
+          <a href="02_Project_Manuals/DEPLOYMENT_MANUAL.md">Deployment & Operations Manual &rarr;</a>
+          <a href="02_Project_Manuals/MOBILE_APP_MANUAL.md">Mobile & Android Manual &rarr;</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-num">Folder 03</div>
+        <h3>Documentation & Architecture</h3>
+        <p>Executive technical submission, Architecture Decision Records (ADRs), UI audit reports, security scanning plans, and alignment checks.</p>
+        <div class="card-links">
+          <a href="03_Documentation/SUBMISSION.md">Full Technical SUBMISSION.md &rarr;</a>
+          <a href="03_Documentation/README.md">System README &rarr;</a>
+          <a href="03_Documentation/architecture_decision_records/">Architecture Decision Records (ADRs)</a>
+          <a href="03_Documentation/AUDIT.md">UI & System Audit</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-num">Folder 04</div>
+        <h3>Database Assets</h3>
+        <p>Complete PostgreSQL DDL schema with pgvector, 10 Alembic migration scripts, SQLAlchemy ORM models, and Pydantic schemas.</p>
+        <div class="card-links">
+          <a href="04_Database_Assets/schema.sql">PostgreSQL schema.sql (DDL) &rarr;</a>
+          <a href="04_Database_Assets/alembic_migrations/">Alembic Migration History &rarr;</a>
+          <a href="04_Database_Assets/orm_models/">SQLAlchemy ORM Models</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-num">Folder 05</div>
+        <h3>Environment Configuration</h3>
+        <p>Production environment template (.env.example), Dockerfiles for all containers, docker-compose, and Render deployment blueprints.</p>
+        <div class="card-links">
+          <a href="05_Environment_Configuration/.env.example">Environment Reference (.env.example) &rarr;</a>
+          <a href="05_Environment_Configuration/docker-compose.yml">docker-compose.yml</a>
+          <a href="05_Environment_Configuration/render.yaml">Render Blueprint (render.yaml)</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-num">Folder 06</div>
+        <h3>AI & Third-Party Details</h3>
+        <p>Technical reference for Groq LLMs (GPT-OSS-120B), Google Gemini Flash/Pro, OpenCode Sidecar, Auth0 SSO, Razorpay/Stripe, and ClamAV.</p>
+        <div class="card-links">
+          <a href="06_AI_and_Third_Party_Details/AI_AND_THIRD_PARTY_INTEGRATIONS.md">AI & Third-Party Reference &rarr;</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-num">Folder 07</div>
+        <h3>Presentation Assets</h3>
+        <p>Pitch slides, high-level implementation plans, architecture overview diagrams, branding banner, and voiceover demonstration video.</p>
+        <div class="card-links">
+          <a href="07_Presentation_Assets/AI_Solution_Builder_Voiceover.mp4">Voiceover Demo Video (.mp4) &rarr;</a>
+          <a href="07_Presentation_Assets/AI Solution Builder.pdf">Solution Pitch Slides (.pdf)</a>
+          <a href="07_Presentation_Assets/AI Solution Builder_ End-to-End Implementation Pla.pdf">Implementation Plan (.pdf)</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-num">Folder 08</div>
+        <h3>GitHub & CI/CD</h3>
+        <p>Repository access details, contributor permissions, and automated GitHub Actions testing and deployment pipelines.</p>
+        <div class="card-links">
+          <a href="08_GitHub_and_CI_CD/GITHUB_ACCESS.md">Repository & Access Guide &rarr;</a>
+          <a href="08_GitHub_and_CI_CD/.github/workflows/">GitHub Actions CI/CD Workflows</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-num">Folder 09</div>
+        <h3>Automated Test Suite</h3>
+        <p>26 automated test files covering domain entity inference, code generation, verification gates, payment webhooks, and security scans.</p>
+        <div class="card-links">
+          <a href="09_Test_Suite/">Browse 26 Test Files &rarr;</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="usps">
+      <h2>Key Unique Selling Propositions (USPs)</h2>
+      <div class="usp-list">
+        <div class="usp-item"><span class="icon">&#10003;</span><span><strong>Live Working Systems:</strong> Generates tenant-isolated PostgreSQL schemas and live REST APIs, not just static mockups.</span></div>
+        <div class="usp-item"><span class="icon">&#10003;</span><span><strong>One-Click Full-Stack MVP:</strong> Autonomous code generation of complete Next.js 16 + FastAPI production codebases.</span></div>
+        <div class="usp-item"><span class="icon">&#10003;</span><span><strong>Multi-Agent LangGraph Pipeline:</strong> 9+ specialized AI agents collaborating in real time on end-to-end architecture design.</span></div>
+        <div class="usp-item"><span class="icon">&#10003;</span><span><strong>Domain Intelligence:</strong> 30+ industry-specific entity lexicons ensuring accurate, context-aware schema design.</span></div>
+        <div class="usp-item"><span class="icon">&#10003;</span><span><strong>Enterprise Security:</strong> Built-in ClamAV antivirus, VirusTotal threat intelligence, and archive bomb defense.</span></div>
+        <div class="usp-item"><span class="icon">&#10003;</span><span><strong>Mobile First & Android Shell:</strong> PWA + native Capacitor Android shell with responsive mobile bottom navigation.</span></div>
+      </div>
+    </div>
+
+    <footer>
+      <p>Submitted for the <strong>CHAOS2COMMIT Hackathon 2026</strong> | Organized by Futurrizon Technologies Pvt Ltd</p>
+      <p>Project Repository: <a href="https://github.com/mananjp/AI_Solution_Builder" target="_blank" style="color: #818cf8;">https://github.com/mananjp/AI_Solution_Builder</a></p>
+    </footer>
+  </div>
+</body>
+</html>
