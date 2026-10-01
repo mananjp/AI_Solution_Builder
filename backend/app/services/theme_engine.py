@@ -38,7 +38,7 @@ from app.services.app_spec import (
 logger = logging.getLogger(__name__)
 
 
-def _c(h: float, s: float, l: float) -> ColourModel:
+def _c(h: float, s: float, l: float) -> ColourModel:  # noqa: E741
     return ColourModel(h=h, s=s, l=l)
 
 
@@ -194,7 +194,15 @@ INDUSTRY_PALETTES: dict[str, dict[str, Any]] = {
         "mood": "refined",
     },
     "realestate": {
-        "keywords": ("real estate", "property", "rental", "listing", "housing", "landlord", "broker"),
+        "keywords": (
+            "real estate",
+            "property",
+            "rental",
+            "listing",
+            "housing",
+            "landlord",
+            "broker",
+        ),
         "primary": _c(214, 44, 38),
         "accent": _c(160, 42, 36),
         "background": _c(210, 24, 98),
@@ -254,7 +262,15 @@ INDUSTRY_PALETTES: dict[str, dict[str, Any]] = {
         "mood": "grounded",
     },
     "logistics": {
-        "keywords": ("logistics", "delivery", "shipping", "fleet", "warehouse", "courier", "supply"),
+        "keywords": (
+            "logistics",
+            "delivery",
+            "shipping",
+            "fleet",
+            "warehouse",
+            "courier",
+            "supply",
+        ),
         "primary": _c(226, 68, 44),
         "accent": _c(32, 72, 48),
         "background": _c(210, 22, 97),
@@ -329,9 +345,7 @@ def classify_vertical(spec: AppSpec | None = None, text: str = "") -> str:
     return best_name
 
 
-def _theme_from_palette(
-    palette: dict[str, Any], *, rationale: str, mood: str = ""
-) -> ThemeSpec:
+def _theme_from_palette(palette: dict[str, Any], *, rationale: str, mood: str = "") -> ThemeSpec:
     return ThemeSpec(
         primary=palette["primary"],
         background=palette["background"],
@@ -415,7 +429,9 @@ def theme_for_spec(text: str, spec: AppSpec | None = None, *, app_name: str = ""
     vertical = classify_vertical(spec, text)
     if vertical in INDUSTRY_PALETTES:
         return theme_from_vertical(vertical)
-    return fallback_theme(app_name or (spec.app_name if spec else "") or vertical, app_name=app_name)
+    return fallback_theme(
+        app_name or (spec.app_name if spec else "") or vertical, app_name=app_name
+    )
 
 
 def ensure_theme(theme: ThemeSpec | None, *, seed: str) -> ThemeSpec:
@@ -530,8 +546,8 @@ def render_globals_css(theme: ThemeSpec) -> str:
         f"  --font-sans: {theme.font_sans}, ui-sans-serif, system-ui, sans-serif;",
         f"  --font-display: {theme.font_display}, ui-serif, Georgia, serif;",
         f"  --gradient-hero: linear-gradient(135deg, {primary.css()} 0%, {accent.css()} 100%);",
-        "  --shadow-color: " f"{primary.css()};",
-        "  --chart-1: " f"{series[0].css()};",
+        f"  --shadow-color: {primary.css()};",
+        f"  --chart-1: {series[0].css()};",
         "}",
     ]
     return "\n".join(lines)
@@ -621,14 +637,17 @@ def apply_theme(fe_dir: Path | str, theme: ThemeSpec) -> dict[str, Any]:
     treated as a failure.
     """
     fe = Path(fe_dir)
-    applied: dict[str, Any] = {"globals_css": False, "layout": False, "tailwind": False, "theme_ts": False}
+    applied: dict[str, Any] = {
+        "globals_css": False,
+        "layout": False,
+        "tailwind": False,
+        "theme_ts": False,
+    }
 
     globals_css = fe / "src" / "app" / "globals.css"
     if globals_css.is_file():
         try:
-            patched = patch_globals_css(
-                globals_css.read_text(encoding="utf-8"), theme
-            )
+            patched = patch_globals_css(globals_css.read_text(encoding="utf-8"), theme)
             globals_css.write_text(patched, encoding="utf-8")
             applied["globals_css"] = True
         except OSError as exc:

@@ -24,10 +24,6 @@ import { ImpactPreviewModal } from '@/components/ImpactPreviewModal';
 import { solutionApi } from '@/lib/api';
 import { Solution, Artifact } from '@/types';
 
-import { Button } from '@/components/ui/button';
-
-import { Badge } from '@/components/ui/badge';
-
 export default function SolutionViewerPage() {
   const params = useParams();
   const solutionId = params?.id as string;
@@ -160,9 +156,11 @@ export default function SolutionViewerPage() {
   // Determine Stepper Stage
   const isApproved = solution?.approval_status === 'approved' || solution?.status === 'approved';
   let currentStage: StageKey = 'blueprint';
+  const completedStages: StageKey[] = ['input', 'clarify'];
 
   if (isApproved) {
     currentStage = 'approve';
+    completedStages.push('blueprint', 'approve');
   } else if (solution?.status === 'clarifying') {
     currentStage = 'clarify';
   } else if (solution?.status === 'draft') {
@@ -181,18 +179,21 @@ export default function SolutionViewerPage() {
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto animate-fade-up">
       {/* 1. Guided Stepper across top */}
-      <GuidedStepper currentStage={currentStage} />
+      <GuidedStepper
+        currentStage={currentStage}
+        completedStages={completedStages}
+      />
 
       {/* Action Notice Toast */}
       {actionNotice && (
-        <div className="p-3 rounded-sm text-xs font-medium bg-[var(--sutra-strong)]/10 text-[var(--sutra-strong)] border border-[var(--sutra-strong)]/30 flex items-center justify-between">
+        <div className="p-3 rounded-sm text-xs font-medium bg-[var(--sutra-muted-gold)]/10 text-[var(--sutra-muted-gold)] border border-[var(--sutra-muted-gold)]/30 flex items-center justify-between">
           <span>{actionNotice}</span>
-          <Button variant="ghost" size="default"
+          <button
             onClick={() => setActionNotice(null)}
-            className="text-[var(--text-3)] hover:text-[var(--text)] text-xs"
+            className="text-[var(--text-3)] hover:text-[var(--text)] text-xs px-2"
           >
             ✕
-          </Button>
+          </button>
         </div>
       )}
 
@@ -200,7 +201,7 @@ export default function SolutionViewerPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <Link
           href="/dashboard"
-          className="inline-flex items-center gap-2 text-[11px] uppercase tracking-widest font-semibold text-[var(--text-2)] hover:text-[var(--sutra-ink)] transition-colors"
+          className="inline-flex items-center gap-2 text-[11px] uppercase tracking-widest font-semibold text-[var(--text-2)] hover:text-[var(--sutra-charcoal)] transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Back to Dashboard</span>
@@ -208,57 +209,48 @@ export default function SolutionViewerPage() {
 
         <div className="flex flex-wrap items-center gap-2.5">
           {/* Explainability / Why? Drawer Trigger */}
-<Button type="button" variant="ghost"
-            disabled={!artifacts[0]}
-            onClick={() => {
-              // Previously fell back to the literal id 'sample-hld', so opening
-              // the drawer with no artifacts issued a request for a record that
-              // never existed and reported a 404 as a drawer failure.
-              const first = artifacts[0];
-              if (first) setExplainArtifactId(first.id);
-            }}
-
-            title={
-              artifacts[0]
-                ? 'Inspect architectural decisions, evidence, and assumptions log'
-                : 'No artifacts available yet, so there is no decision log to inspect'
-            }
-            className="border border-[var(--border)] bg-[var(--bg)] flex items-center gap-1.5">
-            <HelpCircle className="w-3.5 h-3.5 text-[var(--sutra-strong)]" />
+          <button
+            onClick={() => setExplainArtifactId(artifacts[0]?.id || 'sample-hld')}
+            className="btn btn-ghost border border-[var(--border)] bg-[var(--bg)] flex items-center gap-1.5"
+            title="Inspect architectural decisions, evidence, and assumptions log"
+          >
+            <HelpCircle className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
             <span>Why? (Decision Log)</span>
-          </Button>
+          </button>
 
           {/* Cascade Impact Preview */}
-          <Button type="button" variant="ghost"
+          <button
             onClick={() => setImpactArtifact('hld')}
-           
+            className="btn btn-ghost border border-[var(--border)] bg-[var(--bg)] flex items-center gap-1.5"
             title="Preview cascading impact before regenerating artifacts"
-           className="border border-[var(--border)] bg-[var(--bg)] flex items-center gap-1.5">
-            <GitBranch className="w-3.5 h-3.5 text-[var(--amber)]" />
+          >
+            <GitBranch className="w-3.5 h-3.5 text-amber-500" />
             <span>Impact Preview</span>
-          </Button>
+          </button>
 
-          <Button asChild variant={isApproved ? 'default' : 'secondary'} className="gap-1.5">
-            <Link href={`/solution/${solutionId}/mvp`}>
-              <Rocket className="w-3.5 h-3.5" />
-              <span>Build &amp; Deploy MVP</span>
-            </Link>
-          </Button>
+          <Link
+            href={`/solution/${solutionId}/mvp`}
+            className={`btn ${isApproved ? 'btn-primary' : 'btn-secondary'} flex items-center gap-1.5`}
+          >
+            <Rocket className="w-3.5 h-3.5" />
+            <span>Build &amp; Deploy MVP</span>
+          </Link>
 
-          <Button asChild variant="outline" className="gap-1.5">
-            <Link href={`/chat?solution_id=${solutionId}&app_name=${encodeURIComponent(solution?.title || 'Solution')}`}>
-              <MessageSquare className="w-3.5 h-3.5" />
-              <span>Chat with AI Architect</span>
-            </Link>
-          </Button>
+          <Link
+            href={`/chat?solution_id=${solutionId}&app_name=${encodeURIComponent(solution?.title || 'Solution')}`}
+            className="btn btn-ghost border border-[var(--border)] bg-[var(--bg)]"
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>Chat with AI Architect</span>
+          </Link>
 
-          <Button type="button" variant="ghost"
+          <button
             onClick={() => setShowExportModal(true)}
-           
-           className="border border-[var(--border)] bg-[var(--bg)]">
+            className="btn btn-ghost border border-[var(--border)] bg-[var(--bg)]"
+          >
             <Download className="w-3.5 h-3.5" />
             <span>Export Package</span>
-          </Button>
+          </button>
         </div>
       </div>
 
@@ -267,18 +259,18 @@ export default function SolutionViewerPage() {
         <div className="space-y-3 flex-1">
           <div className="flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-widest font-semibold">
             {isApproved ? (
-              <Badge variant="success" className="flex items-center gap-1.5 bg-[var(--green-wash)] text-[var(--green)] border border-[var(--green-wash)]">
-                <CheckCircle2 className="w-3 h-3 text-[var(--green)]" />
+              <span className="badge badge-green flex items-center gap-1.5 bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                <CheckCircle2 className="w-3 h-3 text-emerald-500" />
                 Blueprint Approved &amp; Locked
-              </Badge>
+              </span>
             ) : solution?.approval_status === 'changes_requested' ? (
-              <span className="flex items-center gap-1.5 bg-[var(--amber-wash)] text-[var(--amber)] border border-[var(--amber-wash)]">
-                <AlertCircle className="w-3 h-3 text-[var(--amber)]" />
+              <span className="badge flex items-center gap-1.5 bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                <AlertCircle className="w-3 h-3 text-amber-500" />
                 Changes Requested
               </span>
             ) : (
-              <span className="flex items-center gap-1.5 bg-[var(--sutra-strong)]/10 text-[var(--sutra-strong)] border border-[var(--sutra-strong)]/30">
-                <Clock className="w-3 h-3 text-[var(--sutra-strong)]" />
+              <span className="badge flex items-center gap-1.5 bg-[var(--sutra-muted-gold)]/10 text-[var(--sutra-muted-gold)] border border-[var(--sutra-muted-gold)]/30">
+                <Clock className="w-3 h-3 text-[var(--sutra-muted-gold)]" />
                 Pending Sign-Off Gate
               </span>
             )}
@@ -289,7 +281,7 @@ export default function SolutionViewerPage() {
             </span>
           </div>
 
-          <h1 className="text-2xl font-serif text-[var(--sutra-ink)]">{solution?.title}</h1>
+          <h1 className="text-2xl font-serif text-[var(--sutra-charcoal)]">{solution?.title}</h1>
           <p className="text-[13px] text-[var(--text-2)] max-w-4xl leading-relaxed font-light">
             {solution?.description}
           </p>
@@ -299,23 +291,23 @@ export default function SolutionViewerPage() {
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 p-2 rounded-sm bg-[var(--bg-3)] border border-[var(--border)]">
           {!isApproved ? (
             <>
-              <Button type="button" size="sm"
+              <button
                 onClick={handleApprove}
                 disabled={isApproving}
-               
-               className="bg-[var(--green)] hover:bg-[var(--green)] text-[var(--background)] flex items-center justify-center gap-1.5 text-xs font-semibold border-[var(--green)]">
+                className="btn btn-primary bg-emerald-700 hover:bg-emerald-600 text-white flex items-center justify-center gap-1.5 text-xs font-semibold px-4 py-2 border-emerald-700"
+              >
                 <ShieldCheck className="w-4 h-4" />
                 <span>{isApproving ? 'Approving...' : 'Approve Blueprint'}</span>
-              </Button>
-              <Button type="button" variant="secondary" size="sm"
+              </button>
+              <button
                 onClick={() => setShowChangesModal(true)}
-               
-               className="text-xs font-medium text-[var(--sutra-ink)]">
+                className="btn btn-secondary text-xs font-medium px-3 py-2 text-[var(--sutra-charcoal)]"
+              >
                 Request Changes
-              </Button>
+              </button>
             </>
           ) : (
-            <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--green)] font-mono font-medium">
+            <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-emerald-700 font-mono font-medium">
               <ShieldCheck className="w-4 h-4" />
               <span>Snapshot Frozen • Ready for Build</span>
             </div>
@@ -374,9 +366,9 @@ export default function SolutionViewerPage() {
 
       {/* Request Changes Modal */}
       {showChangesModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[color-mix(in_oklab,var(--foreground)_60%,transparent)] backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="w-full max-w-md rounded-sm bg-[var(--bg)] border border-[var(--border)] p-6 shadow-2xl text-[var(--sutra-ink)] space-y-4">
-            <h3 className="text-base font-serif font-bold text-[var(--sutra-ink)]">Request Changes on Blueprint</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="w-full max-w-md rounded-sm bg-[var(--bg)] border border-[var(--border)] p-6 shadow-2xl text-[var(--sutra-charcoal)] space-y-4">
+            <h3 className="text-base font-serif font-bold text-[var(--sutra-charcoal)]">Request Changes on Blueprint</h3>
             <p className="text-xs text-[var(--text-2)] font-light">
               Provide feedback for the solution architects and agents to refine the architecture:
             </p>
@@ -385,24 +377,24 @@ export default function SolutionViewerPage() {
               onChange={(e) => setChangeComments(e.target.value)}
               placeholder="e.g. Add multi-tenant row-level security, switch database to PostgreSQL with pgvector, and specify SMS notification provider..."
               rows={4}
-              className="w-full rounded-sm bg-[var(--bg-2)] border border-[var(--border)] p-3 text-xs text-[var(--sutra-ink)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-strong)] transition-colors"
+              className="w-full rounded-sm bg-[var(--bg-2)] border border-[var(--border)] p-3 text-xs text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors"
             />
             <div className="flex items-center justify-end gap-2.5">
-              <Button variant="ghost" size="sm"
+              <button
                 type="button"
                 onClick={() => setShowChangesModal(false)}
-               
-               className="text-xs">
+                className="btn btn-ghost px-4 py-2 text-xs"
+              >
                 Cancel
-              </Button>
-              <Button size="sm"
+              </button>
+              <button
                 type="button"
                 onClick={handleRequestChanges}
                 disabled={isSubmittingChanges || !changeComments.trim()}
-               
-               className="text-xs disabled:opacity-50">
+                className="btn btn-primary px-4 py-2 text-xs disabled:opacity-50"
+              >
                 {isSubmittingChanges ? 'Submitting...' : 'Submit Request'}
-              </Button>
+              </button>
             </div>
           </div>
         </div>

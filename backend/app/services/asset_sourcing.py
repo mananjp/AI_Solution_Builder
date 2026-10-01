@@ -13,14 +13,12 @@ import asyncio
 import json
 import logging
 import re
-import urllib.parse
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
 
 import httpx
 
-from app.services.app_spec import AppSpec, SeedRecord
+from app.services.app_spec import AppSpec
 
 logger = logging.getLogger(__name__)
 

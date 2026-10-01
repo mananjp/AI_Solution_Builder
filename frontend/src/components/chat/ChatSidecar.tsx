@@ -2,49 +2,25 @@
 
 import React, { useMemo } from 'react';
 import type { Dispatch } from 'react';
-import { Clock, FileText, MessageSquare, Plus, Search, ShieldCheck, Trash2, X } from 'lucide-react';
+import { Clock, FileText, History, MessageSquare, Plus, Search, ShieldCheck, Trash2, X } from 'lucide-react';
 import clsx from 'clsx';
 import FileUploader from '@/components/FileUploader';
 import { HistorySkeleton, Skeleton } from '@/components/chat/Skeleton';
-import { TabBar, type TabBarItem } from '@/components/lab/tab-bar';
-import { RelativeTime } from '@/components/lab/relative-time';
 import type { ChatAction, ChatState } from '@/hooks/useChatSession';
 import type { Solution } from '@/types';
 
-import { Button } from '@/components/ui/button';
-
-const HISTORY_ICON = (
-  <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-    <path d="M2.75 8a5.25 5.25 0 1 0 1.54-3.72L2.75 5.5M2.75 5.5V2.75M2.75 5.5h2.75" />
-    <path d="M8 5.25V8l1.75 1.25" />
-  </svg>
-);
-
-const CONTEXT_ICON = (
-  <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-    <path d="M3.25 2.75h6l3.5 3.5v7h-9.5z" />
-    <path d="M9.25 2.75v3.5h3.5" />
-  </svg>
-);
-
-const TABS: TabBarItem[] = [
-  { id: 'history', label: 'History', icon: HISTORY_ICON },
-  { id: 'context', label: 'Context / PRD', icon: CONTEXT_ICON },
-];
-
-/**
- * Relative age of a session, e.g. "2h ago".
- *
- * Replaces a hand-rolled day-diff so the wording is identical everywhere and
- * the full timestamp is still available on hover.
- */
-function SessionAge({ date }: { date: string }) {
-  return (
-    <span className="flex items-center gap-1">
-      <Clock className="w-2.5 h-2.5" />
-      <RelativeTime date={date} />
-    </span>
-  );
+function formatSessionDate(dateString: string): string {
+  try {
+    const d = new Date(dateString);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - d.getTime()) / 86_400_000);
+    if (diffDays <= 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch {
+    return dateString;
+  }
 }
 
 function SolutionRow({
@@ -74,39 +50,42 @@ function SolutionRow({
       className={clsx(
         'group relative p-2.5 rounded-sm border cursor-pointer transition-all text-left w-full',
         active
-          ? 'border-[var(--sutra-strong)] bg-[var(--bg)] shadow-sm'
+          ? 'border-[var(--sutra-muted-gold)] bg-[var(--bg)] shadow-sm'
           : 'border-transparent hover:border-[var(--border)] hover:bg-[var(--bg)]'
       )}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            {active && <span className="w-1.5 h-1.5 rounded-full bg-[var(--sutra-strong)] shrink-0" />}
+            {active && <span className="w-1.5 h-1.5 rounded-full bg-[var(--sutra-muted-gold)] shrink-0" />}
             <p
               className={clsx(
                 'text-xs font-semibold truncate',
-                active ? 'text-[var(--sutra-ink)] font-bold' : 'text-[var(--text-2)] group-hover:text-[var(--sutra-ink)]'
+                active ? 'text-[var(--sutra-charcoal)] font-bold' : 'text-[var(--text-2)] group-hover:text-[var(--sutra-charcoal)]'
               )}
             >
               {solution.title || 'Untitled Build'}
             </p>
           </div>
           <div className="flex items-center gap-2 mt-1 text-[10px] text-[var(--text-3)] font-mono">
-            <SessionAge date={solution.created_at} />
+            <span className="flex items-center gap-1">
+              <Clock className="w-2.5 h-2.5" />
+              {formatSessionDate(solution.created_at)}
+            </span>
             {messageCount > 0 && <span>• {messageCount} msg{messageCount > 1 ? 's' : ''}</span>}
           </div>
         </div>
-        <Button variant="ghost" size="icon-sm"
+        <button
           onClick={(e) => {
             e.stopPropagation();
             onDelete();
           }}
-          className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 hover:text-[var(--red)] text-[var(--text-3)] transition-all shrink-0"
+          className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 hover:text-red-600 text-[var(--text-3)] transition-all shrink-0"
           title="Delete conversation"
           aria-label={`Delete ${solution.title || 'conversation'}`}
         >
           <Trash2 className="w-3.5 h-3.5" />
-        </Button>
+        </button>
       </div>
     </div>
   );
@@ -141,13 +120,13 @@ function HistoryPanel({
 
   return (
     <div className="flex-1 flex flex-col min-h-0 p-3">
-      <Button variant="default" size="default"
+      <button
         onClick={onNew}
-        className="mb-3 flex w-full min-w-0 items-center justify-center gap-2 bg-[var(--bg)] hover:bg-[var(--sutra-ink)] text-[var(--sutra-ink)] hover:text-[var(--background)] border border-[var(--sutra-strong)]/50 hover:border-[var(--sutra-ink)] text-[11px] font-bold uppercase tracking-wider transition-all"
+        className="w-full mb-3 py-2 px-3 flex items-center justify-center gap-2 bg-[var(--bg)] hover:bg-[var(--sutra-charcoal)] text-[var(--sutra-charcoal)] hover:text-white border border-[var(--sutra-muted-gold)]/50 hover:border-[var(--sutra-charcoal)] rounded-sm text-[11px] font-bold uppercase tracking-wider transition-all shadow-sm"
       >
-        <Plus className="w-3.5 h-3.5 shrink-0 text-[var(--sutra-strong)]" />
-        <span className="min-w-0 truncate">New Architecture Build</span>
-      </Button>
+        <Plus className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
+        <span>New Architecture Build</span>
+      </button>
 
       <div className="relative mb-2">
         <Search className="w-3.5 h-3.5 text-[var(--text-3)] absolute left-2.5 top-2" />
@@ -156,16 +135,16 @@ function HistoryPanel({
           value={state.historyQuery}
           onChange={(e) => onQuery(e.target.value)}
           placeholder={state.history.length ? 'Search conversations…' : 'Search conversations…'}
-          className="w-full pl-8 pr-8 py-1.5 text-xs bg-[var(--bg)] border border-[var(--border)] rounded-sm text-[var(--sutra-ink)] placeholder-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-strong)]"
+          className="w-full pl-8 pr-8 py-1.5 text-xs bg-[var(--bg)] border border-[var(--border)] rounded-sm text-[var(--sutra-charcoal)] placeholder-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)]"
         />
         {state.historyQuery && (
-          <Button variant="ghost" size="icon-sm"
+          <button
             onClick={() => onQuery('')}
-            className="absolute right-2 top-1.5 text-[var(--text-3)] hover:text-[var(--sutra-ink)]"
+            className="absolute right-2 top-1.5 text-[var(--text-3)] hover:text-[var(--sutra-charcoal)]"
             aria-label="Clear search"
           >
             <X className="w-3.5 h-3.5" />
-          </Button>
+          </button>
         )}
       </div>
 
@@ -222,12 +201,12 @@ function ContextPanel({
   if (state.context) {
     return (
       <div className="flex-1 p-4 overflow-y-auto overflow-x-hidden space-y-4">
-        <div className="p-3 bg-[var(--bg)] border border-[var(--sutra-strong)] rounded-sm shadow-sm space-y-2.5 text-[12px]">
+        <div className="p-3 bg-[var(--bg)] border border-[var(--sutra-muted-gold)] rounded-sm shadow-sm space-y-2.5 text-[12px]">
           <div className="flex items-center gap-2.5">
-            <div className="p-1.5 bg-[var(--bg-2)] border border-[var(--border)] rounded-sm text-[var(--sutra-ink)]">
+            <div className="p-1.5 bg-[var(--bg-2)] border border-[var(--border)] rounded-sm text-[var(--sutra-charcoal)]">
               <FileText className="w-4 h-4" />
             </div>
-            <p className="font-semibold text-[var(--sutra-ink)] break-all">{state.context.filename}</p>
+            <p className="font-semibold text-[var(--sutra-charcoal)] break-all">{state.context.filename}</p>
           </div>
           <p className="text-[10px] uppercase tracking-widest text-[var(--text-3)] font-mono font-medium">
             {state.context.text.length.toLocaleString()} characters parsed · Context active
@@ -237,9 +216,9 @@ function ContextPanel({
             <span>Threat Scan: Verified Clean</span>
           </div>
         </div>
-        <Button type="button" variant="ghost" onClick={onClear} className="w-full text-[10px] uppercase tracking-widest font-semibold">
+        <button onClick={onClear} className="btn btn-ghost w-full text-[10px] uppercase tracking-widest font-semibold">
           Clear context
-        </Button>
+        </button>
       </div>
     );
   }
@@ -277,28 +256,47 @@ export function ChatSidecar({
 }) {
   return (
     <div className="flex flex-col h-full min-h-0 bg-[var(--bg-2)] border border-[var(--border)] rounded-sm overflow-hidden">
-      <div className="sticky top-0 z-10 flex shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg)] px-2 py-1.5">
-        {/* The lab tab bar draws one pill that slides between tabs, so the
-            active tab cannot be a second border that drifts out of step with
-            the label. Icons are drawn once and reused for both states. */}
-        <TabBar
-          items={TABS}
-          value={state.sidecarTab}
-          onChange={(value) =>
-            dispatch({ type: 'set-sidecar-tab', value: value as ChatState['sidecarTab'] })
-          }
-          label="Sidecar"
-          idBase="chat-sidecar"
-          className="min-w-0 flex-1"
-        />
+      <div className="flex border-b border-[var(--border)] bg-[var(--bg)] text-[11px] font-bold uppercase tracking-wider shrink-0">
+        <button
+          onClick={() => dispatch({ type: 'set-sidecar-tab', value: 'history' })}
+          className={clsx(
+            'flex-1 py-3 px-3 flex items-center justify-center gap-1.5 border-b-2 transition-colors',
+            state.sidecarTab === 'history'
+              ? 'border-[var(--sutra-muted-gold)] text-[var(--sutra-charcoal)] bg-[var(--bg-2)]'
+              : 'border-transparent text-[var(--text-3)] hover:text-[var(--sutra-charcoal)]'
+          )}
+          aria-pressed={state.sidecarTab === 'history'}
+        >
+          <History className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
+          <span>History</span>
+          {state.history.length > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--bg)] border border-[var(--border)] text-[var(--text-2)] font-mono">
+              {state.history.length}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => dispatch({ type: 'set-sidecar-tab', value: 'context' })}
+          className={clsx(
+            'flex-1 py-3 px-3 flex items-center justify-center gap-1.5 border-b-2 transition-colors',
+            state.sidecarTab === 'context'
+              ? 'border-[var(--sutra-muted-gold)] text-[var(--sutra-charcoal)] bg-[var(--bg-2)]'
+              : 'border-transparent text-[var(--text-3)] hover:text-[var(--sutra-charcoal)]'
+          )}
+          aria-pressed={state.sidecarTab === 'context'}
+        >
+          <FileText className="w-3.5 h-3.5 text-[var(--text-3)]" />
+          <span>Context / PRD</span>
+          {state.context && <span className="w-2 h-2 rounded-full bg-emerald-500" />}
+        </button>
         {onClose && (
-          <Button variant="ghost" size="icon-sm"
+          <button
             onClick={onClose}
-            className="shrink-0 p-1.5 text-[var(--text-3)] hover:text-[var(--sutra-ink)] transition-colors"
+            className="px-3 text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] border-l border-[var(--border)]"
             aria-label="Close panel"
           >
             <X className="w-3.5 h-3.5" />
-          </Button>
+          </button>
         )}
       </div>
 

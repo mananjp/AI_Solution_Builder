@@ -270,6 +270,7 @@ async def _build_response(build: MVPBuild, include_files: bool = False) -> MVPBu
 async def execute_build_job(build_id: UUID) -> None:
     """Drive the OpenCode sidecar to complete a build, verifying output before marking complete."""
     try:
+        # ── Phase 1: Read inputs and mark build 'building' (short session) ──
         async with async_session_factory() as db:
             build = await db.get(MVPBuild, build_id)
             if build is None:
@@ -296,7 +297,6 @@ async def execute_build_job(build_id: UUID) -> None:
                     job.claimed_at = datetime.now(UTC)
                     job.heartbeat_at = job.claimed_at
 
-            # Mark build as building with initial progress
             build.status = "building"
             cfg = dict(build.app_config or {})
             cfg["progress"] = progress_payload(
@@ -304,97 +304,98 @@ async def execute_build_job(build_id: UUID) -> None:
             )
             build.app_config = cfg
             await db.commit()
-            await db.refresh(build)
 
-            async def save_progress(active_idx: int, percentage: int, message: str) -> None:
-                """Write-through progress so the UI stepper never looks stuck."""
-                assert build is not None
-                local_cfg = dict(build.app_config or {})
-                local_cfg["progress"] = progress_payload(active_idx, message, percentage=percentage)
-                build.app_config = local_cfg
-                await db.commit()
-                await db.refresh(build)
-
-            title = (build.app_config or {}).get("app_name") or solution.title
-
-            ai_state = solution.ai_state or {}
+            # Snapshot state needed for build so we can safely exit this DB session
+            solution_id = solution.id
+            solution_title = solution.title
+            solution_desc = solution.description
+            build_number = build.build_number
+            app_name = (build.app_config or {}).get("app_name")
             template_slug = (build.app_config or {}).get("template")
-            if template_slug:
-                tpl = templates.get_template(template_slug)
-                if tpl is None:
-                    raise builder.MVPBuilderError(f"Unknown template: {template_slug}")
-                seeded = tpl.build_ai_state()
-                if not ai_state.get("confirmed_modules"):
-                    ai_state = seeded
-                else:
-                    ai_state = {
-                        **seeded,
-                        **ai_state,
-                        "confirmed_modules": ai_state.get("confirmed_modules"),
-                    }
-                if not title or title == solution.title:
-                    title = seeded.get("solution_title", title)
+            ai_state = dict(solution.ai_state or {})
+            conv_history = list(solution.conversation_history or [])
 
-            if (
-                template_slug
-                and template_slug in ("todo", "calculator", "portfolio", "restaurant_ordering")
-                and builder.run_build is _ORIG_RUN_BUILD
-            ):
-                logger.info(
-                    "Executing fast-path premade build for solution=%s template=%s",
-                    solution.id,
-                    template_slug,
-                )
-                result = await builder.run_premade_build(
-                    solution.id,
-                    template_slug,
-                    build.build_number,
-                    title=title,
-                    progress_cb=save_progress,
-                )
+        # ── Phase 2: Resilient save_progress helper ──
+        async def save_progress(active_idx: int, percentage: int, message: str) -> None:
+            """Write-through progress using short-lived sessions so the UI stepper never looks stuck."""
+            try:
+                async with async_session_factory() as s:
+                    b = await s.get(MVPBuild, build_id)
+                    if b:
+                        local_cfg = dict(b.app_config or {})
+                        local_cfg["progress"] = progress_payload(
+                            active_idx, message, percentage=percentage
+                        )
+                        b.app_config = local_cfg
+                        await s.commit()
+            except Exception as pe:
+                logger.warning("save_progress failed for build %s (non-fatal): %s", build_id, pe)
+
+        title = app_name or solution_title
+
+        if template_slug:
+            tpl = templates.get_template(template_slug)
+            if tpl is None:
+                raise builder.MVPBuilderError(f"Unknown template: {template_slug}")
+            seeded = tpl.build_ai_state()
+            if not ai_state.get("confirmed_modules"):
+                ai_state = seeded
             else:
-                # Prefer the user's actual chat requirements over the fixed
-                # description attached when the solution row was first made.
-                user_prompts = [
-                    str(item.get("content", "")).strip()
-                    for item in (solution.conversation_history or [])
-                    if isinstance(item, dict) and item.get("role") == "user" and item.get("content")
-                ]
-                user_msg = (
-                    "\n\n".join(user_prompts[-5:])
-                    or (solution.ai_state or {}).get("user_message", "")
-                    or (solution.ai_state or {}).get("business_description", "")
-                    or solution.description
-                    or ""
-                )
-                uploaded_ctx = (solution.ai_state or {}).get("uploaded_context", "") or ""
-                conv_history = solution.conversation_history or []
-                result = await builder.run_build(
-                    solution.id,
-                    ai_state,
-                    build.build_number,
-                    title=title,
-                    user_prompt=user_msg,
-                    uploaded_context=uploaded_ctx,
-                    conversation_history=conv_history,
-                    check_npm=settings.MVP_VERIFY_NPM,
-                    progress_cb=save_progress,
-                )
-                # Persist any generated spec back to the solution
-                if ai_state.get("app_spec") and (
-                    (solution.ai_state or {}).get("app_spec") != ai_state.get("app_spec")
-                    or (solution.ai_state or {}).get("app_spec_input_hash")
-                    != ai_state.get("app_spec_input_hash")
-                ):
-                    solution.ai_state = {
-                        **(solution.ai_state or {}),
-                        "app_spec": ai_state["app_spec"],
-                        "app_spec_input_hash": ai_state.get("app_spec_input_hash"),
-                    }
-                    await db.commit()
+                ai_state = {
+                    **seeded,
+                    **ai_state,
+                    "confirmed_modules": ai_state.get("confirmed_modules"),
+                }
+            if not title or title == solution_title:
+                title = seeded.get("solution_title", title)
 
-            # Re-fetch under row lock to guard against concurrent cancellation
-            # (destroy_build may have set status='cancelled' in a separate session).
+        if (
+            template_slug
+            and template_slug in ("todo", "calculator", "portfolio", "restaurant_ordering")
+            and builder.run_build is _ORIG_RUN_BUILD
+        ):
+            logger.info(
+                "Executing fast-path premade build for solution=%s template=%s",
+                solution_id,
+                template_slug,
+            )
+            result = await builder.run_premade_build(
+                solution_id,
+                template_slug,
+                build_number,
+                title=title,
+                progress_cb=save_progress,
+            )
+        else:
+            # Prefer the user's actual chat requirements over the fixed
+            # description attached when the solution row was first made.
+            user_prompts = [
+                str(item.get("content", "")).strip()
+                for item in conv_history
+                if isinstance(item, dict) and item.get("role") == "user" and item.get("content")
+            ]
+            user_msg = (
+                "\n\n".join(user_prompts[-5:])
+                or ai_state.get("user_message", "")
+                or ai_state.get("business_description", "")
+                or solution_desc
+                or ""
+            )
+            uploaded_ctx = ai_state.get("uploaded_context", "") or ""
+            result = await builder.run_build(
+                solution_id,
+                ai_state,
+                build_number,
+                title=title,
+                user_prompt=user_msg,
+                uploaded_context=uploaded_ctx,
+                conversation_history=conv_history,
+                check_npm=settings.MVP_VERIFY_NPM,
+                progress_cb=save_progress,
+            )
+
+        # ── Phase 3: Record completed build under fresh session ──
+        async with async_session_factory() as db:
             locked = await db.execute(
                 select(MVPBuild).where(MVPBuild.id == build_id).with_for_update()
             )
@@ -406,31 +407,44 @@ async def execute_build_job(build_id: UUID) -> None:
                 )
                 return
 
+            solution = await db.get(Solution, solution_id)
+
+            if (
+                ai_state.get("app_spec")
+                and solution is not None
+                and (
+                    (solution.ai_state or {}).get("app_spec") != ai_state.get("app_spec")
+                    or (solution.ai_state or {}).get("app_spec_input_hash")
+                    != ai_state.get("app_spec_input_hash")
+                )
+            ):
+                solution.ai_state = {
+                    **(solution.ai_state or {}),
+                    "app_spec": ai_state["app_spec"],
+                    "app_spec_input_hash": ai_state.get("app_spec_input_hash"),
+                }
+
             build.status = "complete"
-            build.opencode_session_id = result["session_id"]
-            build.file_count = result["file_count"]
-            build.file_list = result["files"]
+            build.opencode_session_id = result.get("session_id")
+            build.file_count = result.get("file_count", 0)
+            build.file_list = result.get("files", [])
             build.error_message = None
             if result.get("sidecar_url"):
-                # Remember which pool container hosted this session so aborts
-                # still reach it even if this process restarted mid-build.
                 build.app_config = {
                     **(build.app_config or {}),
                     "opencode_server_url": result["sidecar_url"],
                 }
-            if result.get("app_spec"):
+            if result.get("app_spec") and solution is not None:
                 solution.ai_state = {**(solution.ai_state or {}), "app_spec": result["app_spec"]}
             if result.get("quality"):
                 build.app_config = {**(build.app_config or {}), "quality": result["quality"]}
 
-            # Mark associated BuildJob completed
             job_res = await db.execute(select(BuildJob).where(BuildJob.build_id == build_id))
             job = job_res.scalar_one_or_none()
             if job:
                 job.status = "completed"
 
-            # The API runs in a separate service, so a durable shared artifact is
-            # required before this build can be reported complete.
+            # Package artifact
             key = _storage_key(build)
             local_dir = Path(result["local_dir"])
             local_zip_path = local_dir.with_suffix(".zip")
@@ -452,7 +466,7 @@ async def execute_build_job(build_id: UUID) -> None:
                     store_err,
                     local_zip_path,
                 )
-                if settings.STORAGE_BACKEND.lower() == "cloudinary":
+                if settings.STORAGE_BACKEND.lower() == "cloudinary" and not local_zip_path.exists():
                     raise RuntimeError(
                         "Build artifact could not be saved to Cloudinary; check the shared storage credentials."
                     ) from store_err
@@ -493,7 +507,7 @@ async def execute_build_job(build_id: UUID) -> None:
                 )
                 org_id: str | None = None
                 if build is not None:
-                    if retryable:
+                    if retryable and job is not None:
                         build.status = "queued"
                         build.error_message = None
                         cfg = dict(build.app_config or {})
@@ -701,7 +715,10 @@ async def list_builds(
         .where(MVPBuild.solution_id == solution_id)
         .order_by(desc(MVPBuild.build_number))
     )
-    return [await _build_response(b) for b in result.scalars().all()]
+    return [
+        await _build_response(b, include_files=(b.status in _STATUS_END_STATES))
+        for b in result.scalars().all()
+    ]
 
 
 @router.post("/{solution_id}/spec")

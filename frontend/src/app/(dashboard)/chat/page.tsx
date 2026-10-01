@@ -10,6 +10,8 @@ import {
   Layout,
   Loader2,
   Paperclip,
+  Plus,
+  Send,
   Settings2,
   ShieldCheck,
   X,
@@ -18,15 +20,8 @@ import clsx from 'clsx';
 import ChatMessage from '@/components/ChatMessage';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { ChatSidecar } from '@/components/chat/ChatSidecar';
-import { ResizableSidecar } from '@/components/chat/ResizableSidecar';
 import { ArtifactsPanel } from '@/components/chat/ArtifactsPanel';
-import { SendButton } from '@/components/lab/send-button';
 import { ThreadSkeleton, ThinkingBubble } from '@/components/chat/Skeleton';
-import {
-  ClarificationPanel,
-  type ClarificationOption,
-  type ClarificationQuestion,
-} from '@/components/chat/ClarificationPanel';
 import { mvpApi, opencodeApi, sendOpenCodeChatStream, solutionApi } from '@/lib/api';
 import { ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
 import { useI18n } from '@/components/I18nProvider';
@@ -38,7 +33,6 @@ import {
 import type { MVPBuild, MVPDeployResult, OpenCodeChatComplete, Solution } from '@/types';
 
 const ACTIVE_SOLUTION_KEY = 'sutra_active_solution_id';
-const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
 function readStoredSolutionId(): string | null {
   if (typeof window === 'undefined') return null;
@@ -110,12 +104,8 @@ function ChatContent() {
   }, [state.solutionId, router, searchParams]);
 
   // ── Load the conversation whenever the active id changes ──
-  const prevSolutionIdRef = useRef<string | null>(state.solutionId);
   useEffect(() => {
-    if (prevSolutionIdRef.current !== state.solutionId) {
-      prevSolutionIdRef.current = state.solutionId;
-      void hydrate(state.solutionId);
-    }
+    void hydrate(state.solutionId);
   }, [state.solutionId, hydrate]);
 
   // ── Engine health probe ──
@@ -125,7 +115,7 @@ function ChatContent() {
       opencodeApi
         .health()
         .then((r) => {
-          if (mounted) dispatch({ type: 'set-engine', value: r.sidecar_healthy ? 'online' : 'offline' });
+          if (mounted) dispatch({ type: 'set-engine', value: r.healthy ? 'online' : 'offline' });
         })
         .catch(() => {
           if (mounted) dispatch({ type: 'set-engine', value: 'offline' });
@@ -151,19 +141,16 @@ function ChatContent() {
   }, [dispatch]);
 
   // ── Send ──
-  const sendingRef = useRef(false);
   const send = useCallback(
     async (finalize: boolean) => {
       const text = state.input.trim();
-      if (!text || state.streaming || sendingRef.current) return;
-      sendingRef.current = true;
+      if (!text || state.streaming) return;
 
       dispatch({ type: 'set-input', value: '' });
       dispatch({ type: 'user/message', message: text });
       dispatch({ type: 'stream/start', build: finalize, now: Date.now() });
 
       const hadContext = state.context;
-      let completedSolutionId: string | null = null;
 
       try {
         await sendOpenCodeChatStream(
@@ -173,10 +160,7 @@ function ChatContent() {
             solution_id: solutionIdRef.current || undefined,
             session_id: state.sessionId,
             uploaded_context: hadContext?.text,
-            // Save this chat turn first. Actual builds are queued through the
-            // MVP worker below so chat streaming never runs a second scaffold
-            // implementation inside the API request.
-            build_requested: false,
+            build_requested: finalize,
           },
           {
             onEvent: (event, data) => {
@@ -203,13 +187,6 @@ function ChatContent() {
                   dispatch({ type: 'stream/progress', progress: data as never });
                   if (data.solution_id) void syncHistoryEntry(data.solution_id as string);
                   break;
-                case 'clarification_needed': {
-                  const payload = data as { has_gaps?: boolean; questions?: ClarificationQuestion[] };
-                  if (payload.questions && payload.questions.length > 0) {
-                    dispatch({ type: 'set-clarifications', questions: payload.questions });
-                  }
-                  break;
-                }
                 case 'message':
                   if (data.message) {
                     dispatch({
@@ -225,7 +202,6 @@ function ChatContent() {
             },
             onComplete: async (data) => {
               const c = data as OpenCodeChatComplete;
-              completedSolutionId = c.solution_id || solutionIdRef.current;
               dispatch({
                 type: 'stream/agent-start',
                 sessionId: c.session_id ?? null,
@@ -255,7 +231,7 @@ function ChatContent() {
                 }
               }
               if (c.solution_id) void syncHistoryEntry(c.solution_id);
-              if (!finalize) dispatch({ type: 'stream/finish' });
+              dispatch({ type: 'stream/finish' });
             },
             onError: (err) => {
               const msg =
@@ -266,53 +242,6 @@ function ChatContent() {
             },
           }
         );
-
-        if (finalize) {
-          if (!completedSolutionId) {
-            throw new Error('The chat turn finished without a solution ID, so the worker could not start a build.');
-          }
-
-          let build = await mvpApi.triggerBuild(completedSolutionId, {
-            app_name: state.appName.trim() || undefined,
-            force: true,
-          });
-          const startedAt = Date.now();
-
-          const reflectWorkerBuild = (current: MVPBuild) => {
-            dispatch({ type: 'builds/upsert', build: current });
-            dispatch({
-              type: 'stream/progress',
-              progress: {
-                phase: current.status === 'complete' ? 'completed' : current.progress?.stage || 'analyzing',
-                step: current.progress?.step || 1,
-                total_steps: current.progress?.total_steps || 7,
-                percentage: current.status === 'complete' ? 100 : current.progress?.percentage || 0,
-                message: current.progress?.message || (current.status === 'queued'
-                  ? 'Waiting for the OpenCode build worker...'
-                  : 'OpenCode worker is building your app...'),
-                solution_id: current.solution_id,
-                build_id: current.build_id,
-                file_count: current.file_count,
-              },
-            });
-          };
-
-          reflectWorkerBuild(build);
-          while (build.status === 'queued' || build.status === 'pending' || build.status === 'building') {
-            if (Date.now() - startedAt > 15 * 60_000) {
-              throw new Error('The build is still running after 15 minutes. Check the Render worker logs for this build.');
-            }
-            await wait(1500);
-            build = await mvpApi.getStatus(build.build_id);
-            reflectWorkerBuild(build);
-          }
-
-          if (build.status !== 'complete') {
-            throw new Error(build.error_message || `OpenCode worker build ended with status: ${build.status}.`);
-          }
-          await syncHistoryEntry(completedSolutionId);
-          dispatch({ type: 'stream/finish' });
-        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Unable to reach SUTRA intelligence layer.';
         dispatch({ type: 'stream/fail', message: msg });
@@ -320,35 +249,9 @@ function ChatContent() {
           dispatch({ type: 'history/remove', id: solutionIdRef.current });
           selectSolution(null);
         }
-      } finally {
-        sendingRef.current = false;
       }
     },
     [state.input, state.streaming, state.appName, state.sessionId, state.context, agent, dispatch, selectSolution, syncHistoryEntry, t]
-  );
-
-  const handleSubmit = useCallback(
-    (e?: React.FormEvent) => {
-      e?.preventDefault();
-      if (!state.input.trim() || state.streaming || sendingRef.current) return;
-      const shouldBuild =
-        state.buildRequested ||
-        /\b(build|create|make|generate|design|develop|landing\s+page|storefront|app)\b/i.test(state.input);
-      void send(shouldBuild);
-    },
-    [state.input, state.streaming, state.buildRequested, send]
-  );
-
-  const handleSelectClarification = useCallback(
-    (question: ClarificationQuestion, option: ClarificationOption) => {
-      const addition = `${question.field}: ${option.label}`;
-      const nextInput = state.input.trim()
-        ? `${state.input.trim()} [${addition}]`
-        : `Build an app with ${addition}`;
-      dispatch({ type: 'set-input', value: nextInput });
-      dispatch({ type: 'dismiss-clarifications' });
-    },
-    [state.input, dispatch]
   );
 
   // ── Build actions ──
@@ -467,15 +370,15 @@ function ChatContent() {
   const showThreadSkeleton = state.conversation === 'loading' && state.messages.length <= 1;
 
   return (
-    <div className="flex min-h-[calc(100dvh-5rem)] flex-col animate-fade-up xl:h-[calc(100dvh-5rem)] xl:min-h-0">
+    <div className="flex flex-col h-[calc(100vh-5rem)] min-h-0 animate-fade-up">
       {/* ── Header ── */}
       <header className="mb-3 flex items-center justify-between gap-3 px-1 shrink-0">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 flex items-center justify-center border border-[var(--sutra-strong)] bg-[var(--bg)] text-[var(--sutra-strong)] shrink-0">
+          <div className="w-8 h-8 flex items-center justify-center border border-[var(--sutra-muted-gold)] bg-[var(--bg)] text-[var(--sutra-muted-gold)] shrink-0">
             <Layout className="w-4 h-4" />
           </div>
           <div className="min-w-0">
-            <h1 className="text-lg sm:text-xl font-serif text-[var(--sutra-ink)] truncate">
+            <h1 className="text-lg sm:text-xl font-serif text-[var(--sutra-charcoal)] truncate">
               {t('chat.aiArchitectWorkspace')}
             </h1>
             <p className="text-[11px] uppercase tracking-widest font-semibold text-[var(--text-2)] mt-0.5 truncate">
@@ -488,9 +391,9 @@ function ChatContent() {
         <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold shrink-0">
           <button
             onClick={() => dispatch({ type: 'set-sidecar-open', value: true })}
-            className="xl:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-2)] hover:bg-[var(--bg)] text-[var(--sutra-ink)] shadow-sm transition-colors"
+            className="xl:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-sm border border-[var(--border)] bg-[var(--bg-2)] hover:bg-[var(--bg)] text-[var(--sutra-charcoal)] shadow-sm transition-colors"
           >
-            <History className="w-3.5 h-3.5 text-[var(--sutra-strong)]" />
+            <History className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
             <span className="hidden sm:inline">History</span>
             {state.history.length > 0 && (
               <span className="px-1.5 py-0.5 rounded-full bg-[var(--bg)] border border-[var(--border)] text-[9px] font-mono">
@@ -517,50 +420,30 @@ function ChatContent() {
         </div>
       </header>
 
-      {state.capability && (!state.capability.sidecar_online || state.capability.simulation) && (
-        <div className="mb-3 flex items-start gap-2.5 rounded-sm border border-[var(--amber)] bg-[var(--bg)] px-4 py-3 shadow-sm shrink-0">
-          <AlertTriangle className="w-4 h-4 text-[var(--amber)] shrink-0 mt-0.5" />
+      {state.capability?.simulation && (
+        <div className="mb-3 flex items-start gap-2.5 rounded-sm border border-[var(--sutra-gold)] bg-[var(--bg)] px-4 py-3 shadow-sm shrink-0">
+          <AlertTriangle className="w-4 h-4 text-[var(--sutra-gold)] shrink-0 mt-0.5" />
           <div className="text-[11px] leading-relaxed min-w-0">
-            <p className="font-bold uppercase tracking-widest text-[var(--sutra-ink)] text-[10px]">
-              {state.capability.sidecar_online
-                ? 'Simulation mode — no live AI engine connected'
-                : 'OpenCode build worker is unavailable'}
+            <p className="font-bold uppercase tracking-widest text-[var(--sutra-charcoal)] text-[10px]">
+              Simulation mode — no live AI engine connected
             </p>
             <p className="text-[var(--text-2)] mt-1">
-              {!state.capability.sidecar_online ? (
-                <>
-                  Custom MVP builds require a healthy OpenCode sidecar and will fail instead of using the fallback scaffold. Enable{' '}
-                  <code className="font-mono bg-[var(--bg-2)] px-1">ENABLE_OPENCODE_SIDECAR=true</code>,
-                  configure the model credentials, and restart the backend. Chat responses may still use{' '}
-                  <code className="font-mono bg-[var(--bg-2)] px-1">LLM_PROVIDER={state.capability.llm_provider}</code>.
-                  {' '}Build queue mode: <code className="font-mono bg-[var(--bg-2)] px-1">{state.capability.worker_mode || 'unknown'}</code>.
-                </>
-              ) : (
-                <>
-                  No LLM API key is configured for{' '}
-                  <code className="font-mono bg-[var(--bg-2)] px-1">LLM_PROVIDER={state.capability.llm_provider}</code>.
-                  Set <code className="font-mono bg-[var(--bg-2)] px-1">GROQ_API_KEY</code> or{' '}
-                  <code className="font-mono bg-[var(--bg-2)] px-1">OPENAI_API_KEY</code> to enable AI planning.
-                </>
-              )}
+              No LLM API key configured (
+              <code className="font-mono bg-[var(--bg-2)] px-1">LLM_PROVIDER={state.capability.llm_provider}</code>)
+              and the OpenCode sidecar is offline. Builds use a deterministic template scaffold.
+              Set <code className="font-mono bg-[var(--bg-2)] px-1">GROQ_API_KEY</code> or{' '}
+              <code className="font-mono bg-[var(--bg-2)] px-1">OPENAI_API_KEY</code> plus{' '}
+              <code className="font-mono bg-[var(--bg-2)] px-1">LLM_PROVIDER</code> and start the sidecar for real
+              AI generation.
             </p>
           </div>
         </div>
       )}
 
-      {/* ── workspace ── */}
-      {/* Flex rather than a 12-column grid: the sessions panel is draggable, so
-          its width has to come from the panel itself. Sizing it in the grid left
-          the rail fighting the column and the two panes drifted apart. No `gap`
-          either — they are two zones of one surface, not two separate cards. */}
-      <div className="flex min-h-[32rem] flex-1 flex-col gap-3 xl:min-h-0 xl:flex-row xl:overflow-hidden">
-        {/* Zone 1 — sessions / context, resizable */}
-        <ResizableSidecar
-          open={state.sidecarOpen}
-          onOpenChange={(v: boolean) => dispatch({ type: 'set-sidecar-open', value: v })}
-          label={t('chat.sessions')}
-          className="hidden min-h-[24rem] rounded-xl border border-[var(--border)] bg-[var(--bg-2)] xl:flex xl:h-full"
-        >
+      {/* ── 3-zone workspace ── */}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3 min-h-0">
+        {/* Zone 1 — sessions / context */}
+        <aside className="hidden lg:flex lg:col-span-2 xl:col-span-2 min-h-0">
           <ChatSidecar
             state={state}
             dispatch={dispatch}
@@ -571,95 +454,26 @@ function ChatContent() {
             onClearContext={() => dispatch({ type: 'set-context', value: null })}
             providePrdText={t('chat.providePrd')}
           />
-        </ResizableSidecar>
+        </aside>
 
         {/* Zone 2 — thread */}
-        <section className="flex min-h-[28rem] min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg)] shadow-sm xl:h-full xl:min-h-0">
-          <div className="flex-1 overflow-y-auto p-4 pb-3 sm:p-6">
+        <section className="flex flex-col lg:col-span-10 xl:col-span-7 h-[56vh] lg:h-full min-h-0 bg-[var(--bg)] border border-[var(--sutra-muted-gold)] rounded-sm shadow-md overflow-hidden">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-5 pb-3 min-h-0">
             {showThreadSkeleton ? (
               <ThreadSkeleton />
             ) : (
-              <>
-                {state.messages.map((m, i) => (
-                  <ChatMessage key={i} role={m.role} content={m.content} agent={m.agent} />
-                ))}
-
-                {state.messages.length <= 1 && (
-                  <div className="mt-8 space-y-3 animate-fade-in border-t border-[var(--border)] pt-6">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] uppercase tracking-wider font-bold text-[var(--sutra-ink)] font-mono">
-                        Quick Start Blueprints &amp; Examples
-                      </span>
-                      <span className="text-[10px] text-[var(--text-3)]">· Click any to auto-fill</span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {[
-                        {
-                          icon: "🍦",
-                          title: "Ice Cream Vendor Landing Page",
-                          desc: "Storefront with Vanilla ($10) & Chocolate ($20) and ordering",
-                          prompt: "i am an ice cream vendor build me a landing page with my two icecreams that is vanilla and chocolate with their prices 10 and 20 respectively along with any appropriate images",
-                          app: "Artisanal Creamery",
-                        },
-                        {
-                          icon: "🏋️",
-                          title: "Gym & Fitness Studio Portal",
-                          desc: "Memberships, personal trainers, and workout classes",
-                          prompt: "Build a gym and fitness studio management app with memberships, personal trainers, and workout classes",
-                          app: "IronPulse Gym",
-                        },
-                        {
-                          icon: "📦",
-                          title: "Warehouse Inventory System",
-                          desc: "Stock tracking, suppliers, and reorder levels",
-                          prompt: "Create a modern warehouse inventory tracker with stock reordering and supplier management",
-                          app: "StockFlow Manager",
-                        },
-                        {
-                          icon: "🏨",
-                          title: "Boutique Hotel Booking",
-                          desc: "Room availability, guest check-in, and reservations",
-                          prompt: "Build a boutique hotel booking system with room availability, guest registry, and reservation payments",
-                          app: "Azure Suites",
-                        },
-                      ].map((chip, idx) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={() => {
-                            dispatch({ type: 'set-input', value: chip.prompt });
-                            dispatch({ type: 'set-app-name', value: chip.app });
-                            dispatch({ type: 'toggle-build-requested', value: true });
-                          }}
-                          className="group flex items-start gap-3 p-3.5 text-left rounded-xl border border-[var(--border)] bg-[var(--bg-2)] hover:border-[var(--sutra-strong)] hover:bg-[var(--bg)] transition-all shadow-sm cursor-pointer"
-                        >
-                          <span className="text-xl shrink-0 p-2 rounded-lg bg-[var(--bg)] border border-[var(--border)] group-hover:scale-110 transition-transform">
-                            {chip.icon}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <span className="block text-xs font-bold text-[var(--sutra-ink)] group-hover:text-[var(--sutra-strong)] transition-colors">
-                              {chip.title}
-                            </span>
-                            <span className="block text-[11px] text-[var(--text-3)] line-clamp-1 mt-0.5 font-light">
-                              {chip.desc}
-                            </span>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
+              state.messages.map((m, i) => (
+                <ChatMessage key={i} role={m.role} content={m.content} agent={m.agent} />
+              ))
             )}
 
             {state.streaming && state.stage === 'thinking' && <div className="mt-3"><ThinkingBubble /></div>}
 
             {state.streaming && state.progress && (
               <div className="flex items-center gap-3 text-[12px] text-[var(--text-2)] py-4 font-serif italic border-t border-[var(--border)] mt-4">
-                <Loader2 className="w-4 h-4 animate-spin text-[var(--sutra-strong)] shrink-0" />
+                <Loader2 className="w-4 h-4 animate-spin text-[var(--sutra-muted-gold)] shrink-0" />
                 <span className="min-w-0 break-words">
-                  {t('chat.buildingAppStatus')} <strong className="text-[var(--sutra-ink)]">{state.progress.target}%</strong>{' '}
+                  {t('chat.buildingAppStatus')} <strong className="text-[var(--sutra-charcoal)]">{state.progress.target}%</strong>{' '}
                   — {t('chat.stepLabel')} {state.progress.step}/{state.progress.totalSteps}: {state.progress.message}
                 </span>
               </div>
@@ -668,7 +482,7 @@ function ChatContent() {
           </div>
 
           {/* Composer */}
-          <div className="shrink-0 border-t border-[var(--border)] bg-[var(--bg-2)] p-3 sm:p-4">
+          <div className="p-3 sm:p-3.5 bg-[var(--bg-2)] border-t border-[var(--border)] shrink-0">
             {state.error && (
               <div className="flex items-start gap-2 mb-2.5 animate-fade-in">
                 <p className="flex-1 text-[11px] font-semibold text-[var(--red)] bg-[var(--bg)] border border-[var(--red)] px-3 py-2 shadow-sm break-words">
@@ -676,7 +490,7 @@ function ChatContent() {
                 </p>
                 <button
                   onClick={() => dispatch({ type: 'set-error', value: null })}
-                  className="text-[var(--text-3)] hover:text-[var(--sutra-ink)] p-1"
+                  className="text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] p-1"
                   aria-label="Dismiss error"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -684,16 +498,7 @@ function ChatContent() {
               </div>
             )}
 
-            {state.clarifications && state.clarifications.length > 0 && (
-              <ClarificationPanel
-                questions={state.clarifications}
-                onSelectOption={handleSelectClarification}
-                onDismiss={() => dispatch({ type: 'dismiss-clarifications' })}
-                loading={state.streaming}
-              />
-            )}
-
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={(e) => { e.preventDefault(); void send(state.buildRequested); }}>
               {state.buildRequested && (
                 <div className="mb-2.5 flex items-center gap-2 animate-fade-in">
                   <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)] shrink-0">
@@ -705,7 +510,7 @@ function ChatContent() {
                     onChange={(e) => dispatch({ type: 'set-app-name', value: e.target.value })}
                     placeholder={t('chat.appNamePlaceholder')}
                     disabled={state.streaming}
-                    className="flex-1 py-1.5 px-3 bg-[var(--bg)] border border-[var(--border)] text-[12px] text-[var(--sutra-ink)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-strong)] transition-colors rounded-sm min-w-0"
+                    className="flex-1 py-1.5 px-3 bg-[var(--bg)] border border-[var(--border)] text-[12px] text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm min-w-0"
                   />
                 </div>
               )}
@@ -713,8 +518,8 @@ function ChatContent() {
               {state.context && (
                 <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-[var(--bg)] border border-[var(--border)] rounded-sm text-[11px] mb-2 shadow-sm">
                   <div className="flex items-center gap-2 min-w-0">
-                    <Paperclip className="w-3.5 h-3.5 text-[var(--sutra-strong)] shrink-0" />
-                    <span className="font-semibold text-[var(--sutra-ink)] truncate max-w-[200px]">
+                    <Paperclip className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)] shrink-0" />
+                    <span className="font-semibold text-[var(--sutra-charcoal)] truncate max-w-[200px]">
                       {state.context.filename}
                     </span>
                     <span className="inline-flex items-center gap-1 text-[var(--green)] font-mono text-[10px] font-medium bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
@@ -732,18 +537,17 @@ function ChatContent() {
                 </div>
               )}
 
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    dispatch({ type: 'set-sidecar-tab', value: 'context' });
-                    dispatch({ type: 'set-sidecar-open', value: true });
-                  }}
+                  onClick={() =>
+                    dispatch({ type: 'set-sidecar-tab', value: 'context' })
+                  }
                   className={clsx(
-                    'xl:hidden',
+                    'lg:hidden p-3 border transition-colors shrink-0 rounded-sm',
                     state.context
-                      ? 'text-[var(--sutra-strong)]'
-                      : 'text-[var(--text-3)]'
+                      ? 'bg-[var(--bg)] border-[var(--sutra-muted-gold)] text-[var(--sutra-muted-gold)] shadow-sm'
+                      : 'bg-[var(--bg)] border border-[var(--border)] text-[var(--text-3)]'
                   )}
                   title={t('chat.attachContext')}
                   aria-label={t('chat.attachContext')}
@@ -763,28 +567,20 @@ function ChatContent() {
                     type="text"
                     value={state.input}
                     onChange={(e) => dispatch({ type: 'set-input', value: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                        e.preventDefault();
-                        handleSubmit();
-                      }
-                    }}
                     placeholder={
                       state.context
                         ? t('chat.instructSutra', { filename: state.context.filename })
                         : t('chat.describeApp')
                     }
                     disabled={state.streaming}
-                    className="w-full py-3 pl-4 pr-4 sm:pr-28 bg-[var(--bg)] border border-[var(--border)] text-[13px] text-[var(--sutra-ink)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-strong)] transition-colors rounded-lg shadow-sm min-w-0"
+                    className="w-full py-3 pl-4 pr-4 sm:pr-28 bg-[var(--bg)] border border-[var(--border)] text-[13px] text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm min-w-0"
                   />
                   <label
-                    title={state.buildRequested ? `${t('chat.buildTab')} (active)` : t('chat.buildTab')}
-                    aria-label="Toggle MVP architecture build"
                     className={clsx(
-                      'absolute right-2 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[10px] uppercase tracking-widest font-bold cursor-pointer select-none transition-all shadow-sm',
+                      'absolute right-2 flex items-center gap-1.5 px-2.5 py-1.5 rounded-sm text-[10px] uppercase tracking-widest font-bold cursor-pointer select-none transition-colors',
                       state.buildRequested
-                        ? 'bg-[var(--foreground)] text-[var(--background)] ring-1 ring-[var(--foreground)]'
-                        : 'bg-[var(--surface)] border border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)] hover:border-[var(--border-2)]'
+                        ? 'bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)]'
+                        : 'bg-[var(--bg-2)] border border-[var(--border)] text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] hover:border-[var(--text-3)]'
                     )}
                   >
                     <input
@@ -793,28 +589,26 @@ function ChatContent() {
                       onChange={(e) => dispatch({ type: 'toggle-build-requested', value: e.target.checked })}
                       className="sr-only"
                     />
-                    <Settings2 className="w-3.5 h-3.5 shrink-0" />
-                    <span className="hidden sm:inline font-bold">{t('chat.buildTab')}</span>
+                    <Settings2 className="w-3 h-3" />
+                    <span className="hidden sm:inline">{t('chat.buildTab')}</span>
                   </label>
                 </div>
 
-                <SendButton
-                  label="Send message"
-                  sentLabel="Sent"
-                  variant="solid"
-                  iconOnly
-                  className="h-11 w-11 shrink-0"
+                <button
                   type="submit"
-                  onSend={() => handleSubmit()}
                   disabled={!state.input.trim() || state.streaming}
-                />
+                  className="p-3.5 rounded-sm bg-[var(--sutra-charcoal)] hover:bg-black text-[var(--sutra-warm-ivory)] transition-colors disabled:opacity-50 shrink-0 shadow-md"
+                  aria-label="Send"
+                >
+                  {state.streaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                </button>
               </div>
             </form>
           </div>
         </section>
 
         {/* Zone 3 — artifacts */}
-        <aside className="flex min-h-[16rem] flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-2)] shadow-sm xl:h-full xl:min-h-0 xl:w-[min(28vw,22rem)] xl:shrink-0 xl:sticky xl:top-0">
+        <aside className="flex flex-col lg:col-span-12 xl:col-span-3 h-[42vh] lg:h-full min-h-0">
           <ArtifactsPanel
             state={state}
             t={t}
@@ -831,13 +625,13 @@ function ChatContent() {
 
       {/* ── Mobile / tablet sidecar drawer ── */}
       {state.sidecarOpen && (
-        <div className="fixed inset-0 z-50 flex bg-black/50 backdrop-blur-sm xl:hidden animate-fade-in">
+        <div className="fixed inset-0 z-50 flex bg-black/50 backdrop-blur-sm lg:hidden animate-fade-in">
           <div
             className="absolute inset-0"
             onClick={() => dispatch({ type: 'set-sidecar-open', value: false })}
             aria-hidden="true"
           />
-          <div className="relative flex h-full w-full max-w-sm flex-col border-r border-[var(--border)] bg-[var(--bg-2)] shadow-2xl animate-slide-in">
+          <div className="relative bg-[var(--bg-2)] border-r border-[var(--border)] w-full max-w-xs h-full flex flex-col shadow-2xl animate-slide-in">
             <ChatSidecar
               state={state}
               dispatch={dispatch}
@@ -849,6 +643,13 @@ function ChatContent() {
               providePrdText={t('chat.providePrd')}
               onClose={() => dispatch({ type: 'set-sidecar-open', value: false })}
             />
+            <button
+              onClick={startNewChat}
+              className="m-3 py-2.5 px-3 flex items-center justify-center gap-2 bg-[var(--sutra-charcoal)] text-white hover:bg-black rounded-sm text-[11px] font-bold uppercase tracking-wider shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
+              <span>Start New Architecture Build</span>
+            </button>
           </div>
         </div>
       )}
@@ -873,7 +674,7 @@ function ChatContent() {
 
 function ChatSkeleton() {
   return (
-    <div className="flex min-h-[calc(100dvh-5rem)] flex-col animate-fade-up">
+    <div className="flex flex-col h-[calc(100vh-5rem)] animate-fade-up">
       <div className="mb-3 flex items-center gap-3 px-1">
         <div className="w-8 h-8 border border-[var(--border)] skeleton" />
         <div className="space-y-1.5">
@@ -881,9 +682,7 @@ function ChatSkeleton() {
           <div className="skeleton h-2.5 w-36" />
         </div>
       </div>
-      {/* Matches the loaded layout: no gutter between the sessions panel and
-          the thread, so the page does not visibly reflow when data arrives. */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3 min-h-0">
         <div className="hidden lg:flex lg:col-span-2 border border-[var(--border)] rounded-sm p-3 space-y-2">
           <div className="skeleton h-8 w-full" />
           {Array.from({ length: 6 }).map((_, i) => (

@@ -46,15 +46,15 @@ def _container_memory() -> tuple[int, int] | None:
 
 def _container_cpu_quota() -> float | None:
     try:
-        quota, period = Path("/sys/fs/cgroup/cpu.max").read_text(encoding="ascii").split()
-        if quota != "max" and int(period) > 0:
-            return max(0.01, int(quota) / int(period))
+        q_str, p_str = Path("/sys/fs/cgroup/cpu.max").read_text(encoding="ascii").split()
+        if q_str != "max" and int(p_str) > 0:
+            return max(0.01, int(q_str) / int(p_str))
     except (OSError, ValueError):
         pass
-    quota = _read_number("/sys/fs/cgroup/cpu/cpu.cfs_quota_us")
-    period = _read_number("/sys/fs/cgroup/cpu/cpu.cfs_period_us")
-    if quota is not None and period and quota > 0:
-        return max(0.01, quota / period)
+    quota_v1 = _read_number("/sys/fs/cgroup/cpu/cpu.cfs_quota_us")
+    period_v1 = _read_number("/sys/fs/cgroup/cpu/cpu.cfs_period_us")
+    if quota_v1 is not None and period_v1 and quota_v1 > 0:
+        return max(0.01, float(quota_v1) / float(period_v1))
     return None
 
 

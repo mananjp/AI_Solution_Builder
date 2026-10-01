@@ -284,6 +284,61 @@ _LEXICON: list[tuple[tuple[str, ...], list[tuple[str, str, list[tuple[str, str]]
         ],
     ),
     (
+        (
+            "portfolio",
+            "personal site",
+            "showcase",
+            "resume",
+            "cv",
+            "designer",
+            "developer portfolio",
+        ),
+        [
+            (
+                "project",
+                "projects",
+                [
+                    ("title", "string"),
+                    ("description", "text"),
+                    ("category", "string"),
+                    ("live_url", "string"),
+                    ("github_url", "string"),
+                    ("image_url", "string"),
+                    ("featured", "bool"),
+                ],
+            ),
+            (
+                "skill",
+                "skills",
+                [
+                    ("name", "string"),
+                    ("category", "string"),
+                    ("proficiency", "int"),
+                ],
+            ),
+            (
+                "experience",
+                "experiences",
+                [
+                    ("company", "string"),
+                    ("role", "string"),
+                    ("period", "string"),
+                    ("description", "text"),
+                ],
+            ),
+            (
+                "contact_message",
+                "contact_messages",
+                [
+                    ("sender_name", "string"),
+                    ("email", "string"),
+                    ("subject", "string"),
+                    ("message", "text"),
+                ],
+            ),
+        ],
+    ),
+    (
         ("school", "college", "university", "student", "course", "lms", "exam", "grade"),
         [
             (
@@ -637,7 +692,8 @@ def _title_from_prompt(prompt: str) -> str:
     if persona_match:
         persona = persona_match.group("persona").strip()
         persona_words = [
-            w for w in _TOKEN_RE.findall(persona)
+            w
+            for w in _TOKEN_RE.findall(persona)
             if w.lower() not in ("a", "an", "the", "i", "am", "are", "we", "this", "my")
         ]
         if persona_words:
@@ -738,6 +794,15 @@ def _safe_entity_name(noun: str) -> str:
     if w not in _RESERVED_ENTITY_NAMES:
         return w
     return f"{w}_record"
+
+
+def _keyword_matches(keyword: str, text: str) -> bool:
+    """True when `keyword` matches as a whole word or phrase in `text`."""
+    kw = (keyword or "").strip().lower()
+    if not kw:
+        return False
+    pattern = r"\b" + re.escape(kw) + r"\b"
+    return bool(re.search(pattern, text, re.IGNORECASE))
 
 
 def infer_entities(prompt: str, limit: int = 4) -> list[tuple[str, str, list[tuple[str, str]]]]:

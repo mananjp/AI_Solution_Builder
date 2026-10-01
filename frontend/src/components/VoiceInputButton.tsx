@@ -5,7 +5,6 @@ import { Mic, Square, Loader2, Globe } from 'lucide-react';
 import { uploadApi } from '@/lib/api';
 import { useI18n } from '@/components/I18nProvider';
 import { SUPPORTED_LANGUAGES } from '@/lib/i18n/languages';
-import { Button } from "@/components/ui/button";
 
 interface VoiceInputButtonProps {
   onTranscribed: (text: string, lang?: string) => void;
@@ -134,53 +133,52 @@ export function VoiceInputButton({
   };
 
   return (
-    <div className={`inline-flex min-w-0 items-center gap-2 ${className}`}>
+    <div className={`inline-flex items-center gap-2 ${className}`}>
       {isRecording ? (
-        <Button variant="outline" size="sm"
+        <button
           type="button"
           onClick={stopRecording}
           disabled={disabled || isProcessing}
-          className="inline-flex min-w-0 max-w-[9rem] items-center gap-1.5 text-xs font-medium bg-[var(--red-wash)] text-[var(--red)] border border-[var(--red-wash)] hover:bg-[var(--red-wash)] transition-all animate-pulse"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30 hover:bg-red-500/20 transition-all shadow-sm animate-pulse"
           title={t('voice.stopRecordingTitle') || 'Stop recording'}
         >
-          <Square className="w-3.5 h-3.5 shrink-0 fill-current" />
-          <span className="truncate">{t('voice.recording') || 'Recording'} {formatTime(recordSeconds)}</span>
-        </Button>
+          <Square className="w-3.5 h-3.5 fill-current" />
+          <span>{t('voice.recording') || 'Recording'} {formatTime(recordSeconds)}</span>
+        </button>
       ) : isProcessing ? (
-        <Button variant="outline" size="sm"
+        <button
           type="button"
           disabled
-          className="inline-flex min-w-0 max-w-[9rem] items-center gap-1.5 text-xs font-medium bg-[var(--sutra-strong)]/10 text-[var(--sutra-strong)] border border-[var(--sutra-strong)]/30 cursor-wait"
-          title={t('voice.transcribing') || 'Transcribing (Groq Whisper)...'}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-[var(--sutra-muted-gold)]/10 text-[var(--sutra-deep-gold)] border border-[var(--sutra-muted-gold)]/30 cursor-wait"
         >
-          <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />
-          <span className="truncate">{t('voice.transcribing') || 'Transcribing (Groq Whisper)...'}</span>
-        </Button>
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          <span>{t('voice.transcribing') || 'Transcribing (Groq Whisper)...'}</span>
+        </button>
       ) : (
-        <Button variant="secondary" size="sm"
+        <button
           type="button"
           onClick={startRecording}
           disabled={disabled}
-          className="inline-flex min-w-0 max-w-[11rem] items-center gap-1.5 text-xs font-medium text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--bg-2)] border border-[var(--border)] transition-all"
+          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--bg-2)] border border-[var(--border)] transition-all"
           title={`Speak in ${currentOption.native} (${currentOption.code.toUpperCase()}), English, or any language (Groq Whisper AI)`}
         >
-          <Mic className="w-4 h-4 shrink-0 text-[var(--sutra-strong)]" />
-          <span className="hidden truncate sm:inline">{t('voice.voiceNote') || 'Voice Note'}</span>
-          <span className="shrink-0 text-[10px] font-mono px-1 py-0.2 rounded bg-[var(--bg)] border border-[var(--border)] text-[var(--sutra-strong)]">
+          <Mic className="w-4 h-4 text-[var(--sutra-muted-gold)]" />
+          <span className="hidden sm:inline">{t('voice.voiceNote') || 'Voice Note'}</span>
+          <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-[var(--bg)] border border-[var(--border)] text-[var(--sutra-muted-gold)]">
             {lang.toUpperCase()}
           </span>
-        </Button>
+        </button>
       )}
 
       {detectedLang && !isRecording && !isProcessing && (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] uppercase font-semibold bg-[var(--green-wash)] text-[var(--green)] border border-[var(--green-wash)]">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] uppercase font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
           <Globe className="w-2.5 h-2.5" />
           {detectedLang}
         </span>
       )}
 
       {errorMessage && (
-        <span className="text-[11px] text-[var(--red)] max-w-xs truncate" title={errorMessage}>
+        <span className="text-[11px] text-red-500 max-w-xs truncate" title={errorMessage}>
           {errorMessage}
         </span>
       )}

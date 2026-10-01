@@ -8,6 +8,9 @@ import {
   Layout,
   Calendar,
   Network,
+  Copy,
+  Check,
+  Download,
   RotateCw,
   GitFork,
   Play,
@@ -21,13 +24,6 @@ import RegenerateModal from './RegenerateModal';
 import WireframeCanvas from './WireframeCanvas';
 import MarkdownRenderer from './MarkdownRenderer';
 import ProductVisuals from './ProductVisuals';
-import { TabBar } from '@/components/lab/tab-bar';
-import { CopyButton } from '@/components/lab/copy-button';
-import { DownloadButton, type DownloadStatus } from '@/components/lab/download-button';
-import { SegmentedControl } from '@/components/lab/segmented-control';
-
-import { Badge } from '@/components/ui/badge';
-import { Button } from "@/components/ui/button";
 
 interface ArtifactViewerProps {
   artifacts: Artifact[];
@@ -87,9 +83,9 @@ function toBpmnProcess(artifact?: Artifact): BpmnProcess | undefined {
 
 export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdated }: ArtifactViewerProps) {
   const [activeType, setActiveType] = useState<ArtifactType>('hld');
+  const [copied, setCopied] = useState(false);
   const [showRegenModal, setShowRegenModal] = useState(false);
   const [wireframeView, setWireframeView] = useState<'canvas' | 'details'>('canvas');
-  const [downloadStatus, setDownloadStatus] = useState<DownloadStatus>('idle');
 
   const tabs: { type: ArtifactType; label: string; icon: LucideIcon; badge?: string }[] = [
     { type: 'hld', label: 'High-Level Design', icon: Layers },
@@ -105,6 +101,12 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
 
   const currentArtifacts = artifacts.filter(a => matchesTab(a.artifact_type, activeType));
   const activeArtifact = currentArtifacts[0];
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const handleDownload = (filename: string, content: string) => {
     const blob = new Blob([content], { type: 'text/plain' });
@@ -126,64 +128,63 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
     <div className="flex flex-col h-full bg-[var(--bg-2)] border border-[var(--border)] shadow-sm">
       {/* Top Tab Bar (IDE style) */}
       <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-3)] px-2 pt-2 overflow-x-auto gap-2">
-        {/* The lab tab bar slides one pill between tabs, so the active tab is
-            marked by a moving element rather than a second border that can
-            drift out of step with the label it is supposed to be underlining. */}
-        <TabBar
-          items={tabs.map((tab) => ({
-            id: tab.type,
-            label: tab.label,
-            icon: (
-              <tab.icon
-                className={`w-3.5 h-3.5 ${
-                  activeType === tab.type
-                    ? 'text-[var(--sutra-strong)]'
-                    : 'text-[var(--text-3)]'
-                }`}
-              />
-            ),
-          }))}
-          value={activeType}
-          onChange={(value) => setActiveType(value as ArtifactType)}
-          label="Artifacts"
-          idBase="artifact-viewer"
-          className="min-w-0"
-        />
+        <div className="flex space-x-1">
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            const hasData = artifacts.some(a => matchesTab(a.artifact_type, tab.type) || tab.type === 'workable');
+            const isActive = activeType === tab.type;
+
+            return (
+               <button
+                 key={tab.type}
+                 onClick={() => setActiveType(tab.type)}
+                 className={`flex items-center gap-2 px-4 py-2.5 text-[11px] font-medium uppercase tracking-widest transition-colors border-b-2 whitespace-nowrap -mb-px ${
+                   isActive
+                     ? 'border-[var(--sutra-muted-gold)] bg-[var(--bg-2)] text-[var(--sutra-charcoal)]'
+                     : 'border-transparent text-[var(--text-2)] hover:text-[var(--text)] hover:bg-[var(--bg-2)]'
+                 }`}
+               >
+                 <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-[var(--sutra-muted-gold)]' : 'text-[var(--text-3)]'}`} />
+                 <span>{tab.label}</span>
+                 {tab.badge && (
+                   <span className="badge badge-amber ml-1">
+                     {tab.badge}
+                   </span>
+                 )}
+                 {hasData && !tab.badge && <span className="w-1.5 h-1.5 rounded-full bg-[var(--green)] ml-1" />}
+               </button>
+            );
+          })}
+        </div>
 
         {/* Action buttons */}
         <div className="flex items-center gap-3 pb-2 pr-2">
           {activeType !== 'workable' && activeType !== VISUAL_TAB && (
-            <Button variant="secondary" size="default"
+            <button
               onClick={() => setShowRegenModal(true)}
-              className="flex items-center gap-1.5 bg-[var(--bg)] hover:bg-[var(--bg-3)] text-[var(--sutra-ink)] text-[10px] uppercase tracking-widest font-semibold border border-[var(--border)] transition-colors whitespace-nowrap"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-[var(--bg)] hover:bg-[var(--bg-3)] text-[var(--sutra-charcoal)] text-[10px] uppercase tracking-widest font-semibold border border-[var(--border)] transition-colors whitespace-nowrap shadow-sm"
             >
               <RotateCw className="w-3 h-3" />
               <span>Regenerate</span>
-            </Button>
+            </button>
           )}
 
           {activeArtifact && activeType !== VISUAL_TAB && (
             <>
-              {/* The lab buttons own their own confirming state, so the label
-                  cannot drift from the icon and the timer resets on remount. */}
-              <CopyButton
-                value={getRawContentString(activeArtifact)}
-                label="Copy artifact"
-                className="shrink-0"
-              />
-              <DownloadButton
-                status={downloadStatus}
-                progress={0}
-                onStart={() => {
-                  handleDownload(`${activeType}-spec.txt`, getRawContentString(activeArtifact));
-                  setDownloadStatus('done');
-                }}
-                onCancel={() => undefined}
-                onReset={() => setDownloadStatus('idle')}
-                label="Export"
-                doneLabel="Saved"
-                className="shrink-0"
-              />
+              <button
+                onClick={() => handleCopy(getRawContentString(activeArtifact))}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-[var(--bg)] hover:bg-[var(--bg-3)] text-[var(--text-2)] hover:text-[var(--text)] text-[10px] uppercase tracking-widest font-semibold border border-[var(--border)] transition-colors whitespace-nowrap shadow-sm"
+              >
+                {copied ? <Check className="w-3 h-3 text-[var(--green)]" /> : <Copy className="w-3 h-3" />}
+                <span>{copied ? 'Copied' : 'Copy'}</span>
+              </button>
+              <button
+                onClick={() => handleDownload(`${activeType}-spec.txt`, getRawContentString(activeArtifact))}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-[var(--bg)] hover:bg-[var(--bg-3)] text-[var(--text-2)] hover:text-[var(--text)] text-[10px] uppercase tracking-widest font-semibold border border-[var(--border)] transition-colors whitespace-nowrap shadow-sm"
+              >
+                <Download className="w-3 h-3" />
+                <span>Export</span>
+              </button>
             </>
           )}
         </div>
@@ -205,31 +206,44 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
           <div className="max-w-5xl mx-auto space-y-6">
             <div className="flex items-center justify-between pb-4 border-b border-[var(--border)]">
               <div>
-                <h3 className="text-xl font-serif text-[var(--sutra-ink)]">{activeArtifact.title}</h3>
+                <h3 className="text-xl font-serif text-[var(--sutra-charcoal)]">{activeArtifact.title}</h3>
                 <div className="flex items-center gap-3 mt-2 text-[10px] uppercase tracking-widest text-[var(--text-2)] font-semibold">
                   <span>v{activeArtifact.version}</span>
                   <span className="w-1 h-1 rounded-full bg-[var(--border-2)]"></span>
                   <span>Synthesized by Swarm Agent</span>
                 </div>
               </div>
-              <Badge variant="neutral" className="text-[10px] uppercase tracking-widest">
+              <span className="badge badge-gray text-[10px] uppercase tracking-widest">
                 Production Spec
-              </Badge>
+              </span>
             </div>
 
             {/* Wireframe vs Markdown Spec */}
             {activeType === 'wireframe' ? (
               <div className="space-y-6">
                 <div className="flex items-center justify-between bg-[var(--bg-2)] p-2 border border-[var(--border)] shadow-sm">
-                  {/* Two mutually exclusive views of the same wireframes. The lab
-                      control slides its pill with a clip-path, so the selection
-                      cannot jump or leave a gap between the two labels. */}
-                  <SegmentedControl
-                    options={['Canvas Editor', 'Details']}
-                    value={wireframeView === 'details' ? 'Details' : 'Canvas Editor'}
-                    onChange={(value) => setWireframeView(value === 'Details' ? 'details' : 'canvas')}
-                    label="Wireframe view"
-                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setWireframeView('canvas')}
+                      className={`px-4 py-1.5 rounded-sm text-[11px] uppercase tracking-widest font-semibold transition-colors ${
+                        wireframeView === 'canvas'
+                          ? 'bg-[var(--bg)] text-[var(--sutra-charcoal)] border border-[var(--border)] shadow-sm'
+                          : 'text-[var(--text-2)] hover:text-[var(--sutra-charcoal)]'
+                      }`}
+                    >
+                      Canvas Editor
+                    </button>
+                    <button
+                      onClick={() => setWireframeView('details')}
+                      className={`px-4 py-1.5 rounded-sm text-[11px] uppercase tracking-widest font-semibold transition-colors ${
+                        wireframeView === 'details'
+                          ? 'bg-[var(--bg)] text-[var(--sutra-charcoal)] border border-[var(--border)] shadow-sm'
+                          : 'text-[var(--text-2)] hover:text-[var(--sutra-charcoal)]'
+                      }`}
+                    >
+                      Details
+                    </button>
+                  </div>
                   <span className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-[var(--text-2)] pr-4">
                     <PenLine className="w-3.5 h-3.5" />
                     Drag &amp; connect components
@@ -243,7 +257,7 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
                 ) : (
                   currentArtifacts.map((wf, idx) => (
                     <div key={idx} className="sutra-card p-8">
-                      <h4 className="font-serif text-lg text-[var(--sutra-ink)] mb-6 border-b border-[var(--border)] pb-3">{wf.title}</h4>
+                      <h4 className="font-serif text-lg text-[var(--sutra-charcoal)] mb-6 border-b border-[var(--border)] pb-3">{wf.title}</h4>
                       <MarkdownRenderer content={getRawContentString(wf)} />
                     </div>
                   ))
@@ -258,10 +272,10 @@ export default function ArtifactViewer({ artifacts, solutionId, onArtifactUpdate
         ) : (
           <div className="h-[60vh] flex flex-col items-center justify-center text-center space-y-4 text-[var(--text-2)] p-8">
             <div className="p-4 border border-[var(--border)] bg-[var(--bg-2)] shadow-sm">
-              <Layers className="w-8 h-8 text-[var(--sutra-strong)] opacity-80" />
+              <Layers className="w-8 h-8 text-[var(--sutra-muted-gold)] opacity-80" />
             </div>
             <div>
-              <p className="text-[13px] font-medium text-[var(--sutra-ink)]">
+              <p className="text-[13px] font-medium text-[var(--sutra-charcoal)]">
                 No artifact generated yet.
               </p>
               <p className="text-[11px] text-[var(--text-2)] max-w-sm mx-auto mt-2 font-light">

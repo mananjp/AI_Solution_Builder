@@ -1,19 +1,10 @@
-/**
- * The local authorisation record for an Auth0 identity.
- *
- * `id` and `org_id` are local UUIDs, not Auth0 identifiers: they key the RLS
- * tenant context, the audit trail and the encrypted deploy-credential vault, so
- * they must stay stable and internal even though the identity behind them is
- * managed by Auth0.
- */
 export interface User {
   id: string;
   email: string;
   full_name?: string;
   role: string;
-  org_id: string | null;
+  org_id: string;
   auth_provider?: string;
-  email_verified?: boolean;
   is_anonymous?: boolean;
   settings?: Record<string, unknown>;
   created_at: string;
@@ -191,7 +182,6 @@ export interface CheckoutSession {
   org_id: string;
   credits: number;
   gateway_status?: string;
-  simulated?: boolean;
 }
 
 declare global {
@@ -419,6 +409,26 @@ export interface MVPDeployResult {
   deploy_state?: MVPDeployState | null;
 }
 
+export interface SocialProvidersResponse {
+  providers: string[];
+  allow_anonymous: boolean;
+}
+
+export interface AnonymousAuthResponse {
+  access_token: string;
+  token_type: string;
+  is_anonymous: boolean;
+  credits_remaining: number | null;
+  user: User;
+}
+
+export interface UpgradeAnonymousPayload {
+  email: string;
+  password: string;
+  full_name: string;
+  org_name?: string;
+}
+
 // ── Two-Path App Building (Premade Apps + Custom Build) ────────
 export interface MVPQuickBuildPayload {
   template: string;
@@ -469,31 +479,4 @@ export interface MVPChatEditResponse {
   all_files: MVPFileEntry[];
   build_id: string;
   build_number: number;
-}
-
-export interface EvidenceCitation {
-  source: string;
-  excerpt: string;
-}
-
-export interface ArchitecturalDecision {
-  id: string;
-  topic: string;
-  choice: string;
-  rationale: string;
-  alternatives: string[];
-  assumptions: string[];
-  evidence: EvidenceCitation[];
-  confidence: number;
-  impact: string;
-}
-
-export interface ArtifactExplainability {
-  artifact_id: string;
-  artifact_type: string;
-  title: string;
-  decisions: ArchitecturalDecision[];
-  assumptions: string[];
-  evidence: EvidenceCitation[];
-  confidence: number;
 }

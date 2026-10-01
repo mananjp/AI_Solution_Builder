@@ -28,7 +28,13 @@ from app.schemas import (
 router = APIRouter(prefix="/solutions", tags=["Solutions"])
 
 
-@router.post("/", response_model=SolutionResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=SolutionResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=SolutionResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+)
 async def create_solution(
     payload: SolutionCreate,
     current_user: User = Depends(get_current_user),

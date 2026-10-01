@@ -12,7 +12,6 @@ import {
   Sparkles
 } from 'lucide-react';
 import { BpmnNode, BpmnProcess } from '@/types';
-import { Button } from "@/components/ui/button";
 
 interface BpmnViewerProps {
   processData?: BpmnProcess;
@@ -100,13 +99,13 @@ export default function BpmnViewer({ processData }: BpmnViewerProps) {
   const getNodeIcon = (node: BpmnNode) => {
     switch (node.type) {
       case 'start':
-        return <Play className="w-3.5 h-3.5 text-[var(--green)]" />;
+        return <Play className="w-3.5 h-3.5 text-emerald-400" />;
       case 'gateway':
-        return <GitFork className="w-3.5 h-3.5 text-[var(--amber)]" />;
+        return <GitFork className="w-3.5 h-3.5 text-amber-400" />;
       case 'end':
-        return <CheckCircle2 className="w-3.5 h-3.5 text-[var(--red)]" />;
+        return <CheckCircle2 className="w-3.5 h-3.5 text-rose-400" />;
       default:
-        return <Cpu className="w-3.5 h-3.5 text-[var(--sutra-strong)]" />;
+        return <Cpu className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />;
     }
   };
 
@@ -116,18 +115,18 @@ export default function BpmnViewer({ processData }: BpmnViewerProps) {
       <div className="p-4 border-b border-[var(--border)] bg-[var(--bg-3)] flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-sm bg-[var(--sutra-strong)]/15 text-[var(--sutra-strong)] border border-[var(--sutra-strong)]/30 font-mono">
+            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-sm bg-[var(--sutra-muted-gold)]/15 text-[var(--sutra-deep-gold)] border border-[var(--sutra-muted-gold)]/30 font-mono">
               BPMN 2.0 Process Intelligence
             </span>
             <span className="text-xs text-[var(--text-2)] font-light">Process Flow &amp; Swimlanes</span>
           </div>
-          <h3 className="text-base font-serif font-bold text-[var(--sutra-ink)] mt-1">{process.processName}</h3>
+          <h3 className="text-base font-serif font-bold text-[var(--sutra-charcoal)] mt-1">{process.processName}</h3>
         </div>
 
         {/* Bottleneck Alert Badge */}
         {process.bottlenecks && process.bottlenecks.length > 0 && (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-sm bg-[var(--amber-wash)] border border-[var(--amber-wash)] text-[var(--amber)] text-xs">
-            <AlertTriangle className="w-4 h-4 text-[var(--amber)] flex-shrink-0" />
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-sm bg-amber-500/10 border border-amber-500/20 text-amber-700 text-xs">
+            <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
             <span>
               <strong>AI Bottleneck Predictor:</strong> {process.bottlenecks[0]}
             </span>
@@ -140,7 +139,7 @@ export default function BpmnViewer({ processData }: BpmnViewerProps) {
         {/* Swimlanes Overview */}
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-2)] uppercase tracking-wider">
-            <Layers className="w-4 h-4 text-[var(--sutra-strong)]" />
+            <Layers className="w-4 h-4 text-[var(--sutra-muted-gold)]" />
             <span>Process Steps &amp; Decision Graph</span>
           </div>
 
@@ -151,10 +150,10 @@ export default function BpmnViewer({ processData }: BpmnViewerProps) {
                 onClick={() => setSelectedNode(node)}
                 className={`p-4 rounded-sm border text-left cursor-pointer transition-all relative select-none flex flex-col justify-between min-h-[130px] ${
                   selectedNode?.id === node.id
-                    ? 'bg-[var(--sutra-strong)]/10 border-[var(--sutra-strong)] shadow-md ring-1 ring-[var(--sutra-strong)]/40 scale-[1.02]'
+                    ? 'bg-[var(--sutra-muted-gold)]/10 border-[var(--sutra-muted-gold)] shadow-md ring-1 ring-[var(--sutra-muted-gold)]/40 scale-[1.02]'
                     : node.isBottleneck
-                    ? 'bg-[var(--amber-wash)] border-[var(--amber-wash)] hover:border-[var(--amber-wash)]'
-                    : 'bg-[var(--bg-2)] border-[var(--border)] hover:border-[var(--sutra-strong)]/40 hover:bg-[var(--bg-3)]'
+                    ? 'bg-amber-500/10 border-amber-500/30 hover:border-amber-500/50'
+                    : 'bg-[var(--bg-2)] border-[var(--border)] hover:border-[var(--sutra-muted-gold)]/40 hover:bg-[var(--bg-3)]'
                 }`}
               >
                 {/* Node Step Header */}
@@ -169,7 +168,7 @@ export default function BpmnViewer({ processData }: BpmnViewerProps) {
                   </div>
 
                   {node.isBottleneck ? (
-                    <span className="text-[10px] px-2 py-0.5 rounded-sm font-bold bg-[var(--amber-wash)] text-[var(--amber)] border border-[var(--amber-wash)] animate-pulse">
+                    <span className="text-[10px] px-2 py-0.5 rounded-sm font-bold bg-amber-500/20 text-amber-700 border border-amber-500/30 animate-pulse">
                       Bottleneck
                     </span>
                   ) : (
@@ -180,8 +179,8 @@ export default function BpmnViewer({ processData }: BpmnViewerProps) {
                 </div>
 
                 <div>
-                  <h4 className="font-serif font-bold text-sm text-[var(--sutra-ink)] leading-tight">{node.label}</h4>
-                  <div className="flex items-center gap-1.5 text-[11px] text-[var(--sutra-strong)] mt-1.5 font-medium">
+                  <h4 className="font-serif font-bold text-sm text-[var(--sutra-charcoal)] leading-tight">{node.label}</h4>
+                  <div className="flex items-center gap-1.5 text-[11px] text-[var(--sutra-deep-gold)] mt-1.5 font-medium">
                     <User className="w-3 h-3" />
                     <span>{node.actor}</span>
                   </div>
@@ -197,38 +196,38 @@ export default function BpmnViewer({ processData }: BpmnViewerProps) {
 
         {/* Selected Node Inspector Drawer */}
         {selectedNode && (
-          <div className="p-5 rounded-sm bg-[var(--bg-2)] border border-[var(--sutra-strong)]/40 space-y-3 animate-fade-in shadow-md">
+          <div className="p-5 rounded-sm bg-[var(--bg-2)] border border-[var(--sutra-muted-gold)]/40 space-y-3 animate-fade-in shadow-md">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-[var(--sutra-strong)]" />
-                <h4 className="font-serif font-bold text-[var(--sutra-ink)] text-sm">Step Deep-Dive: {selectedNode.label}</h4>
+                <Sparkles className="w-4 h-4 text-[var(--sutra-muted-gold)]" />
+                <h4 className="font-serif font-bold text-[var(--sutra-charcoal)] text-sm">Step Deep-Dive: {selectedNode.label}</h4>
               </div>
-              <Button variant="ghost" size="default"
+              <button
                 onClick={() => setSelectedNode(null)}
                 className="text-xs text-[var(--text-3)] hover:text-[var(--text)] transition-colors"
               >
                 Close
-              </Button>
+              </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
               <div className="p-3 rounded-sm bg-[var(--bg-3)] border border-[var(--border)]">
                 <span className="text-[var(--text-2)] font-medium">Actor / Swimlane:</span>
-                <p className="font-semibold text-[var(--sutra-ink)] mt-1">{selectedNode.actor}</p>
+                <p className="font-semibold text-[var(--sutra-charcoal)] mt-1">{selectedNode.actor}</p>
               </div>
               <div className="p-3 rounded-sm bg-[var(--bg-3)] border border-[var(--border)]">
                 <span className="text-[var(--text-2)] font-medium">Element Classification:</span>
-                <p className="font-semibold text-[var(--sutra-strong)] mt-1 capitalize">{selectedNode.type} Event</p>
+                <p className="font-semibold text-[var(--sutra-deep-gold)] mt-1 capitalize">{selectedNode.type} Event</p>
               </div>
               <div className="p-3 rounded-sm bg-[var(--bg-3)] border border-[var(--border)]">
                 <span className="text-[var(--text-2)] font-medium">Performance Profile:</span>
-                <p className={`font-semibold mt-1 ${selectedNode.isBottleneck ? 'text-[var(--amber)]' : 'text-[var(--green)]'}`}>
+                <p className={`font-semibold mt-1 ${selectedNode.isBottleneck ? 'text-amber-600' : 'text-emerald-600'}`}>
                   {selectedNode.isBottleneck ? 'High Latency / Manual Gate' : 'Automated (< 50ms)'}
                 </p>
               </div>
             </div>
 
-            <p className="text-xs text-[var(--sutra-ink)] bg-[var(--bg-3)] p-3 rounded-sm border border-[var(--border)] leading-relaxed font-light">
+            <p className="text-xs text-[var(--sutra-charcoal)] bg-[var(--bg-3)] p-3 rounded-sm border border-[var(--border)] leading-relaxed font-light">
               {selectedNode.description}
             </p>
           </div>

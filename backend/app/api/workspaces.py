@@ -20,7 +20,8 @@ from app.schemas import WorkspaceCreate, WorkspaceResponse, WorkspaceUpdate
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
 
 
-@router.get("/", response_model=list[WorkspaceResponse])
+@router.get("", response_model=list[WorkspaceResponse])
+@router.get("/", response_model=list[WorkspaceResponse], include_in_schema=False)
 async def list_workspaces(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -51,7 +52,13 @@ async def list_workspaces(
     ]
 
 
-@router.post("/", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=WorkspaceResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+)
 async def create_workspace(
     payload: WorkspaceCreate,
     current_user: User = Depends(get_current_user),

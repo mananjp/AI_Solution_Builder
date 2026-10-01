@@ -11,20 +11,20 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 from uuid import UUID
 
 from app.core.config import settings
 from app.services import mvp_builder as builder
 from app.services import spec_codegen
-from app.services.app_spec import AppSpec, generate_app_spec, fallback_app_spec
+from app.services.app_spec import AppSpec, fallback_app_spec, generate_app_spec
 from app.services.asset_sourcing import source_assets_for_spec, wire_generated_visuals
-from app.services.theme_engine import apply_theme, classify_vertical, fallback_theme
 from app.services.mvp_verifier import VerificationError, verify_and_repair, verify_mvp_quality
+from app.services.theme_engine import apply_theme, classify_vertical, fallback_theme
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,7 @@ class BuildContext:
 
 async def run_build_pipeline(ctx: BuildContext) -> dict[str, Any]:
     """Execute the full end-to-end build pipeline."""
+
     async def _notify(phase: str, step_idx: int, pct: int, msg: str) -> None:
         if ctx.progress_cb:
             await ctx.progress_cb(phase, step_idx, pct, msg)
@@ -98,7 +99,9 @@ async def run_build_pipeline(ctx: BuildContext) -> dict[str, Any]:
     try:
         # Determine theme
         if not getattr(spec, "theme", None):
-            vertical = classify_vertical(f"{spec.app_name} {spec.one_liner} {spec.core_value}")
+            vertical = classify_vertical(
+                spec=spec, text=f"{spec.app_name} {spec.one_liner} {spec.core_value}"
+            )
             theme_spec = fallback_theme(vertical)
             spec.theme = theme_spec
             ctx.ai_state["app_spec"] = spec.model_dump()
@@ -128,7 +131,7 @@ async def run_build_pipeline(ctx: BuildContext) -> dict[str, Any]:
 
     # Apply CSS design tokens to frontend
     fe_dir = ctx.workspace_dir / "frontend"
-    if fe_dir.exists() and getattr(spec, "theme", None):
+    if fe_dir.exists() and spec.theme is not None:
         try:
             apply_theme(fe_dir, spec.theme)
         except Exception as exc:
@@ -147,15 +150,43 @@ async def run_build_pipeline(ctx: BuildContext) -> dict[str, Any]:
             )
             sidecar_url = builder._sidecar_base_by_session.get(session_id)
             prompt = builder.build_mvp_prompt(spec, ctx.target_dir, app_title=spec.app_name)
-            await builder.send_build_prompt(session_id, prompt, seed=str(ctx.solution_id))
+
+            # Active workspace monitor so progress never looks stuck at 70% while LLM writes code
+            stop_monitor = asyncio.Event()
+
+            async def _monitor_synthesis() -> None:
+                pct = 70
+                while not stop_monitor.is_set():
+                    try:
+                        await asyncio.sleep(3.5)
+                        if stop_monitor.is_set():
+                            break
+                        n_files = len(builder.list_build_files(ctx.workspace_dir))
+                        if pct < 84:
+                            pct += 1
+                        msg = f"Synthesizing full-stack code ({n_files} files generated)..."
+                        await _notify("coding", 3, pct, msg)
+                    except Exception:
+                        pass
+
+            monitor_task = asyncio.create_task(_monitor_synthesis())
+            try:
+                await builder.send_build_prompt(session_id, prompt, seed=str(ctx.solution_id))
+            finally:
+                stop_monitor.set()
+                monitor_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await monitor_task
         except Exception as exc:
-            logger.warning("Sidecar synthesis error (%s); falling back to deterministic synthesis", exc)
+            logger.warning(
+                "Sidecar synthesis error (%s); falling back to deterministic synthesis", exc
+            )
             if session_id and session_id != "auto-synthesized":
                 with contextlib.suppress(Exception):
                     await builder.abort_session(session_id, seed=str(ctx.solution_id))
 
     # ── Phase 4: Verification & Quality Gate ──
-    await _notify("verifying", 4, 85, "Verifying code integrity, type checks & acceptance tests...")
+    await _notify("verifying", 4, 86, "Verifying code integrity, type checks & acceptance tests...")
     verification: dict[str, Any] = {}
     try:
         verification = await verify_and_repair(

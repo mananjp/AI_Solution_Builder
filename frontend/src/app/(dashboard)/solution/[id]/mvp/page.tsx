@@ -362,8 +362,8 @@ export default function MvpPage() {
       {/* Hero */}
       <div className="p-6 rounded-xl bg-[#111] border border-[#1a1a1a] space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#161616] border border-[#242424] text-[var(--sutra-strong)] text-xs font-medium">
-            <Rocket className="w-3.5 h-3.5 text-[var(--sutra-strong)]" />
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#161616] border border-[#242424] text-[var(--sutra-muted-gold)] text-xs font-medium">
+            <Rocket className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
             <span>MVP Builder &amp; Architect</span>
           </div>
           {selectedTemplate ? (
@@ -387,7 +387,7 @@ export default function MvpPage() {
         <h1 className="text-xl font-semibold text-white">
           {solution?.title || 'Solution MVP Builder'}
         </h1>
-        <p className="max-w-3xl break-words text-xs leading-relaxed text-[#999] [overflow-wrap:anywhere]">
+        <p className="text-xs text-[#777] leading-relaxed max-w-3xl">
           Chat with the AI Architect to inspect technicalities, database schemas, and endpoints, or synthesize your domain-specific FastAPI backend + Next.js frontend with live customer storefront, cart, and admin kitchen display.
         </p>
       </div>
@@ -398,7 +398,7 @@ export default function MvpPage() {
           onClick={() => setActiveTab('chat')}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
             activeTab === 'chat'
-              ? 'bg-[var(--sutra-strong)] text-white shadow-md shadow-[var(--sutra-strong)]/20'
+              ? 'bg-[var(--sutra-muted-gold)] text-white shadow-md shadow-[var(--sutra-muted-gold)]/20'
               : 'bg-[#141414] text-[#888] hover:text-white border border-[#222]'
           }`}
         >
@@ -410,7 +410,7 @@ export default function MvpPage() {
           onClick={() => setActiveTab('templates')}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
             activeTab === 'templates'
-              ? 'bg-[var(--sutra-strong)] text-white shadow-md shadow-[var(--sutra-strong)]/20'
+              ? 'bg-[var(--sutra-muted-gold)] text-white shadow-md shadow-[var(--sutra-muted-gold)]/20'
               : 'bg-[#141414] text-[#888] hover:text-white border border-[#222]'
           }`}
         >
@@ -425,7 +425,7 @@ export default function MvpPage() {
           onClick={() => setActiveTab('builds')}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
             activeTab === 'builds'
-              ? 'bg-[var(--sutra-strong)] text-white shadow-md shadow-[var(--sutra-strong)]/20'
+              ? 'bg-[var(--sutra-muted-gold)] text-white shadow-md shadow-[var(--sutra-muted-gold)]/20'
               : 'bg-[#141414] text-[#888] hover:text-white border border-[#222]'
           }`}
         >
@@ -450,7 +450,7 @@ export default function MvpPage() {
           {/* Quick Prompts Bar */}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[11px] font-semibold text-[#666] flex items-center gap-1">
-              <Sparkles className="w-3 h-3 text-[var(--sutra-strong)]" /> Suggested Technical Inquiries:
+              <Sparkles className="w-3 h-3 text-[var(--sutra-muted-gold)]" /> Suggested Technical Inquiries:
             </span>
             {SUGGESTED_PROMPTS.map((prompt) => (
               <button
@@ -477,7 +477,7 @@ export default function MvpPage() {
                 />
               ))}
               {isChatStreaming && (
-                <div className="flex items-center gap-2 text-xs text-[var(--sutra-strong)] p-2 font-mono animate-pulse">
+                <div className="flex items-center gap-2 text-xs text-[var(--sutra-muted-gold)] p-2 font-mono animate-pulse">
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   <span>AI Architect is analyzing codebase technicalities...</span>
                 </div>
@@ -499,7 +499,7 @@ export default function MvpPage() {
                   onChange={(e) => setChatInput(e.target.value)}
                   placeholder="Ask the AI Architect anything about models, APIs, frontend UI, or build technicalities..."
                   disabled={isChatStreaming}
-                  className="flex-1 bg-[#0a0a0a] border border-[#252525] focus:border-[var(--sutra-strong)] rounded-lg px-3.5 py-2 text-xs text-white placeholder-[#555] focus:outline-none transition-all"
+                  className="flex-1 bg-[#0a0a0a] border border-[#252525] focus:border-[var(--sutra-muted-gold)] rounded-lg px-3.5 py-2 text-xs text-white placeholder-[#555] focus:outline-none transition-all"
                 />
                 <VoiceInputButton
                   onTranscribed={(text) => setChatInput((prev) => `${prev} ${text}`.trim())}
@@ -508,7 +508,7 @@ export default function MvpPage() {
                 <button
                   type="submit"
                   disabled={isChatStreaming || !chatInput.trim()}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-[var(--sutra-strong)] hover:bg-[var(--sutra-deep-gold)] text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-40"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-[var(--sutra-muted-gold)] hover:bg-[var(--sutra-deep-gold)] text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-40"
                 >
                   <Send className="w-3.5 h-3.5" />
                   <span>Send</span>
@@ -518,31 +518,31 @@ export default function MvpPage() {
           </div>
 
           {/* Direct Synthesis & Build Action Box */}
-          <div className="flex flex-col items-stretch justify-between gap-4 rounded-xl border border-[var(--sutra-strong)]/30 bg-gradient-to-r from-[#121217] to-[#0f1118] p-5 shadow-xl md:flex-row md:items-center">
-            <div className="min-w-0 flex-1 space-y-1">
+          <div className="p-5 rounded-xl bg-gradient-to-r from-[#121217] to-[#0f1118] border border-[var(--sutra-muted-gold)]/30 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 shadow-xl">
+            <div className="space-y-1">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Code className="w-4 h-4 text-[var(--sutra-strong)]" />
+                <Code className="w-4 h-4 text-[var(--sutra-muted-gold)]" />
                 <span>Ready to Generate This Solution?</span>
               </h3>
-              <p className="max-w-xl break-words text-xs leading-relaxed text-[#999] [overflow-wrap:anywhere]">
+              <p className="text-xs text-[#888] max-w-xl">
                 {selectedTemplate
                   ? `Build using the selected starter template (${selectedTemplate}).`
                   : 'Synthesize custom domain models, interactive storefront, cart drawer, and admin kitchen board directly from your solution blueprint.'}
               </p>
             </div>
 
-            <div className="flex shrink-0 items-center gap-3">
+            <div className="flex items-center gap-3">
               <button
                 onClick={handleStartBuild}
                 disabled={starting}
-                className="flex max-w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-xs font-bold text-white shadow-lg shadow-emerald-600/30 transition-all disabled:opacity-50"
+                className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 transition-all disabled:opacity-50"
               >
                 {starting ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <Rocket className="w-4 h-4" />
                 )}
-                <span className="text-center leading-snug">
+                <span>
                   {selectedTemplate ? 'Build Selected Template' : 'Synthesize & Build Custom Solution'}
                 </span>
               </button>
@@ -580,20 +580,20 @@ export default function MvpPage() {
                   onClick={() => setSelectedTemplate(selected ? null : tpl.slug)}
                   className={`p-4 rounded-xl border text-left transition-all ${
                     selected
-                      ? 'bg-[var(--sutra-strong)]/15 border-[var(--sutra-strong)] ring-1 ring-[var(--sutra-strong)]'
+                      ? 'bg-[var(--sutra-muted-gold)]/15 border-[var(--sutra-muted-gold)] ring-1 ring-[var(--sutra-muted-gold)]'
                       : 'bg-[#0a0a0a] border-[#1a1a1a] hover:border-[#2e2e2e]'
                   }`}
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-white">{tpl.title}</span>
-                    {selected && <Check className="w-4 h-4 text-[var(--sutra-strong)]" />}
+                    {selected && <Check className="w-4 h-4 text-[var(--sutra-muted-gold)]" />}
                   </div>
                   <p className="text-[11px] text-[#666] mt-1.5 leading-relaxed">{tpl.description}</p>
                   <div className="mt-3 flex items-center gap-2">
                     <span className="rounded bg-[#1a1a1a] px-2 py-0.5 text-[10px] text-[#aaa]">
                       {tpl.industry}
                     </span>
-                    <code className="text-[10px] text-[var(--sutra-strong)] font-mono">{tpl.app_name}</code>
+                    <code className="text-[10px] text-[var(--sutra-muted-gold)] font-mono">{tpl.app_name}</code>
                   </div>
                 </button>
               );
@@ -607,7 +607,7 @@ export default function MvpPage() {
                 value={appName}
                 onChange={(e) => setAppName(e.target.value)}
                 placeholder={solution?.title || 'my-app'}
-                className="w-full px-3 py-2 rounded-lg bg-[#0a0a0a] border border-[#2e2e2e] text-white text-xs font-mono focus:outline-none focus:border-[var(--sutra-strong)] transition-colors"
+                className="w-full px-3 py-2 rounded-lg bg-[#0a0a0a] border border-[#2e2e2e] text-white text-xs font-mono focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors"
               />
             </div>
             <label className="flex items-center gap-2 text-xs text-[#a1a1a1] pb-2.5 cursor-pointer">
@@ -615,14 +615,14 @@ export default function MvpPage() {
                 type="checkbox"
                 checked={forceBuild}
                 onChange={(e) => setForceBuild(e.target.checked)}
-                className="accent-[var(--sutra-strong)] rounded"
+                className="accent-[var(--sutra-muted-gold)] rounded"
               />
               Force fresh workspace
             </label>
             <button
               onClick={handleStartBuild}
               disabled={starting}
-              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-[var(--sutra-strong)] hover:bg-[var(--sutra-deep-gold)] text-white text-xs font-medium transition-colors disabled:opacity-40"
+              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-[var(--sutra-muted-gold)] hover:bg-[var(--sutra-deep-gold)] text-white text-xs font-medium transition-colors disabled:opacity-40"
             >
               {starting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
               <span>{selectedTemplate ? 'Start Template Build' : 'Start Custom Build'}</span>
@@ -656,7 +656,7 @@ export default function MvpPage() {
               <p className="text-xs text-[#777]">No builds recorded yet.</p>
               <button
                 onClick={() => setActiveTab('chat')}
-                className="px-4 py-2 bg-[var(--sutra-strong)] hover:bg-[var(--sutra-deep-gold)] text-white text-xs font-semibold rounded-lg transition-colors"
+                className="px-4 py-2 bg-[var(--sutra-muted-gold)] hover:bg-[var(--sutra-deep-gold)] text-white text-xs font-semibold rounded-lg transition-colors"
               >
                 Go to AI Architect Chat to Build
               </button>

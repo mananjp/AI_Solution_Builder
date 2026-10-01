@@ -122,19 +122,19 @@ export default function LegacyModernizerPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--bg-1)] text-[var(--sutra-ink)] px-4 py-8 lg:px-12 max-w-7xl mx-auto">
+    <div className="min-h-screen bg-[var(--bg-1)] text-[var(--sutra-charcoal)] px-4 py-8 lg:px-12 max-w-7xl mx-auto">
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="mb-8 border-b border-[var(--border)] pb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-2">
-            <span className="px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider bg-[var(--sutra-gold)]/10 text-[var(--sutra-strong)] rounded-sm border border-[var(--sutra-gold)]/20">
+            <span className="px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider bg-[var(--sutra-gold)]/10 text-[var(--sutra-muted-gold)] rounded-sm border border-[var(--sutra-gold)]/20">
               Legacy Repo Engine
             </span>
             <span className="flex items-center gap-1 px-2.5 py-0.5 text-[11px] font-semibold bg-emerald-50 text-emerald-700 rounded-sm border border-emerald-200">
               <ShieldCheck className="w-3.5 h-3.5" /> Isolated Sandbox & Zero Remote Write
             </span>
           </div>
-          <h1 className="text-2xl lg:text-3xl font-bold tracking-tight text-[var(--sutra-ink)]">
+          <h1 className="text-2xl lg:text-3xl font-bold tracking-tight text-[var(--sutra-charcoal)]">
             Legacy Repository Understanding & Modernizer
           </h1>
           <p className="text-sm text-[var(--text-2)] mt-1 max-w-2xl">
@@ -157,7 +157,7 @@ export default function LegacyModernizerPage() {
       <div className="bg-[var(--bg-2)] border border-[var(--border)] rounded-lg p-6 mb-8 shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-base font-bold flex items-center gap-2">
-            <FolderArchive className="w-5 h-5 text-[var(--sutra-strong)]" />
+            <FolderArchive className="w-5 h-5 text-[var(--sutra-muted-gold)]" />
             1. Select Target Legacy Repository
           </h2>
           <span className="text-xs text-[var(--text-3)] font-mono">Scope: Isolated Sandbox</span>
@@ -177,8 +177,8 @@ export default function LegacyModernizerPage() {
             onClick={() => setActiveTab('sample')}
             className={`px-4 py-2 text-xs font-semibold uppercase tracking-wider border-b-2 transition-colors ${
               activeTab === 'sample'
-                ? 'border-[var(--sutra-strong)] text-[var(--sutra-ink)]'
-                : 'border-transparent text-[var(--text-3)] hover:text-[var(--sutra-ink)]'
+                ? 'border-[var(--sutra-muted-gold)] text-[var(--sutra-charcoal)]'
+                : 'border-transparent text-[var(--text-3)] hover:text-[var(--sutra-charcoal)]'
             }`}
           >
             Demo Legacy Project
@@ -187,8 +187,8 @@ export default function LegacyModernizerPage() {
             onClick={() => setActiveTab('upload')}
             className={`px-4 py-2 text-xs font-semibold uppercase tracking-wider border-b-2 transition-colors ${
               activeTab === 'upload'
-                ? 'border-[var(--sutra-strong)] text-[var(--sutra-ink)]'
-                : 'border-transparent text-[var(--text-3)] hover:text-[var(--sutra-ink)]'
+                ? 'border-[var(--sutra-muted-gold)] text-[var(--sutra-charcoal)]'
+                : 'border-transparent text-[var(--text-3)] hover:text-[var(--sutra-charcoal)]'
             }`}
           >
             Upload ZIP Archive
@@ -197,8 +197,8 @@ export default function LegacyModernizerPage() {
             onClick={() => setActiveTab('github')}
             className={`px-4 py-2 text-xs font-semibold uppercase tracking-wider border-b-2 transition-colors ${
               activeTab === 'github'
-                ? 'border-[var(--sutra-strong)] text-[var(--sutra-ink)]'
-                : 'border-transparent text-[var(--text-3)] hover:text-[var(--sutra-ink)]'
+                ? 'border-[var(--sutra-muted-gold)] text-[var(--sutra-charcoal)]'
+                : 'border-transparent text-[var(--text-3)] hover:text-[var(--sutra-charcoal)]'
             }`}
           >
             Public GitHub URL
@@ -223,7 +223,7 @@ export default function LegacyModernizerPage() {
                 value={localPath}
                 onChange={(e) => setLocalPath(e.target.value)}
                 placeholder="Leave blank to use demo fixture, or provide custom directory path"
-                className="w-full px-3 py-2 text-xs bg-[var(--bg-1)] border border-[var(--border)] rounded focus:outline-none focus:border-[var(--sutra-strong)] font-mono"
+                className="w-full px-3 py-2 text-xs bg-[var(--bg-1)] border border-[var(--border)] rounded focus:outline-none focus:border-[var(--sutra-muted-gold)] font-mono"
               />
             </div>
           </div>
@@ -240,7 +240,7 @@ export default function LegacyModernizerPage() {
             />
             <label htmlFor="legacy-zip-upload" className="cursor-pointer flex flex-col items-center">
               <FolderArchive className="w-8 h-8 text-[var(--text-3)] mb-2" />
-              <span className="text-sm font-semibold text-[var(--sutra-ink)]">
+              <span className="text-sm font-semibold text-[var(--sutra-charcoal)]">
                 {uploadedFile ? uploadedFile.name : 'Click to select repository ZIP archive'}
               </span>
               <span className="text-xs text-[var(--text-3)] mt-1">Supports full projects up to 50MB</span>
@@ -259,7 +259,7 @@ export default function LegacyModernizerPage() {
                 value={githubUrl}
                 onChange={(e) => setGithubUrl(e.target.value)}
                 placeholder="https://github.com/owner/repository"
-                className="w-full px-3 py-2 text-sm bg-[var(--bg-1)] border border-[var(--border)] rounded focus:outline-none focus:border-[var(--sutra-strong)] font-mono"
+                className="w-full px-3 py-2 text-sm bg-[var(--bg-1)] border border-[var(--border)] rounded focus:outline-none focus:border-[var(--sutra-muted-gold)] font-mono"
               />
             </div>
             <div>
@@ -276,7 +276,7 @@ export default function LegacyModernizerPage() {
                 value={githubToken}
                 onChange={(e) => setGithubToken(e.target.value)}
                 placeholder="ghp_... (leave empty to use your saved Settings token)"
-                className="w-full px-3 py-2 text-sm bg-[var(--bg-1)] border border-[var(--border)] rounded focus:outline-none focus:border-[var(--sutra-strong)] font-mono"
+                className="w-full px-3 py-2 text-sm bg-[var(--bg-1)] border border-[var(--border)] rounded focus:outline-none focus:border-[var(--sutra-muted-gold)] font-mono"
               />
               <p className="text-[11px] text-[var(--text-3)] mt-1">
                 Ensures 5,000 requests/hour rate limit and access to private repositories.
@@ -289,7 +289,7 @@ export default function LegacyModernizerPage() {
           <button
             onClick={handleAnalyze}
             disabled={analyzing}
-            className="px-5 py-2.5 bg-[var(--sutra-ink)] text-white text-xs font-bold uppercase tracking-wider rounded hover:bg-black transition-all flex items-center gap-2 disabled:opacity-50"
+            className="px-5 py-2.5 bg-[var(--sutra-charcoal)] text-white text-xs font-bold uppercase tracking-wider rounded hover:bg-black transition-all flex items-center gap-2 disabled:opacity-50"
           >
             {analyzing ? (
               <>
@@ -298,7 +298,7 @@ export default function LegacyModernizerPage() {
               </>
             ) : (
               <>
-                <Sparkles className="w-4 h-4 text-[var(--sutra-strong)]" />
+                <Sparkles className="w-4 h-4 text-[var(--sutra-muted-gold)]" />
                 Inspect & Understand Repository
               </>
             )}
@@ -312,7 +312,7 @@ export default function LegacyModernizerPage() {
           <div className="bg-[var(--bg-2)] border border-[var(--border)] rounded-lg p-6 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-base font-bold flex items-center gap-2">
-                <Cpu className="w-5 h-5 text-[var(--sutra-strong)]" />
+                <Cpu className="w-5 h-5 text-[var(--sutra-muted-gold)]" />
                 2. Architectural Intelligence & Discovery Report
               </h2>
               <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-mono">
@@ -422,7 +422,7 @@ export default function LegacyModernizerPage() {
                 <div className="space-y-2 max-h-36 overflow-y-auto text-xs">
                   {analysis.technical_debt.outdated_dependencies.map((d, i) => (
                     <div key={i} className="border-b border-[var(--border)] pb-1.5 last:border-0">
-                      <span className="font-bold text-[var(--sutra-ink)]">{d.package}</span>
+                      <span className="font-bold text-[var(--sutra-charcoal)]">{d.package}</span>
                       <span className="text-[10px] text-[var(--text-3)] ml-2 font-mono">({d.current_version})</span>
                       <p className="text-[11px] text-[var(--text-2)]">{d.reason}</p>
                     </div>
@@ -444,7 +444,7 @@ export default function LegacyModernizerPage() {
               <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3">
                 {analysis.modernization_plan.map((p) => (
                   <div key={p.phase} className="p-3 bg-[var(--bg-1)] border border-[var(--border)] rounded text-xs">
-                    <span className="text-[10px] font-bold text-[var(--sutra-strong)] uppercase block mb-1">
+                    <span className="text-[10px] font-bold text-[var(--sutra-muted-gold)] uppercase block mb-1">
                       Phase {p.phase}
                     </span>
                     <strong className="block text-xs font-semibold mb-1">{p.title}</strong>
@@ -458,7 +458,7 @@ export default function LegacyModernizerPage() {
           {/* ── STEP 3: Feature Extension & LLM Credentials ──────────────── */}
           <div className="bg-[var(--bg-2)] border border-[var(--border)] rounded-lg p-6 shadow-sm">
             <h2 className="text-base font-bold flex items-center gap-2 mb-4">
-              <Bot className="w-5 h-5 text-[var(--sutra-strong)]" />
+              <Bot className="w-5 h-5 text-[var(--sutra-muted-gold)]" />
               3. Configure Feature Extension: AI Chatbot Assistant
             </h2>
 
@@ -469,7 +469,7 @@ export default function LegacyModernizerPage() {
                 </span>
                 <div className="space-y-2 text-xs">
                   <label className="flex items-center gap-2.5 p-2.5 bg-[var(--bg-1)] border border-[var(--border)] rounded cursor-pointer">
-                    <input type="checkbox" defaultChecked disabled className="rounded text-[var(--sutra-ink)]" />
+                    <input type="checkbox" defaultChecked disabled className="rounded text-[var(--sutra-charcoal)]" />
                     <div>
                       <strong className="block text-xs">AI Chatbot Assistant</strong>
                       <span className="text-[11px] text-[var(--text-2)]">
@@ -499,7 +499,7 @@ export default function LegacyModernizerPage() {
                       value={apiKey}
                       onChange={(e) => setApiKey(e.target.value)}
                       placeholder="gsk_... or sk-..."
-                      className="flex-1 px-3 py-2 text-xs font-mono bg-[var(--bg-1)] border border-[var(--border)] rounded focus:outline-none focus:border-[var(--sutra-strong)]"
+                      className="flex-1 px-3 py-2 text-xs font-mono bg-[var(--bg-1)] border border-[var(--border)] rounded focus:outline-none focus:border-[var(--sutra-muted-gold)]"
                     />
                     <button
                       onClick={handleValidateKey}
@@ -537,7 +537,7 @@ export default function LegacyModernizerPage() {
               <button
                 onClick={handleModernize}
                 disabled={modernizing}
-                className="px-6 py-3 bg-[var(--sutra-ink)] text-white text-xs font-bold uppercase tracking-wider rounded hover:bg-black transition-all flex items-center gap-2 shadow-sm disabled:opacity-50"
+                className="px-6 py-3 bg-[var(--sutra-charcoal)] text-white text-xs font-bold uppercase tracking-wider rounded hover:bg-black transition-all flex items-center gap-2 shadow-sm disabled:opacity-50"
               >
                 {modernizing ? (
                   <>
@@ -546,7 +546,7 @@ export default function LegacyModernizerPage() {
                   </>
                 ) : (
                   <>
-                    <Play className="w-4 h-4 text-[var(--sutra-strong)]" />
+                    <Play className="w-4 h-4 text-[var(--sutra-muted-gold)]" />
                     Run Controlled Modernization & Add Chatbot
                   </>
                 )}
@@ -606,7 +606,7 @@ export default function LegacyModernizerPage() {
                         <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                       )}
                       <div className="flex-1">
-                        <span className="font-semibold text-[var(--sutra-ink)] block">{chk.name}</span>
+                        <span className="font-semibold text-[var(--sutra-charcoal)] block">{chk.name}</span>
                         <span className="text-[11px] text-[var(--text-2)] leading-relaxed block mt-0.5">
                           {chk.details}
                         </span>
@@ -649,7 +649,7 @@ export default function LegacyModernizerPage() {
                 <div className="flex items-start gap-2.5">
                   <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-semibold text-[var(--sutra-ink)] block">Isolated Workspace Sandbox</span>
+                    <span className="font-semibold text-[var(--sutra-charcoal)] block">Isolated Workspace Sandbox</span>
                     <span className="text-[11px] text-[var(--text-2)] block mt-0.5">
                       Target repository copied into an isolated scratch container. Zero destructive writes to live external workspaces.
                     </span>
@@ -659,7 +659,7 @@ export default function LegacyModernizerPage() {
                 <div className="flex items-start gap-2.5">
                   <GitBranch className="w-4 h-4 text-[var(--text-3)] shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-semibold text-[var(--sutra-ink)] block">Git Remote Push Protection</span>
+                    <span className="font-semibold text-[var(--sutra-charcoal)] block">Git Remote Push Protection</span>
                     <span className="text-[11px] text-[var(--text-2)] block mt-0.5">
                       Push: {modernizeReport.git?.push || 'None (No remote write)'} · Status:{' '}
                       {modernizeReport.git?.status || 'Local changes only'}
@@ -670,7 +670,7 @@ export default function LegacyModernizerPage() {
                 <div className="flex items-start gap-2.5">
                   <Layers className="w-4 h-4 text-[var(--text-3)] shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-semibold text-[var(--sutra-ink)] block">Parallel Task Orchestration</span>
+                    <span className="font-semibold text-[var(--sutra-charcoal)] block">Parallel Task Orchestration</span>
                     <span className="text-[11px] text-[var(--text-2)] block mt-0.5">
                       {modernizeReport.schedule_summary?.completed || 0} of{' '}
                       {modernizeReport.schedule_summary?.total_tasks || 0} parallel workstreams completed with zero file lock conflicts.
@@ -681,7 +681,7 @@ export default function LegacyModernizerPage() {
                 <div className="flex items-start gap-2.5">
                   <Lock className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-semibold text-[var(--sutra-ink)] block">Secrets & Credentials Isolation</span>
+                    <span className="font-semibold text-[var(--sutra-charcoal)] block">Secrets & Credentials Isolation</span>
                     <span className="text-[11px] text-[var(--text-2)] block mt-0.5">
                       API credentials isolated into .env with .gitignore guards verified active. No plaintext keys leaked into git tree.
                     </span>
@@ -717,8 +717,8 @@ export default function LegacyModernizerPage() {
 
             {/* 2. Modernizations Executed */}
             <div className="p-4 bg-[var(--bg-1)] border border-[var(--border)] rounded text-xs space-y-2.5">
-              <div className="flex items-center gap-2 text-[var(--sutra-strong)] font-bold">
-                <Sparkles className="w-4 h-4 text-[var(--sutra-strong)]" />
+              <div className="flex items-center gap-2 text-[var(--sutra-muted-gold)] font-bold">
+                <Sparkles className="w-4 h-4 text-[var(--sutra-muted-gold)]" />
                 <span className="uppercase tracking-wider text-[11px]">
                   Modernization Tasks ({modernizeReport.modernized?.length || 0})
                 </span>
@@ -727,7 +727,7 @@ export default function LegacyModernizerPage() {
                 <div className="space-y-2">
                   {modernizeReport.modernized.map((mod, idx) => (
                     <div key={idx} className="flex items-start gap-2 text-[var(--text-2)]">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-[var(--sutra-strong)] shrink-0 mt-0.5" />
+                      <CheckCircle2 className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)] shrink-0 mt-0.5" />
                       <span className="leading-snug">{mod}</span>
                     </div>
                   ))}
@@ -764,7 +764,7 @@ export default function LegacyModernizerPage() {
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-2)] flex items-center gap-1.5">
-                <FileCode className="w-3.5 h-3.5 text-[var(--sutra-strong)]" />
+                <FileCode className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
                 Modified & Injected Files ({modernizeReport.modified_files.length})
               </span>
               <span className="text-[11px] text-[var(--text-3)] font-mono">
@@ -778,10 +778,10 @@ export default function LegacyModernizerPage() {
                   className="flex items-center justify-between text-[var(--text-2)] py-0.5 px-1.5 hover:bg-[var(--bg-2)] rounded transition-colors"
                 >
                   <div className="flex items-center gap-2 truncate">
-                    <FileCode className="w-3.5 h-3.5 text-[var(--sutra-strong)] shrink-0" />
+                    <FileCode className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)] shrink-0" />
                     <span className="truncate">{f}</span>
                   </div>
-                  <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 bg-[var(--sutra-gold)]/10 text-[var(--sutra-strong)] rounded shrink-0 ml-2 font-sans font-semibold">
+                  <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 bg-[var(--sutra-gold)]/10 text-[var(--sutra-muted-gold)] rounded shrink-0 ml-2 font-sans font-semibold">
                     Injected
                   </span>
                 </div>

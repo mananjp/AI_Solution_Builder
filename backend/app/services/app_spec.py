@@ -243,9 +243,7 @@ STAGE_ORDER: dict[str, int] = {"showcase": 0, "transact": 1, "operate": 2}
 
 # Kinds whose entire value proposition is visual. Used by the quality gate to
 # decide whether "no images anywhere" is a finding or a non-issue.
-VISUAL_APP_KINDS: frozenset[str] = frozenset(
-    {"landing", "catalog", "portfolio", "marketplace"}
-)
+VISUAL_APP_KINDS: frozenset[str] = frozenset({"landing", "catalog", "portfolio", "marketplace"})
 
 
 class ColourModel(BaseModel):
@@ -258,7 +256,7 @@ class ColourModel(BaseModel):
 
     h: float = Field(ge=0, le=360, description="Hue 0-360")
     s: float = Field(ge=0, le=100, description="Saturation percent")
-    l: float = Field(ge=0, le=100, description="Lightness percent")
+    l: float = Field(ge=0, le=100, description="Lightness percent")  # noqa: E741
 
     @model_validator(mode="after")
     def _normalise(self) -> ColourModel:
@@ -305,9 +303,7 @@ class ColourModel(BaseModel):
         for raw in self._rgb255():
             channel = raw / 255
             channels.append(
-                channel / 12.92
-                if channel <= 0.03928
-                else ((channel + 0.055) / 1.055) ** 2.4
+                channel / 12.92 if channel <= 0.03928 else ((channel + 0.055) / 1.055) ** 2.4
             )
         r, g, b = channels
         return 0.2126 * r + 0.7152 * g + 0.0722 * b
@@ -379,6 +375,10 @@ class ThemeSpec(BaseModel):
         return out
 
 
+def _default_views() -> list[Literal["kpi", "trend", "breakdown"]]:
+    return ["kpi"]
+
+
 class AnalyticsModule(BaseModel):
     """Opt-in business analytics.
 
@@ -394,7 +394,7 @@ class AnalyticsModule(BaseModel):
     primary_metric_field: str | None = Field(
         default=None, description="Numeric field to sum; must be int/float on `entity`"
     )
-    views: list[Literal["kpi", "trend", "breakdown"]] = Field(default_factory=lambda: ["kpi"])
+    views: list[Literal["kpi", "trend", "breakdown"]] = Field(default_factory=_default_views)
     rationale: str = Field(default="", description="Why analytics is (not) warranted here")
 
 
@@ -448,7 +448,10 @@ class AppSpec(BaseModel):
 
         # A landing page with an operating console is a contradiction: there is
         # no admin surface to build against a one-page app.
-        if self.app_kind == "landing" and STAGE_ORDER[self.lifecycle_stage] > STAGE_ORDER["transact"]:
+        if (
+            self.app_kind == "landing"
+            and STAGE_ORDER[self.lifecycle_stage] > STAGE_ORDER["transact"]
+        ):
             errors.append(
                 f"app_kind 'landing' cannot use lifecycle_stage '{self.lifecycle_stage}' "
                 "(max 'transact')"
@@ -471,9 +474,7 @@ class AppSpec(BaseModel):
                 )
 
         if self.analytics.enabled and self.analytics.entity and self.analytics.entity not in names:
-            errors.append(
-                f"analytics.entity '{self.analytics.entity}' is not a spec entity"
-            )
+            errors.append(f"analytics.entity '{self.analytics.entity}' is not a spec entity")
 
         if errors:
             raise ValueError("; ".join(errors))
@@ -790,9 +791,9 @@ def infer_growth_curve(text: str) -> tuple[AppKind, LifecycleStage]:
             best, kind = hits, candidate
 
     stage: LifecycleStage = "showcase"
-    for candidate, keywords in _STAGE_HINTS:
-        if any(k in lowered for k in keywords):
-            stage = candidate
+    for stage_cand, stage_kws in _STAGE_HINTS:
+        if any(k in lowered for k in stage_kws):
+            stage = stage_cand
             break
 
     # The landing cap is a validation rule, not a preference.
@@ -819,20 +820,17 @@ def resolve_analytics_module(
         return AnalyticsModule(
             enabled=False,
             rationale=(module.rationale + "; " if module.rationale else "")
-            + "auto-disabled: " + "; ".join(reasons),
+            + "auto-disabled: "
+            + "; ".join(reasons),
         )
 
     entity = next((e for e in spec_entities if e.name == module.entity), None)
     if entity is None:
         reasons.append(f"analytics.entity '{module.entity}' is not a spec entity")
     elif not module.primary_metric_field:
-        reasons.append(
-            f"analytics.enabled on '{entity.name}' without naming a numeric metric"
-        )
+        reasons.append(f"analytics.enabled on '{entity.name}' without naming a numeric metric")
     else:
-        field = next(
-            (f for f in entity.fields if f.name == module.primary_metric_field), None
-        )
+        field = next((f for f in entity.fields if f.name == module.primary_metric_field), None)
         if field is None:
             reasons.append(
                 f"analytics.primary_metric_field '{module.primary_metric_field}' "
@@ -840,8 +838,7 @@ def resolve_analytics_module(
             )
         elif field.type not in ("int", "float"):
             reasons.append(
-                f"analytics.primary_metric_field '{field.name}' is '{field.type}', "
-                "not a number"
+                f"analytics.primary_metric_field '{field.name}' is '{field.type}', not a number"
             )
 
     if reasons:
@@ -849,7 +846,8 @@ def resolve_analytics_module(
         return AnalyticsModule(
             enabled=False,
             rationale=(module.rationale + "; " if module.rationale else "")
-            + "auto-disabled: " + "; ".join(reasons),
+            + "auto-disabled: "
+            + "; ".join(reasons),
         )
     return module
 
@@ -1052,9 +1050,7 @@ def normalize_spec(spec: AppSpec) -> AppSpec:
     if theme is None:
         from app.services.theme_engine import theme_for_spec
 
-        text = " ".join(
-            [spec.app_name, spec.one_liner, spec.core_value, *spec.assumptions]
-        )
+        text = " ".join([spec.app_name, spec.one_liner, spec.core_value, *spec.assumptions])
         theme = theme_for_spec(text, app_name=spec.app_name)
 
     if (
@@ -1097,7 +1093,7 @@ async def generate_app_spec(
 
     # Use compact 2500 max_tokens to stay well within Groq TPM limits
     llm = get_llm(temperature=0.2, max_tokens=2500)
-    messages: list[Any] = [
+    base_messages = [
         SystemMessage(content=SPEC_SYSTEM + "\nJSON schema:\n" + _spec_schema_hint()),
         HumanMessage(
             content=_context_from_state(
@@ -1109,9 +1105,10 @@ async def generate_app_spec(
         ),
     ]
     last_err = ""
+    current_messages = list(base_messages)
     for attempt in range(1, max_attempts + 1):
         try:
-            resp = await asyncio.wait_for(llm.ainvoke(messages), timeout=12.0)
+            resp = await asyncio.wait_for(llm.ainvoke(current_messages), timeout=12.0)
         except Exception as exc:
             logger.warning(
                 "generate_app_spec LLM error on attempt %d (%s); using smart fallback AppSpec",
@@ -1131,12 +1128,14 @@ async def generate_app_spec(
             logger.info("AppSpec valid on attempt %d: %s", attempt, spec.app_name)
             return spec
         except (ValidationError, ValueError, json.JSONDecodeError) as err:
-            last_err = str(err)[:2000]
+            last_err = str(err)[:1000]
             logger.warning("AppSpec attempt %d invalid: %s", attempt, last_err[:300])
-            messages += [
-                AIMessage(content=raw[:4000]),
+            current_messages = [
+                base_messages[0],
+                base_messages[1],
+                AIMessage(content=raw[:800]),
                 HumanMessage(
-                    content=f"Invalid spec. Fix ALL errors and return full JSON only:\n{last_err}"
+                    content=f"Invalid spec. Fix all errors and return full valid JSON only:\n{last_err[:400]}"
                 ),
             ]
 

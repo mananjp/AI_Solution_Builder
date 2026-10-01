@@ -1,11 +1,29 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { artifactApi } from '@/lib/api';
-import { errorMessage } from '@/lib/errors';
-import { Dialog } from '@/components/lab/dialog';
-import type { ArtifactExplainability } from '@/types';
-import { Button } from "@/components/ui/button";
+import { getAuthToken } from '@/lib/api';
+
+interface Decision {
+  id: string;
+  topic: string;
+  choice: string;
+  rationale: string;
+  alternatives: string[];
+  assumptions: string[];
+  evidence: Array<{ source: string; excerpt: string }>;
+  confidence: number;
+  impact: string;
+}
+
+interface ExplainabilityData {
+  artifact_id: string;
+  artifact_type: string;
+  title: string;
+  decisions: Decision[];
+  assumptions: string[];
+  evidence: Array<{ source: string; excerpt: string }>;
+  confidence: number;
+}
 
 interface ExplainabilityDrawerProps {
   artifactId: string;
@@ -20,81 +38,57 @@ export function ExplainabilityDrawer({
   onClose,
   onAssumptionEdit,
 }: ExplainabilityDrawerProps) {
-  const [request, setRequest] = useState<{
-    artifactId: string;
-    data: ArtifactExplainability | null;
-    error: string | null;
-    loading: boolean;
-  } | null>(null);
+  const [data, setData] = useState<ExplainabilityData | null>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!isOpen || !artifactId) return;
-
-    // Aborted on close/unmount so a slow response cannot write to state we no
-    // longer render. The previous version also collapsed every non-OK response
-    // to `null`, which made a 401 or a 500 indistinguishable from "no data".
-    const controller = new AbortController();
-
-    artifactApi
-      .explain(artifactId, controller.signal)
-      .then((result) => {
-        if (controller.signal.aborted) return;
-        setRequest({ artifactId, data: result, error: null, loading: false });
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoading(true);
+    const token = getAuthToken();
+    fetch(`/api/v1/artifacts/${artifactId}/explain`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        setData(json);
+        setLoading(false);
       })
-      .catch((err: unknown) => {
-        if (controller.signal.aborted) return;
-        setRequest({ artifactId, data: null, error: errorMessage(err), loading: false });
-      });
-
-    return () => controller.abort();
+      .catch(() => setLoading(false));
   }, [artifactId, isOpen]);
-
-  const currentRequest = request?.artifactId === artifactId ? request : null;
-  const data = currentRequest?.data ?? null;
-  const error = currentRequest?.error ?? null;
-  const loading = isOpen && (!currentRequest || currentRequest.loading);
 
   if (!isOpen) return null;
 
   return (
-    /* Side-anchored rather than centred: this is a drawer the user pulls over
-       the page they are reading, so it keeps the source visible. The lab dialog
-       supplies Escape handling, a focus trap and `aria-modal`, none of which
-       the previous fixed div had. */
-    <Dialog
-      open={isOpen}
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-      className="sm:max-w-md"
-      title={
-        <span className="flex items-center gap-2">
-          <span className="text-[var(--sutra-strong)]">💡</span> Architectural Why?
-        </span>
-      }
-      description={
-        data ? `${Math.round(data.confidence * 100)}% confidence in this artifact's reasoning` : undefined
-      }
-    >
-      <div className="max-h-[60vh] overflow-y-auto pr-1">
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in">
+      <div className="relative w-full max-w-md h-full bg-[var(--bg)] border-l border-[var(--border)] p-6 flex flex-col overflow-y-auto text-[var(--sutra-charcoal)] shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between pb-4 border-b border-[var(--border)]">
+          <div className="flex items-center gap-2">
+            <span className="font-serif font-bold text-base text-[var(--sutra-charcoal)] flex items-center gap-1.5">
+              <span className="text-[var(--sutra-muted-gold)]">💡</span> Architectural Why?
+            </span>
+            {data && (
+              <span className="px-2 py-0.5 text-xs font-mono rounded-sm bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                {Math.round(data.confidence * 100)}% Confidence
+              </span>
+            )}
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 rounded-sm text-[var(--text-3)] hover:text-[var(--text)] hover:bg-[var(--bg-3)] transition-colors"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Content */}
         {loading ? (
           <div className="flex items-center justify-center py-16 text-[var(--text-3)] text-xs font-mono">
             Tracing decisions and evidence citations...
           </div>
-        ) : error ? (
-          <div
-            role="alert"
-            className="rounded-sm border border-[var(--red-edge)] bg-[var(--red-wash)] p-4 text-xs text-[var(--red)]"
-          >
-            <p className="font-semibold uppercase tracking-wider">Could not load explainability</p>
-            <p className="mt-1 font-mono font-light">{error}</p>
-          </div>
-        ) : data && data.decisions.length === 0 ? (
-          <div className="py-12 text-center text-xs text-[var(--text-3)] font-mono">
-            No reasoning was recorded for this artifact.
-          </div>
         ) : data ? (
-          <div className="space-y-6">
+          <div className="space-y-6 pt-4">
             {/* Decisions */}
             <div>
               <h4 className="text-xs uppercase tracking-wider text-[var(--text-2)] font-semibold mb-3">
@@ -107,8 +101,8 @@ export function ExplainabilityDrawer({
                     className="p-3.5 rounded-sm bg-[var(--bg-2)] border border-[var(--border)] text-xs space-y-2 shadow-2xs"
                   >
                     <div className="flex justify-between items-start gap-2">
-                      <span className="font-medium text-[var(--sutra-ink)]">{dec.topic}</span>
-                      <span className="text-xs px-2 py-0.5 rounded-sm bg-[var(--sutra-strong)]/15 text-[var(--sutra-strong)] border border-[var(--sutra-strong)]/30 font-semibold font-mono whitespace-nowrap">
+                      <span className="font-medium text-[var(--sutra-charcoal)]">{dec.topic}</span>
+                      <span className="text-xs px-2 py-0.5 rounded-sm bg-[var(--sutra-muted-gold)]/15 text-[var(--sutra-deep-gold)] border border-[var(--sutra-muted-gold)]/30 font-semibold font-mono whitespace-nowrap">
                         {dec.choice}
                       </span>
                     </div>
@@ -135,16 +129,16 @@ export function ExplainabilityDrawer({
                   {data.assumptions.map((asm, idx) => (
                     <li
                       key={idx}
-                      className="p-2.5 rounded-sm bg-[var(--bg-2)] border border-[var(--border)] text-xs text-[var(--sutra-ink)] flex justify-between items-center"
+                      className="p-2.5 rounded-sm bg-[var(--bg-2)] border border-[var(--border)] text-xs text-[var(--sutra-charcoal)] flex justify-between items-center"
                     >
                       <span className="font-light">{asm}</span>
                       {onAssumptionEdit && (
-                        <Button variant="ghost" size="default"
+                        <button
                           onClick={() => onAssumptionEdit(asm)}
-                          className="text-[11px] text-[var(--sutra-strong)] hover:underline ml-2 font-medium"
+                          className="text-[11px] text-[var(--sutra-muted-gold)] hover:underline ml-2 font-medium"
                         >
                           Edit
-                        </Button>
+                        </button>
                       )}
                     </li>
                   ))}
@@ -164,7 +158,7 @@ export function ExplainabilityDrawer({
                       key={idx}
                       className="p-2.5 rounded-sm bg-[var(--bg-2)] border border-[var(--border)] text-xs"
                     >
-                      <span className="font-mono text-[var(--green)] text-[11px] font-semibold">[{ev.source}]</span>
+                      <span className="font-mono text-emerald-700 text-[11px] font-semibold">[{ev.source}]</span>
                       <p className="text-[var(--text-2)] italic mt-0.5 font-light">&ldquo;{ev.excerpt}&rdquo;</p>
                     </div>
                   ))}
@@ -178,6 +172,6 @@ export function ExplainabilityDrawer({
           </div>
         )}
       </div>
-    </Dialog>
+    </div>
   );
 }

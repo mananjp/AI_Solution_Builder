@@ -10,6 +10,8 @@ import {
   Smartphone, 
   Play, 
   Code2,
+  ChevronRight,
+  ChevronDown,
   RefreshCw,
   Copy,
   CheckCircle2,
@@ -26,11 +28,6 @@ import {
 import { mvpApi } from '@/lib/api';
 import { MVPBuild } from '@/types';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { cn } from '@/lib/cn';
-import { CodeViewer } from '@/components/CodeViewer';
-import { TreeView, type TreeNode } from '@/components/lab/tree-view';
 
 type ViewMode = 'code' | 'preview' | 'split';
 type DeviceSize = 'desktop' | 'mobile';
@@ -50,60 +47,12 @@ const QUICK_SUGGESTIONS = [
   '🔍 Add Search and Filter to catalog',
 ];
 
-function createFileTree(files: { path: string; is_dir?: boolean }[]): TreeNode[] {
-  const roots: TreeNode[] = [];
-  const index = new Map<string, TreeNode>();
-
-  for (const file of files) {
-    const parts = file.path.split('/').filter(Boolean);
-    if (parts.length === 0) continue;
-
-    let siblings = roots;
-    let parentPath = '';
-
-    parts.forEach((part, position) => {
-      const path = parentPath ? `${parentPath}/${part}` : part;
-      const isDirectory = position < parts.length - 1 || Boolean(file.is_dir);
-      let node = index.get(path);
-
-      if (!node) {
-        node = {
-          name: part,
-          kind: isDirectory ? 'folder' : 'file',
-          path: isDirectory ? undefined : path,
-          ...(isDirectory ? { children: [] } : {}),
-        };
-        index.set(path, node);
-        siblings.push(node);
-      } else if (isDirectory) {
-        node.kind = 'folder';
-        node.path = undefined;
-        node.children ??= [];
-      }
-
-      if (isDirectory) siblings = node.children ?? (node.children = []);
-      parentPath = path;
-    });
-  }
-
-  const sort = (nodes: TreeNode[]) => {
-    nodes.sort((a, b) => {
-      const aFolder = a.kind === 'folder' ? 0 : 1;
-      const bFolder = b.kind === 'folder' ? 0 : 1;
-      return aFolder - bFolder || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
-    });
-    nodes.forEach((node) => node.children && sort(node.children));
-  };
-  sort(roots);
-  return roots;
-}
-
 function SandboxContent() {
   const searchParams = useSearchParams();
   const buildId = searchParams.get('buildId');
   
   const [build, setBuild] = useState<MVPBuild | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
   // File state
@@ -116,9 +65,15 @@ function SandboxContent() {
   const [viewMode, setViewMode] = useState<ViewMode>('split');
   const [deviceSize, setDeviceSize] = useState<DeviceSize>('desktop');
   const [isCopied, setIsCopied] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(true);
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({
+    'src': true,
+    'root': true,
+    'frontend/src/app': true,
+    'frontend/src': true,
+    'frontend': true,
+  });
 
   // Chat Edit state
   const chatMsgCounterRef = useRef(0);
@@ -139,16 +94,26 @@ function SandboxContent() {
   const [isApplyingEdit, setIsApplyingEdit] = useState(false);
   const [editStatusText, setEditStatusText] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const refreshTimerRef = useRef<number | null>(null);
 
   // Auto-scroll chat
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages, isApplyingEdit]);
 
-  useEffect(() => () => {
-    if (refreshTimerRef.current !== null) window.clearTimeout(refreshTimerRef.current);
-  }, []);
+  // Handle responsive layout based on window size
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 1024 && viewMode === 'split') {
+        setViewMode('preview');
+      }
+      if (window.innerWidth < 1280) {
+        setIsChatOpen(false);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    handleResize();
+    return () => window.removeEventListener('resize', handleResize);
+  }, [viewMode]);
 
   // Fetch build details
   useEffect(() => {
@@ -213,40 +178,43 @@ function SandboxContent() {
     return () => { isMounted = false; };
   }, [buildId, activeFile, fileContents]);
 
-  const handleCopyCode = async () => {
+  const handleCopyCode = () => {
     const content = fileContents[activeFile] || '';
-    try {
-      await navigator.clipboard.writeText(content);
-      setIsCopied(true);
-      window.setTimeout(() => setIsCopied(false), 1800);
-    } catch {
-      setError('Clipboard access is unavailable in this browser.');
-    }
+    navigator.clipboard.writeText(content);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
   };
 
   const handleRefresh = () => {
     setIsRefreshing(true);
-    setRefreshKey((key) => key + 1);
-    if (refreshTimerRef.current !== null) window.clearTimeout(refreshTimerRef.current);
-    refreshTimerRef.current = window.setTimeout(() => setIsRefreshing(false), 500);
+    setTimeout(() => setIsRefreshing(false), 800);
   };
 
   const handleDownload = () => {
     if (!buildId) return;
-    mvpApi.downloadBuild(buildId, `sandbox_build_${buildId.slice(0, 8)}.zip`).catch((err) => {
-      setError(err instanceof Error ? err.message : 'Could not download this build.');
-    });
+    mvpApi.downloadBuild(buildId, `sandbox_build_${buildId.slice(0, 8)}.zip`).catch(console.error);
   };
 
-  // Extract the filename from a path for the editor tab and changed-file chips.
+  const toggleFolder = (folder: string) => {
+    setExpandedFolders(prev => ({ ...prev, [folder]: !prev[folder] }));
+  };
+
+  // Extract folder and filename from path
   const getFileParts = (path: string) => {
     const parts = path.split('/');
+    if (parts.length === 1) return { folder: 'root', name: parts[0] };
     const name = parts.pop() || '';
     return { folder: parts.join('/'), name };
   };
 
   const filePaths = build?.files?.filter(f => !f.is_dir).map(f => f.path) || [];
-  const fileTree = React.useMemo(() => createFileTree(build?.files ?? []), [build?.files]);
+  
+  const groupedFiles = filePaths.reduce((acc, path) => {
+    const { folder } = getFileParts(path);
+    if (!acc[folder]) acc[folder] = [];
+    acc[folder].push(path);
+    return acc;
+  }, {} as Record<string, string[]>);
 
   // Chat Edit Handler
   const handleSendEdit = async (overridePrompt?: string) => {
@@ -325,18 +293,18 @@ function SandboxContent() {
   const previewUrl = build?.frontend_url || build?.render_service_url || (buildId ? mvpApi.getPreviewUrl(buildId) : null);
 
   return (
-    <div className="-mx-2 -mt-3 flex h-[calc(100dvh-5rem)] min-h-[32rem] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)] shadow-sm sm:-mx-3 lg:-mx-4">
+    <div className="flex flex-col h-[calc(100vh-4.25rem)] -mx-4 lg:-mx-6 -mt-3.5 -mb-6 sutra-surface rounded-md overflow-hidden shadow-sm border border-[var(--border)]">
       {/* Sandbox Header */}
-      <div className="z-20 flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--surface)] px-3 py-2 sm:px-4">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+      <div className="h-14 border-b border-[var(--border)] bg-[var(--bg-2)] flex items-center justify-between px-4 shrink-0 z-20">
+        <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[var(--foreground)] text-[var(--background)] shadow-sm">
-              <Code2 className="size-4" />
+            <div className="w-7 h-7 rounded-sm bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] flex items-center justify-center shadow-sm">
+              <Code2 className="w-4 h-4 text-[var(--sutra-muted-gold)]" />
             </div>
             <div>
-              <span className="font-semibold text-sm tracking-tight text-[var(--sutra-ink)]">SUTRA Live Sandbox</span>
+              <span className="font-semibold text-sm tracking-tight text-[var(--sutra-charcoal)]">SUTRA Live Sandbox</span>
               {Boolean(build?.app_config?.app_name) && (
-                <span className="ml-2 hidden max-w-56 truncate align-bottom font-mono text-[11px] text-[var(--text-3)] sm:inline-block">
+                <span className="hidden sm:inline-block text-[11px] text-[var(--text-3)] font-mono ml-2">
                   — {String(build?.app_config?.app_name)}
                 </span>
               )}
@@ -346,69 +314,51 @@ function SandboxContent() {
           <div className="h-4 w-px bg-[var(--border)] hidden md:block"></div>
 
           {/* AI Chat Toggle Button */}
-          <Button
-            type="button"
+          <button
             onClick={() => setIsChatOpen(prev => !prev)}
-            variant={isChatOpen ? 'secondary' : 'outline'}
-            size="sm"
-            aria-expanded={isChatOpen}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-sm flex items-center gap-1.5 transition-all shadow-sm ${
+              isChatOpen 
+                ? 'bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] border border-[var(--sutra-charcoal)]' 
+                : 'bg-[var(--bg)] text-[var(--sutra-charcoal)] border border-[var(--border)] hover:border-[var(--sutra-muted-gold)]'
+            }`}
           >
-            <Sparkles className="size-3.5" />
+            <Sparkles className={`w-3.5 h-3.5 ${isChatOpen ? 'text-[var(--sutra-muted-gold)] animate-pulse' : 'text-[var(--text-2)]'}`} />
             <span>AI Edit Chat</span>
-          </Button>
+          </button>
 
           {/* View Mode Segmented Control */}
-          <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1 md:hidden" role="group" aria-label="Sandbox view">
-            <Button type="button" variant={viewMode === 'preview' ? 'secondary' : 'ghost'} size="icon-sm" onClick={() => setViewMode('preview')} aria-label="Show preview" aria-pressed={viewMode === 'preview'}><Play /></Button>
-            <Button type="button" variant={viewMode === 'code' ? 'secondary' : 'ghost'} size="icon-sm" onClick={() => setViewMode('code')} aria-label="Show code" aria-pressed={viewMode === 'code'}><FileCode /></Button>
-          </div>
-          <div className="hidden items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1 md:flex" role="group" aria-label="Sandbox view">
-            <Button
-              type="button"
-              variant={viewMode === 'code' ? 'secondary' : 'ghost'}
-              size="sm"
+          <div className="hidden md:flex items-center gap-1 bg-[var(--bg-3)] p-1 rounded-sm border border-[var(--border)]">
+            <button 
               onClick={() => setViewMode('code')}
-              aria-pressed={viewMode === 'code'}
+              className={`px-3 py-1 text-xs font-medium rounded-sm flex items-center gap-1.5 transition-all ${viewMode === 'code' ? 'bg-[var(--bg-2)] shadow-sm text-[var(--text)] border border-[var(--border)]' : 'text-[var(--text-2)] hover:text-[var(--text)] border border-transparent'}`}
             >
-              <FileCode /> Code
-            </Button>
-            <Button
-              type="button"
-              variant={viewMode === 'split' ? 'secondary' : 'ghost'}
-              size="sm"
+              <FileCode className="w-3.5 h-3.5" /> Code
+            </button>
+            <button 
               onClick={() => setViewMode('split')}
-              className="hidden lg:inline-flex"
-              aria-pressed={viewMode === 'split'}
+              className={`px-3 py-1 text-xs font-medium rounded-sm flex items-center gap-1.5 transition-all hidden lg:flex ${viewMode === 'split' ? 'bg-[var(--bg-2)] shadow-sm text-[var(--text)] border border-[var(--border)]' : 'text-[var(--text-2)] hover:text-[var(--text)] border border-transparent'}`}
             >
-              <MonitorPlay /> Split
-            </Button>
-            <Button
-              type="button"
-              variant={viewMode === 'preview' ? 'secondary' : 'ghost'}
-              size="sm"
+              <MonitorPlay className="w-3.5 h-3.5" /> Split
+            </button>
+            <button 
               onClick={() => setViewMode('preview')}
-              aria-pressed={viewMode === 'preview'}
+              className={`px-3 py-1 text-xs font-medium rounded-sm flex items-center gap-1.5 transition-all ${viewMode === 'preview' ? 'bg-[var(--bg-2)] shadow-sm text-[var(--text)] border border-[var(--border)]' : 'text-[var(--text-2)] hover:text-[var(--text)] border border-transparent'}`}
             >
-              <Play /> Preview
-            </Button>
+              <Play className="w-3.5 h-3.5" /> Preview
+            </button>
           </div>
         </div>
 
-        <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2.5">
+        <div className="flex items-center gap-2.5">
           {isApplyingEdit ? (
-            <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--amber)]">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              <span>Applying edits</span>
+            <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--amber)] bg-[#B08A4A1A] px-2.5 py-1 rounded-sm border border-[#B08A4A33] animate-pulse">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--sutra-muted-gold)]" />
+              <span>Applying Edits...</span>
             </span>
           ) : build?.status === 'complete' ? (
             <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--green)] bg-[#2F8A4B1A] px-2.5 py-1 rounded-sm border border-[#2F8A4B33]">
               <span className="w-1.5 h-1.5 rounded-full bg-[var(--green)]"></span>
               Environment Ready
-            </span>
-          ) : build?.status === 'failed' ? (
-            <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--red)]">
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--red)]"></span>
-              Build failed
             </span>
           ) : (
             <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--amber)] bg-[#B08A4A1A] px-2.5 py-1 rounded-sm border border-[#B08A4A33]">
@@ -420,7 +370,7 @@ function SandboxContent() {
           {buildId && (
             <button
               onClick={handleDownload}
-              className=""
+              className="btn btn-secondary h-8 px-3 text-xs flex items-center gap-1.5"
               title="Download project as ZIP"
             >
               <Download className="w-3.5 h-3.5" />
@@ -433,7 +383,7 @@ function SandboxContent() {
               href={build.repo_url} 
               target="_blank" 
               rel="noopener noreferrer" 
-              className=""
+              className="btn btn-secondary h-8 px-3 text-xs flex items-center gap-1.5"
             >
               <ExternalLink className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">GitHub</span>
@@ -443,29 +393,23 @@ function SandboxContent() {
       </div>
 
       {/* Main Sandbox Area */}
-      <div className={cn(
-        'relative grid min-h-0 flex-1 overflow-hidden bg-[var(--bg-3)] grid-cols-1',
-        isChatOpen && 'xl:grid-cols-[minmax(15rem,20rem)_minmax(0,1fr)]',
-        viewMode === 'split' && (isChatOpen
-          ? 'lg:grid-cols-2 xl:grid-cols-[minmax(15rem,20rem)_minmax(0,1fr)_minmax(0,1fr)]'
-          : 'lg:grid-cols-2'),
-      )}>
+      <div className="flex-1 flex overflow-hidden bg-[var(--bg-3)] relative">
         
         {/* PANE 1: AI CHAT ASSISTANT (LOVABLE EDIT MODE) */}
         <AnimatePresence initial={false}>
           {isChatOpen && (
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: 360, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.25, ease: 'easeInOut' }}
-              className="absolute inset-y-0 left-0 z-30 flex w-[min(22rem,calc(100vw-2rem))] min-h-0 min-w-0 flex-col overflow-hidden rounded-r-xl border-r border-[var(--border)] bg-[var(--background)] shadow-xl xl:static xl:z-auto xl:w-auto xl:rounded-none xl:shadow-sm"
+              className="border-r border-[var(--border)] bg-[var(--bg)] h-full flex flex-col shrink-0 z-10 overflow-hidden shadow-sm"
             >
               {/* Chat Header */}
               <div className="h-10 px-4 flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-2)] shrink-0">
                 <div className="flex items-center gap-2">
-                  <Wand2 className="w-3.5 h-3.5 text-[var(--sutra-strong)]" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-[var(--sutra-ink)]">
+                  <Wand2 className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-[var(--sutra-charcoal)]">
                     AI Architect Chat
                   </span>
                 </div>
@@ -488,7 +432,7 @@ function SandboxContent() {
                     <div 
                       className={`p-3 rounded-sm text-xs leading-relaxed max-w-[92%] shadow-sm ${
                         msg.role === 'user'
-                          ? 'bg-[var(--foreground)] text-[var(--background)] border border-[var(--foreground)]'
+                          ? 'bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] border border-[var(--sutra-charcoal)]'
                           : 'bg-[var(--bg)] text-[var(--text)] border border-[var(--border)]'
                       }`}
                     >
@@ -502,21 +446,18 @@ function SandboxContent() {
                           </span>
                           <div className="flex flex-wrap gap-1">
                             {msg.updated_files.map(filePath => (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="xs"
+                              <button
                                 key={filePath}
                                 onClick={() => setActiveFile(filePath)}
-                                className={cn('max-w-full font-mono',
+                                className={`text-[11px] font-mono px-2 py-0.5 rounded-sm border flex items-center gap-1 transition-all ${
                                   activeFile === filePath
-                                    ? 'bg-[var(--accent)] text-[var(--foreground)]'
-                                    : 'text-[var(--muted)]'
-                                )}
+                                    ? 'bg-[var(--sutra-muted-gold)] text-white border-[var(--sutra-muted-gold)]'
+                                    : 'bg-[var(--bg-2)] text-[var(--sutra-charcoal)] border-[var(--border)] hover:border-[var(--sutra-muted-gold)]'
+                                }`}
                               >
-                                <CheckCircle2 />
+                                <CheckCircle2 className="w-3 h-3 text-[var(--green)]" />
                                 <span className="truncate max-w-[140px]">{getFileParts(filePath).name}</span>
-                              </Button>
+                              </button>
                             ))}
                           </div>
                         </div>
@@ -527,8 +468,8 @@ function SandboxContent() {
 
                 {isApplyingEdit && (
                   <div className="flex flex-col items-start animate-fade-in">
-                    <div className="p-3 bg-[var(--bg)] border border-[var(--sutra-strong)] rounded-sm text-xs text-[var(--text-2)] shadow-sm flex items-center gap-2">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--sutra-strong)] shrink-0" />
+                    <div className="p-3 bg-[var(--bg)] border border-[var(--sutra-muted-gold)] rounded-sm text-xs text-[var(--text-2)] shadow-sm flex items-center gap-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--sutra-muted-gold)] shrink-0" />
                       <span className="font-mono text-[11px]">{editStatusText || 'Applying modifications to codebase...'}</span>
                     </div>
                   </div>
@@ -544,17 +485,14 @@ function SandboxContent() {
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {QUICK_SUGGESTIONS.map(prompt => (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="xs"
+                    <button
                       key={prompt}
                       onClick={() => handleSendEdit(prompt)}
                       disabled={isApplyingEdit}
-                      className="h-auto max-w-full whitespace-normal text-left leading-snug"
+                      className="text-[10px] px-2 py-1 bg-[var(--bg)] hover:bg-[var(--bg-3)] border border-[var(--border)] hover:border-[var(--sutra-muted-gold)] rounded-sm text-[var(--text-2)] hover:text-[var(--text)] transition-colors truncate max-w-full disabled:opacity-50"
                     >
                       {prompt}
-                    </Button>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -568,13 +506,13 @@ function SandboxContent() {
                   }}
                   className="flex items-center gap-2"
                 >
-                  <Input
+                  <input
                     type="text"
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     placeholder="Describe edits to UI or code..."
                     disabled={isApplyingEdit}
-                    className="min-w-0 flex-1"
+                    className="flex-1 py-2 px-3 bg-[var(--bg-2)] border border-[var(--border)] text-xs text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] rounded-sm transition-colors shadow-inner"
                   />
                   <VoiceInputButton
                     onTranscribed={(text) => {
@@ -582,19 +520,18 @@ function SandboxContent() {
                     }}
                     disabled={isApplyingEdit}
                   />
-                  <Button
+                  <button
                     type="submit"
                     disabled={!chatInput.trim() || isApplyingEdit}
-                    size="icon"
+                    className="p-2 rounded-sm bg-[var(--sutra-charcoal)] hover:bg-black text-white disabled:opacity-40 transition-colors shadow-sm shrink-0"
                     title="Send edit request"
-                    aria-label="Send edit request"
                   >
                     {isApplyingEdit ? (
-                      <Loader2 className="w-4 h-4 animate-spin text-[var(--sutra-strong)]" />
+                      <Loader2 className="w-4 h-4 animate-spin text-[var(--sutra-muted-gold)]" />
                     ) : (
                       <Send className="w-4 h-4" />
                     )}
-                  </Button>
+                  </button>
                 </form>
               </div>
             </motion.div>
@@ -605,25 +542,19 @@ function SandboxContent() {
         <AnimatePresence initial={false}>
           {(viewMode === 'code' || viewMode === 'split') && (
             <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ 
+                width: viewMode === 'split' ? (isChatOpen ? 'calc(50% - 180px)' : '50%') : (isChatOpen ? 'calc(100% - 360px)' : '100%'), 
+                opacity: 1 
+              }}
+              exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.25, ease: 'easeInOut' }}
-              className="col-start-1 row-start-1 flex min-h-0 min-w-0 overflow-hidden border-b border-[var(--border)] bg-[#1e1e1e] lg:col-auto lg:row-auto lg:border-b-0 lg:border-r"
+              className="flex border-r border-[var(--border)] bg-[#1e1e1e] h-full relative z-10 shrink-0 overflow-hidden"
             >
               {isLoading && !build ? (
                 <div className="flex-1 flex flex-col items-center justify-center gap-3">
-                   <Loader2 className="w-8 h-8 text-[var(--sutra-strong)] animate-spin" />
+                   <Loader2 className="w-8 h-8 text-[var(--sutra-muted-gold)] animate-spin" />
                    <p className="text-xs text-[#888] font-mono">Loading project workspace...</p>
-                </div>
-              ) : !buildId ? (
-                <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center text-[var(--foreground)]">
-                  <FolderOpen className="size-10 text-[var(--muted)]" />
-                  <div className="space-y-1.5">
-                    <h2 className="font-semibold">Choose a build to preview</h2>
-                    <p className="max-w-sm text-sm text-[var(--muted)]">Open Live Sandbox from a completed build to inspect files and edit its preview.</p>
-                  </div>
-                  <Button asChild size="sm"><Link href="/chat"><Sparkles />Open AI Architect</Link></Button>
                 </div>
               ) : error ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-[#ff6b6b] p-8 text-center">
@@ -631,30 +562,91 @@ function SandboxContent() {
                    <p className="font-medium text-sm">{error}</p>
                    <p className="text-xs opacity-70 mt-2">Make sure you have passed a valid buildId in the URL</p>
                 </div>
+              ) : !buildId ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-[#888] p-8 text-center space-y-4">
+                   <FolderOpen className="w-12 h-12 mb-2 text-[var(--sutra-muted-gold)] opacity-70" />
+                   <h3 className="font-semibold text-white text-sm">No Build Selected</h3>
+                   <p className="text-xs text-[#aaa] max-w-sm">
+                     To enter the Live Sandbox, pass <span className="font-mono text-[#B08A4A]">?buildId=...</span> in the URL, or build an application using the AI Architect.
+                   </p>
+                   <Link href="/chat" className="btn btn-primary text-xs px-4 py-2 mt-2">
+                     Go to AI Architect Chat →
+                   </Link>
+                </div>
               ) : (
                 <>
                   {/* File Explorer Sidebar */}
-                  <div className="flex w-56 shrink-0 flex-col border-r border-[#333] bg-[#181818]">
-                    <div className="flex h-10 shrink-0 items-center justify-between border-b border-[#333] px-3.5 text-xs font-semibold uppercase tracking-wider text-[#888]">
-                      <span>Files</span>
-                      <span className="font-mono text-[10px] text-[#777]">{filePaths.length}</span>
+                  <div className="w-52 shrink-0 border-r border-[#333] bg-[#181818] flex flex-col">
+                    <div className="h-10 px-3.5 flex items-center justify-between text-xs font-semibold text-[#888] uppercase tracking-wider border-b border-[#333]">
+                      <span>Explorer</span>
+                      <span className="text-[10px] font-mono text-[#555]">{filePaths.length} files</span>
                     </div>
-                    <div className="min-h-0 flex-1 overflow-auto p-2">
-                      {fileTree.length === 0 ? (
-                        <p className="p-2 text-xs text-[#888]">No files found in this build.</p>
-                      ) : (
-                        <TreeView
-                          key={filePaths.join('\n')}
-                          nodes={fileTree}
-                          label="Build files"
-                          defaultOpenAll
-                          selectedPath={activeFile || undefined}
-                          markedPaths={recentlyUpdatedFiles}
-                          onSelect={setActiveFile}
-                          rowClassName="text-[12px] text-[#bbb] hover:text-white hover:bg-white/5"
-                          className="gap-0.5"
-                        />
+                    <div className="p-2 overflow-y-auto flex-1">
+                      {Object.keys(groupedFiles).length === 0 && (
+                        <div className="text-xs text-[#555] p-2 italic">No files found in build.</div>
                       )}
+                      
+                      {Object.entries(groupedFiles).map(([folder, files]) => (
+                        <div key={folder} className="mb-1">
+                          {folder !== 'root' && (
+                            <button 
+                              onClick={() => toggleFolder(folder)}
+                              className="flex items-center gap-1 w-full text-left px-2 py-1 text-sm text-[#ccc] hover:bg-[#2a2a2a] rounded-sm transition-colors overflow-hidden"
+                            >
+                              {expandedFolders[folder] ? <ChevronDown className="w-3.5 h-3.5 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 shrink-0" />}
+                              <span className="font-medium text-xs truncate">{folder}</span>
+                            </button>
+                          )}
+                          
+                          <AnimatePresence>
+                            {(expandedFolders[folder] || folder === 'root') && (
+                              <motion.div 
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                className={`${folder !== 'root' ? 'pl-3' : ''}`}
+                              >
+                                {files.map(path => {
+                                  const { name } = getFileParts(path);
+                                  const isActive = activeFile === path;
+                                  const isRecentlyUpdated = recentlyUpdatedFiles.includes(path);
+
+                                  return (
+                                    <button
+                                      key={path}
+                                      onClick={() => setActiveFile(path)}
+                                      className={`flex items-center justify-between gap-1.5 w-full text-left px-2 py-1 text-xs rounded-sm transition-colors my-0.5 ${
+                                        isActive 
+                                          ? 'bg-[#37373d] text-white font-medium' 
+                                          : isRecentlyUpdated
+                                          ? 'text-[#569cd6] bg-[#264f7833] hover:bg-[#264f7855]'
+                                          : 'text-[#999] hover:bg-[#2a2a2a] hover:text-[#ccc]'
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-1.5 truncate">
+                                        {name.endsWith('.tsx') || name.endsWith('.ts') ? (
+                                          <span className="text-[#519aba] shrink-0 font-bold">{"</>"}</span>
+                                        ) : name.endsWith('.css') ? (
+                                          <span className="text-[#c4722a] shrink-0 font-bold">#</span>
+                                        ) : name.endsWith('.json') ? (
+                                          <span className="text-[#cbcb41] shrink-0 font-bold">{"{}"}</span>
+                                        ) : (
+                                          <FileCode className="w-3 h-3 text-[#888] shrink-0" />
+                                        )}
+                                        <span className="truncate">{name}</span>
+                                      </div>
+
+                                      {isRecentlyUpdated && (
+                                        <span className="w-1.5 h-1.5 rounded-full bg-[#569cd6] shrink-0 animate-ping" />
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      ))}
                     </div>
                   </div>
 
@@ -682,16 +674,14 @@ function SandboxContent() {
                       {/* Editor Actions */}
                       {activeFile && (
                         <div className="ml-auto pr-3 flex items-center gap-2 z-20">
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
+                          <button 
                             onClick={handleCopyCode}
+                            className="p-1.5 text-[#888] hover:text-white bg-[#2a2a2a] hover:bg-[#333] rounded-sm transition-colors border border-[#444] shadow-sm flex items-center gap-1.5 text-xs font-mono"
                             title="Copy code"
                           >
-                            {isCopied ? <CheckCircle2 /> : <Copy />}
-                            {isCopied ? 'Copied' : 'Copy'}
-                          </Button>
+                            {isCopied ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                            <span className="hidden sm:inline">{isCopied ? 'Copied' : 'Copy'}</span>
+                          </button>
                         </div>
                       )}
                     </div>
@@ -704,11 +694,28 @@ function SandboxContent() {
                         </div>
                       ) : activeFile && fileContents[activeFile] ? (
                         <>
-                          <CodeViewer
-                            path={activeFile}
-                            code={fileContents[activeFile]}
-                            className="min-h-full min-w-max"
-                          />
+                          {/* Line numbers */}
+                          <div className="absolute left-0 top-4 bottom-4 w-11 border-r border-[#333] text-right pr-3 text-[#555] select-none text-xs font-mono overflow-hidden">
+                            {fileContents[activeFile].split('\n').map((_, i) => (
+                              <div key={i}>{i + 1}</div>
+                            ))}
+                          </div>
+                          <div className="pl-10">
+                            <pre className="text-[#d4d4d4] margin-0 font-mono text-[13px] tab-size-2">
+                              <code dangerouslySetInnerHTML={{ 
+                                __html: fileContents[activeFile]
+                                  .replace(/</g, '&lt;')
+                                  .replace(/>/g, '&gt;')
+                                  .replace(/\b(import|from|export|default|const|let|var|return|function|class|await|async|interface|type)\b/g, match => `<span class="text-[#569cd6] font-semibold">${match}</span>`)
+                                  .replace(/\b(useState|useEffect|useCallback|useRef|useMemo)\b/g, match => `<span class="text-[#4ec9b0]">${match}</span>`)
+                                  .replace(/\b(className|onClick|onChange|onSubmit|key|href|src|type|value|disabled)\b=/g, match => `<span class="text-[#9cdcfe]">${match}</span>`)
+                                  .replace(/(".*?"|'.*?'|`.*?`)/g, match => `<span class="text-[#ce9178]">${match}</span>`)
+                                  .replace(/&lt;([A-Z][a-zA-Z0-9]*)/g, '&lt;<span class="text-[#4ec9b0] font-medium">$1</span>')
+                                  .replace(/&lt;([a-z][a-zA-Z0-9]*)/g, '&lt;<span class="text-[#569cd6]">$1</span>')
+                                  .replace(/([A-Z][a-zA-Z0-9]*)\s*\(/g, '<span class="text-[#dcdcaa]">$1</span>(')
+                              }} />
+                            </pre>
+                          </div>
                         </>
                       ) : (
                         <div className="text-[#666] text-center mt-20 italic text-xs">
@@ -727,15 +734,14 @@ function SandboxContent() {
         <AnimatePresence initial={false}>
           {(viewMode === 'preview' || viewMode === 'split') && (
             <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ 
+                width: viewMode === 'split' ? (isChatOpen ? 'calc(50% + 180px)' : '50%') : (isChatOpen ? 'calc(100% - 360px)' : '100%'), 
+                opacity: 1 
+              }}
+              exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.25, ease: 'easeInOut' }}
-              className={cn(
-                'col-start-1 row-start-1 flex min-h-0 min-w-0 flex-col overflow-hidden bg-[var(--bg-3)] lg:col-auto lg:row-auto',
-                viewMode === 'split' && (isChatOpen ? 'lg:col-start-2 xl:col-start-3' : 'lg:col-start-2'),
-                viewMode !== 'split' && isChatOpen && 'xl:col-start-2',
-              )}
+              className="h-full flex flex-col bg-[var(--bg-3)] shrink-0 overflow-hidden"
             >
               {/* Browser Header Bar */}
               <div className="h-12 border-b border-[var(--border)] bg-[var(--bg-2)] flex items-center justify-between px-4 shrink-0 shadow-sm relative z-10">
@@ -747,67 +753,54 @@ function SandboxContent() {
                   </div>
                   
                   {/* Address Bar */}
-                  <div className="flex min-w-0 max-w-sm flex-1 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 shadow-inner">
+                  <div className="flex items-center gap-2 bg-[var(--bg-3)] border border-[var(--border)] rounded-sm px-3 py-1.5 min-w-[200px] max-w-sm flex-1 shadow-inner">
                     <div className="text-[var(--text-3)]">
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                     </div>
                     <span className="text-xs text-[var(--text-2)] font-mono truncate">
                       {previewUrl ? 'live-preview:3000' : 'localhost:3000'}
                     </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
+                    <button 
                       onClick={handleRefresh} 
+                      className="ml-auto text-[var(--text-3)] hover:text-[var(--text)] transition-colors"
                       title="Reload preview"
-                      aria-label="Reload preview"
                     >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-[var(--sutra-strong)]' : ''}`} />
-                    </Button>
+                      <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-[var(--sutra-muted-gold)]' : ''}`} />
+                    </button>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2">
                   {/* Device toggle */}
-                  <div className="flex items-center rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1" role="group" aria-label="Preview device size">
-                    <Button
-                      type="button"
-                      variant={deviceSize === 'desktop' ? 'secondary' : 'ghost'}
-                      size="icon-sm"
+                  <div className="flex items-center bg-[var(--bg-3)] p-1 rounded-sm border border-[var(--border)]">
+                    <button 
                       onClick={() => setDeviceSize('desktop')}
+                      className={`p-1.5 rounded-sm transition-colors ${deviceSize === 'desktop' ? 'bg-[var(--bg-2)] shadow-sm text-[var(--text)]' : 'text-[var(--text-3)] hover:text-[var(--text)]'}`}
                       title="Desktop view"
-                      aria-label="Desktop preview"
-                      aria-pressed={deviceSize === 'desktop'}
                     >
-                      <Laptop />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={deviceSize === 'mobile' ? 'secondary' : 'ghost'}
-                      size="icon-sm"
+                      <Laptop className="w-3.5 h-3.5" />
+                    </button>
+                    <button 
                       onClick={() => setDeviceSize('mobile')}
+                      className={`p-1.5 rounded-sm transition-colors ${deviceSize === 'mobile' ? 'bg-[var(--bg-2)] shadow-sm text-[var(--text)]' : 'text-[var(--text-3)] hover:text-[var(--text)]'}`}
                       title="Mobile phone view"
-                      aria-label="Mobile preview"
-                      aria-pressed={deviceSize === 'mobile'}
                     >
-                      <Smartphone />
-                    </Button>
+                      <Smartphone className="w-3.5 h-3.5" />
+                    </button>
                   </div>
 
                   {previewUrl && (
                     <>
                       <div className="h-4 w-px bg-[var(--border)] mx-1"></div>
-                      <Button asChild variant="ghost" size="icon-sm">
-                      <a
+                      <a 
                         href={previewUrl} 
                         target="_blank" 
                         rel="noopener noreferrer" 
+                        className="text-[var(--text-2)] hover:text-[var(--text)] transition-colors p-1" 
                         title="Open preview in new tab"
-                        aria-label="Open preview in new tab"
                       >
                         <ExternalLink className="w-4 h-4" />
                       </a>
-                      </Button>
                     </>
                   )}
                 </div>
@@ -829,15 +822,15 @@ function SandboxContent() {
                   {isRefreshing && (
                     <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/60 backdrop-blur-xs">
                       <div className="flex items-center gap-2 p-3 bg-white shadow-lg rounded-sm border border-[var(--border)]">
-                        <Loader2 className="w-5 h-5 text-[var(--sutra-strong)] animate-spin" />
-                        <span className="text-xs font-mono text-[var(--sutra-ink)] font-medium">Refreshing Live Preview...</span>
+                        <Loader2 className="w-5 h-5 text-[var(--sutra-muted-gold)] animate-spin" />
+                        <span className="text-xs font-mono text-[var(--sutra-charcoal)] font-medium">Refreshing Live Preview...</span>
                       </div>
                     </div>
                   )}
                   
                   {previewUrl ? (
                     <iframe 
-                      key={refreshKey}
+                      key={isRefreshing ? 'refreshing' : 'active'}
                       src={previewUrl} 
                       className="w-full h-full border-none"
                       title="Live Interactive Preview"
@@ -868,7 +861,7 @@ export default function SandboxPage() {
   return (
     <Suspense fallback={
       <div className="flex h-[calc(100vh-4.25rem)] items-center justify-center gap-3">
-        <Loader2 className="w-8 h-8 animate-spin text-[var(--sutra-strong)]" />
+        <Loader2 className="w-8 h-8 animate-spin text-[var(--sutra-muted-gold)]" />
         <span className="text-sm font-mono text-[var(--text-2)]">Initializing Live Sandbox...</span>
       </div>
     }>

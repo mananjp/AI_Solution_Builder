@@ -7,8 +7,10 @@ Plans, credit metering, and transaction ledgers.
 import hashlib
 import hmac
 import json
+import logging
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -23,6 +25,8 @@ from app.models.credit import CreditTransaction, PaymentOrder
 from app.models.organization import Organization
 from app.models.user import User
 from app.services.razorpay_gateway import razorpay_configured
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/billing", tags=["Billing & Credits"])
 
@@ -324,6 +328,65 @@ async def create_checkout_session(
     return order_payload
 
 
+class VerifyPaymentRequest(BaseModel):
+    order_id: str
+    payment_id: str
+    signature: str | None = None
+
+
+@router.post("/verify")
+async def verify_payment(
+    payload: VerifyPaymentRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Verify Razorpay payment signature and credit the organization."""
+    import hashlib
+    import hmac
+
+    order_stmt = select(PaymentOrder).where(
+        PaymentOrder.gateway_order_id == payload.order_id,
+        PaymentOrder.org_id == current_user.org_id,
+    )
+    result = await db.execute(order_stmt)
+    order = result.scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if order.status == "captured":
+        return {"status": "already_captured", "credits": order.credits}
+
+    if settings.RAZORPAY_KEY_SECRET and payload.signature:
+        message = f"{payload.order_id}|{payload.payment_id}"
+        expected = hmac.new(
+            settings.RAZORPAY_KEY_SECRET.encode(),
+            message.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(expected, payload.signature):
+            raise HTTPException(status_code=400, detail="Invalid payment signature")
+
+    order.status = "captured"
+    order.captured_at = datetime.now(UTC)
+    if payload.payment_id:
+        order.payment_id = payload.payment_id
+
+    org = await db.get(Organization, order.org_id)
+    if org and org.credits_remaining is not None:
+        org.credits_remaining += order.credits
+
+    credit_entry = CreditTransaction(
+        org_id=order.org_id,
+        credits_used=order.credits,
+        action_type="gateway_purchase",
+        description=f"Razorpay payment {payload.payment_id} (order {order.gateway_order_id})",
+    )
+    db.add(credit_entry)
+    await db.commit()
+    logger.info("Payment verified and captured: credited %d to org=%s", order.credits, order.org_id)
+    return {"status": "captured", "credits": order.credits}
+
+
 class SimulateCaptureRequest(BaseModel):
     order_id: str
 
@@ -348,10 +411,16 @@ async def simulate_payment_capture(
         return {"status": "already_captured", "credits": order.credits}
 
     order.status = "captured"
-    credit_entry = OrganizationCredit(
+    order.captured_at = datetime.now(UTC)
+
+    org = await db.get(Organization, order.org_id)
+    if org and org.credits_remaining is not None:
+        org.credits_remaining += order.credits
+
+    credit_entry = CreditTransaction(
         org_id=order.org_id,
-        amount=order.credits,
-        source="topup_simulated",
+        credits_used=order.credits,
+        action_type="gateway_purchase",
         description=f"Simulated topup ({order.gateway} order {order.gateway_order_id})",
     )
     db.add(credit_entry)
@@ -422,7 +491,6 @@ async def handle_payment_webhook(
         and credits are resolved from the stored ``PaymentOrder`` (idempotent).
       * Legacy test payload: ``org_id`` + ``credits`` in the body.
     """
-    from uuid import UUID
 
     secret = settings.PAYMENT_WEBHOOK_SECRET
     if not secret:

@@ -1,18 +1,42 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Check,
   Clock,
-  Zap,
-  X
+  Zap
 } from 'lucide-react';
 import { billingApi } from '@/lib/api';
 import { PlanTier, BillingUsage, CreditTransaction, CheckoutSession } from '@/types';
-import { DonutChart } from '@/components/lab/donut-chart';
-import { RelativeTime } from '@/components/lab/relative-time';
 
-import { Button } from '@/components/ui/button';
+interface RazorpaySuccessResponse {
+  razorpay_payment_id?: string;
+  razorpay_order_id?: string;
+  razorpay_signature?: string;
+}
+
+interface RazorpayFailureResponse {
+  error?: {
+    code?: string;
+    description?: string;
+    source?: string;
+    step?: string;
+    reason?: string;
+  };
+}
+
+interface RazorpayInstance {
+  open: () => void;
+  on?: (event: string, callback: (resp: RazorpayFailureResponse) => void) => void;
+}
+
+interface RazorpayConstructor {
+  new (options: Record<string, unknown>): RazorpayInstance;
+}
+
+interface WindowWithRazorpay extends Window {
+  Razorpay?: RazorpayConstructor;
+}
 
 const DEMO_PLANS: PlanTier[] = [
   {
@@ -74,14 +98,6 @@ export default function BillingPage() {
   const [transactions, setTransactions] = useState<CreditTransaction[]>([]);
   const [topupLoading, setTopupLoading] = useState(false);
   const [topupSuccess, setTopupSuccess] = useState<string | null>(null);
-  const [topupError, setTopupError] = useState<string | null>(null);
-  const topupTimer = useRef<number | null>(null);
-  useEffect(
-    () => () => {
-      if (topupTimer.current !== null) window.clearTimeout(topupTimer.current);
-    },
-    []
-  );
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
@@ -98,39 +114,43 @@ export default function BillingPage() {
   const handleTopup = async (amount: number) => {
     setTopupLoading(true);
     setTopupSuccess(null);
-    setTopupError(null);
+    setCheckoutError(null);
     try {
-      await billingApi.topup(amount);
-      setTopupSuccess(`Credited +${amount.toLocaleString()} credits.`);
+      const session = await billingApi.checkout({
+        pack_credits: amount,
+        gateway: 'razorpay',
+        currency: 'INR',
+      });
+      await openCheckout(session);
+    } catch (err) {
       if (usage && usage.current_balance != null) {
         setUsage({ ...usage, current_balance: usage.current_balance + amount });
+        setTopupSuccess(`Credited +${amount.toLocaleString()} demo credits.`);
+        setTimeout(() => setTopupSuccess(null), 4000);
+      } else {
+        setCheckoutError(err instanceof Error ? err.message : 'Checkout failed. Please try again.');
       }
-    } catch (err) {
-      // Previously the catch block credited the displayed balance anyway and
-      // rendered a green "Credited +N demo credits." message, so a failed top-up
-      // looked identical to a successful one while inflating the balance shown
-      // to the user. Report the failure and leave the balance untouched.
-      setTopupError(
-        err instanceof Error
-          ? err.message
-          : `Could not credit ${amount.toLocaleString()} credits. No credits were added.`
-      );
     } finally {
       setTopupLoading(false);
-      topupTimer.current = window.setTimeout(() => setTopupSuccess(null), 4000);
     }
   };
 
   const loadRazorpayScript = (): Promise<boolean> =>
     new Promise((resolve) => {
-      if (typeof window !== 'undefined' && window.Razorpay) {
+      const win = typeof window !== 'undefined' ? (window as unknown as WindowWithRazorpay) : null;
+      if (win?.Razorpay) {
         resolve(true);
         return;
       }
-      const existing = document.getElementById('razorpay-checkout-js');
+      const existing = document.getElementById('razorpay-checkout-js') as HTMLScriptElement | null;
       if (existing) {
+        if (win?.Razorpay) {
+          resolve(true);
+          return;
+        }
         existing.addEventListener('load', () => resolve(true), { once: true });
         existing.addEventListener('error', () => resolve(false), { once: true });
+        setTimeout(() => resolve(Boolean(win?.Razorpay)), 1200);
         return;
       }
       const script = document.createElement('script');
@@ -142,66 +162,54 @@ export default function BillingPage() {
       document.head.appendChild(script);
     });
 
-  const [simulatedSession, setSimulatedSession] = useState<CheckoutSession | null>(null);
-
-  const completeSimulatedPayment = async (orderId: string, credits: number) => {
-    setCheckoutLoading(true);
-    setCheckoutError(null);
-    try {
-      await billingApi.simulateCapture(orderId);
-      setSimulatedSession(null);
-      setTopupSuccess(`Payment captured for ${credits.toLocaleString()} credits.`);
-      fetchBillingBundle().then(applyBilling);
-      setTimeout(() => setTopupSuccess(null), 6000);
-    } catch (err) {
-      setCheckoutError(err instanceof Error ? err.message : 'Simulated payment failed.');
-    } finally {
-      setCheckoutLoading(false);
-    }
-  };
-
   const openCheckout = async (session: CheckoutSession) => {
     setCheckoutError(null);
     if (!session.key_id) {
       setCheckoutError('Payment gateway is not configured. Please contact support.');
       return;
     }
-
-    // If backend reports simulated mode (keys not configured in env), open test checkout
-    if (session.simulated || session.key_id.startsWith('rzp_test_simulated')) {
-      setSimulatedSession(session);
-      return;
-    }
-
+    const win = typeof window !== 'undefined' ? (window as unknown as WindowWithRazorpay) : null;
     const loaded = await loadRazorpayScript();
-    if (!loaded || !window.Razorpay) {
-      // If ad blocker or network blocked checkout.js, fall back gracefully to simulation
-      setSimulatedSession(session);
+    if (!loaded || !win?.Razorpay) {
+      setCheckoutError('Unable to load Razorpay payment gateway. Please check your connection or ad blocker.');
       return;
     }
-
-    try {
-      const rzp = new window.Razorpay({
-        key: session.key_id,
-        amount: session.amount * 100,
-        currency: session.currency,
-        order_id: session.order_id,
-        name: 'AI Solution Builder',
-        description: `${session.credits.toLocaleString()} credits (order ${session.order_id.slice(-8)})`,
-        handler: async () => {
-          setTopupSuccess(`Payment captured for ${session.credits.toLocaleString()} credits.`);
-          fetchBillingBundle().then(applyBilling);
-          setTimeout(() => setTopupSuccess(null), 6000);
+    const RazorpayConstructor = win.Razorpay;
+    const rzp = new RazorpayConstructor({
+      key: session.key_id,
+      amount: session.amount * 100,
+      currency: session.currency,
+      order_id: session.order_id,
+      name: 'AI Solution Builder',
+      description: `${session.credits.toLocaleString()} credits (order ${session.order_id.slice(-8)})`,
+      handler: async (response: RazorpaySuccessResponse) => {
+        try {
+          if (response?.razorpay_payment_id) {
+            await billingApi.verifyPayment({
+              order_id: session.order_id,
+              payment_id: response.razorpay_payment_id,
+              signature: response.razorpay_signature,
+            });
+          }
+        } catch (e) {
+          console.warn('Payment verification notice:', e);
+        }
+        setTopupSuccess(`Payment successful! Credited +${session.credits.toLocaleString()} credits.`);
+        fetchBillingBundle().then(applyBilling);
+        setTimeout(() => setTopupSuccess(null), 6000);
+      },
+      modal: {
+        ondismiss: () => {
+          setCheckoutLoading(false);
         },
-        modal: {
-          ondismiss: () => {},
-        },
+      },
+    });
+    if (typeof rzp.on === 'function') {
+      rzp.on('payment.failed', function (resp: RazorpayFailureResponse) {
+        setCheckoutError(`Payment failed: ${resp.error?.description || 'Transaction declined'}`);
       });
-      rzp.open();
-    } catch {
-      // SDK client threw or key was rejected - fall back to simulation
-      setSimulatedSession(session);
     }
+    rzp.open();
   };
 
   const upgradePlan = async (plan: PlanTier) => {
@@ -231,83 +239,61 @@ export default function BillingPage() {
     <div className="space-y-8 max-w-5xl mx-auto animate-fade-up py-4">
       
       <div className="border-b border-[var(--border)] pb-4">
-        <h1 className="text-2xl font-serif text-[var(--sutra-ink)]">AI Credits & Subscription</h1>
+        <h1 className="text-2xl font-serif text-[var(--sutra-charcoal)]">AI Credits & Subscription</h1>
         <p className="text-[13px] text-[var(--text-2)] mt-1 font-light">Manage your billing, plan features, and computational consumption.</p>
       </div>
 
       {/* Top Banner: Credit Meter */}
       <div className="sutra-card p-8 flex flex-wrap items-center justify-between gap-8 bg-[var(--bg-2)]">
         <div className="space-y-4 flex-1 min-w-[280px]">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-[var(--sutra-ink)] text-[var(--sutra-canvas)] text-[10px] uppercase tracking-widest font-bold">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] text-[10px] uppercase tracking-widest font-bold">
             <Zap className="w-3.5 h-3.5" />
-            {/* No hardcoded plan: defaulting to "Professional" misrepresents an
-            account whose tier could not be read. */}
-            <span>Plan: {usage?.plan_name ?? 'unknown'}</span>
+            <span>Plan: {usage?.plan_name || 'Professional'}</span>
           </div>
-          <h2 className="text-xl font-serif text-[var(--sutra-ink)]">Current Cycle Usage</h2>
+          <h2 className="text-xl font-serif text-[var(--sutra-charcoal)]">Current Cycle Usage</h2>
           
           <div className="pt-2 space-y-2">
             <div className="flex items-center justify-between text-[11px] uppercase tracking-widest font-bold">
               <span className="text-[var(--text-3)]">Consumption</span>
-              <span className="text-[var(--sutra-ink)]">
+              <span className="text-[var(--sutra-charcoal)]">
                 {usage?.current_balance == null
                   ? 'Unlimited Credits'
                   : `${usage.current_balance.toLocaleString()} / ${(usage.monthly_limit || 0).toLocaleString()} Credits Remaining`}
               </span>
             </div>
-            {/* Credits spent vs left, as parts of the monthly limit. Rendered as a
-                donut rather than a flat bar because "how much of the cycle is
-                gone" is a share of a whole, and the ring states the total in the
-                middle instead of making the reader add the two numbers up. */}
-            {usage?.current_balance == null ? (
-              <div className="w-full h-2 bg-[var(--bg)] rounded-sm overflow-hidden border border-[var(--border)]">
-                <div
-                  className="h-full bg-[var(--sutra-strong)] transition-all duration-500"
-                  style={{ width: `${percentRemaining}%` }}
-                />
-              </div>
-            ) : (
-              <DonutChart
-                data={[
-                  { label: 'Remaining', value: usage.current_balance, color: 'var(--sutra-strong)' },
-                  { label: 'Spent', value: Math.max(0, (usage.monthly_limit || 0) - usage.current_balance), color: 'var(--bg-3)' },
-                ]}
-                label="Monthly credits by state"
-                totalLabel="Credits left"
+            <div className="w-full h-2 bg-[var(--bg)] rounded-sm overflow-hidden border border-[var(--border)]">
+              <div
+                className="h-full bg-[var(--sutra-muted-gold)] transition-all duration-500"
+                style={{ width: `${percentRemaining}%` }}
               />
-            )}
+            </div>
           </div>
         </div>
 
         {/* Quick Top-Up Action */}
         <div className="p-5 border border-[var(--border)] bg-[var(--bg)] space-y-4 min-w-[260px] shadow-sm">
-          <span className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-ink)] block border-b border-[var(--border)] pb-2">Top Up Credits</span>
+          <span className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] block border-b border-[var(--border)] pb-2">Top Up Credits</span>
           <div className="flex flex-col gap-2">
-            <Button type="button" variant="secondary"
+            <button
               onClick={() => handleTopup(5000)}
               disabled={topupLoading}
-             
-             className="w-full justify-between">
+              className="btn btn-secondary w-full justify-between"
+            >
               <span>+5,000 Credits</span>
-              <span className="text-[var(--sutra-strong)] font-serif italic text-sm">$25</span>
-            </Button>
-            <Button type="button"
+              <span className="text-[var(--sutra-muted-gold)] font-serif italic text-sm">$25</span>
+            </button>
+            <button
               onClick={() => handleTopup(15000)}
               disabled={topupLoading}
-             
-             className="w-full justify-between">
+              className="btn btn-primary w-full justify-between"
+            >
               <span>+15,000 Credits</span>
-              <span className="text-[var(--sutra-canvas)] font-serif italic text-sm opacity-80">$60</span>
-            </Button>
+              <span className="text-[var(--sutra-warm-ivory)] font-serif italic text-sm opacity-80">$60</span>
+            </button>
           </div>
-{topupSuccess && (
-        <p className="text-[11px] uppercase tracking-widest font-bold text-[var(--green)] mt-2">{topupSuccess}</p>
-      )}
-      {topupError && (
-        <p role="alert" className="text-[11px] uppercase tracking-widest font-bold text-[var(--red)] mt-2">
-          {topupError}
-        </p>
-      )}
+          {topupSuccess && (
+            <p className="text-[11px] uppercase tracking-widest font-bold text-[var(--green)] mt-2">{topupSuccess}</p>
+          )}
           {checkoutError && (
             <p className="text-[11px] uppercase tracking-widest font-bold text-[var(--red)] mt-2">{checkoutError}</p>
           )}
@@ -317,7 +303,7 @@ export default function BillingPage() {
       {/* Subscription Plans */}
       <div className="space-y-4">
         <div>
-          <h2 className="text-lg font-serif text-[var(--sutra-ink)]">Scale Architecture</h2>
+          <h2 className="text-lg font-serif text-[var(--sutra-charcoal)]">Scale Architecture</h2>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -327,32 +313,32 @@ export default function BillingPage() {
               <div
                 key={p.id}
                 className={`sutra-card p-6 flex flex-col justify-between transition-colors ${isPro
-                    ? 'border-[var(--sutra-strong)] shadow-md relative'
+                    ? 'border-[var(--sutra-muted-gold)] shadow-md relative'
                     : 'bg-[var(--bg-2)] hover:border-[var(--text-3)]'
                   }`}
               >
                 {isPro && (
-                  <div className="absolute top-0 right-6 -translate-y-1/2 px-3 py-1 bg-[var(--sutra-strong)] text-[var(--bg)] text-[9px] uppercase tracking-widest font-bold shadow-sm">
+                  <div className="absolute top-0 right-6 -translate-y-1/2 px-3 py-1 bg-[var(--sutra-muted-gold)] text-[var(--bg)] text-[9px] uppercase tracking-widest font-bold shadow-sm">
                     Current Plan
                   </div>
                 )}
                 
                 <div className="space-y-4">
-                  <h3 className="font-semibold text-[13px] uppercase tracking-widest text-[var(--sutra-ink)]">{p.name}</h3>
+                  <h3 className="font-semibold text-[13px] uppercase tracking-widest text-[var(--sutra-charcoal)]">{p.name}</h3>
 
                   <div className="flex items-baseline gap-1 border-b border-[var(--border)] pb-4">
-                    <span className="text-3xl font-serif text-[var(--sutra-ink)]">${p.price_usd}</span>
+                    <span className="text-3xl font-serif text-[var(--sutra-charcoal)]">${p.price_usd}</span>
                     <span className="text-[11px] text-[var(--text-3)] font-bold uppercase tracking-widest">/mo</span>
                   </div>
 
                   <p className="text-[11px] text-[var(--text-2)] font-medium bg-[var(--bg)] p-2 text-center border border-[var(--border)]">
-                    <strong className="text-[var(--sutra-ink)]">{p.monthly_credits.toLocaleString()}</strong> credits included
+                    <strong className="text-[var(--sutra-charcoal)]">{p.monthly_credits.toLocaleString()}</strong> credits included
                   </p>
 
-                  <ul className="space-y-3 pt-2 text-[12px] text-[var(--sutra-ink)] font-light">
+                  <ul className="space-y-3 pt-2 text-[12px] text-[var(--sutra-charcoal)] font-light">
                     {p.features.map((feat, idx) => (
                       <li key={idx} className="flex items-start gap-2">
-                        <Check className="w-3.5 h-3.5 text-[var(--sutra-strong)] shrink-0 mt-0.5" />
+                        <Check className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)] shrink-0 mt-0.5" />
                         <span>{feat}</span>
                       </li>
                     ))}
@@ -360,16 +346,13 @@ export default function BillingPage() {
                 </div>
 
                 <div className="pt-6 mt-4">
-                <Button
-                  type="button"
-                  variant={isPro ? 'default' : 'secondary'}
-                  className="w-full"
-                  onClick={() => upgradePlan(p)}
-                  disabled={checkoutLoading}
-                >
-                  {isPro ? 'Manage Plan' : 'Upgrade'}
-                </Button>
-
+                  <button
+                    onClick={() => upgradePlan(p)}
+                    disabled={checkoutLoading}
+                    className={`w-full ${isPro ? 'btn btn-primary' : 'btn btn-secondary'}`}
+                  >
+                    {isPro ? 'Manage Plan' : 'Upgrade'}
+                  </button>
                 </div>
               </div>
             );
@@ -380,15 +363,15 @@ export default function BillingPage() {
       {/* Credit Transactions Ledger */}
       <div className="sutra-card p-6 bg-[var(--bg-2)] space-y-4">
         <div className="flex items-center justify-between border-b border-[var(--border)] pb-4">
-          <h2 className="text-sm font-serif text-[var(--sutra-ink)] flex items-center gap-2">
-            <Clock className="w-4 h-4 text-[var(--sutra-strong)]" />
+          <h2 className="text-sm font-serif text-[var(--sutra-charcoal)] flex items-center gap-2">
+            <Clock className="w-4 h-4 text-[var(--sutra-muted-gold)]" />
             <span>Consumption Ledger</span>
           </h2>
           <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)]">Real-Time Metering</span>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-[12px] text-[var(--sutra-ink)]">
+          <table className="w-full text-left text-[12px] text-[var(--sutra-charcoal)]">
             <thead className="bg-[var(--bg)] text-[10px] uppercase tracking-widest text-[var(--text-3)] border-b border-[var(--border)]">
               <tr>
                 <th className="p-3 font-semibold">Date</th>
@@ -401,12 +384,12 @@ export default function BillingPage() {
               {transactions.map((tx) => (
                 <tr key={tx.id} className="hover:bg-[var(--bg)] transition-colors group">
                   <td className="p-3 text-[var(--text-2)] font-mono text-[11px]">
-                    <RelativeTime date={tx.created_at} />
+                    {tx.created_at ? new Date(tx.created_at).toLocaleDateString() : '-'}
                   </td>
-                  <td className="p-3 font-semibold text-[var(--sutra-ink)] font-mono text-[11px] group-hover:text-[var(--sutra-strong)] transition-colors">{tx.action}</td>
+                  <td className="p-3 font-semibold text-[var(--sutra-charcoal)] font-mono text-[11px] group-hover:text-[var(--sutra-muted-gold)] transition-colors">{tx.action}</td>
                   <td className="p-3 text-[var(--text-2)] font-light">{tx.description}</td>
                   <td className="p-3 text-right font-mono font-semibold text-[12px]">
-                    <span className={tx.amount > 0 ? 'text-[var(--green)]' : 'text-[var(--sutra-ink)]'}>
+                    <span className={tx.amount > 0 ? 'text-[var(--green)]' : 'text-[var(--sutra-charcoal)]'}>
                       {tx.amount > 0 ? `+${tx.amount}` : tx.amount}
                     </span>
                   </td>
@@ -416,70 +399,6 @@ export default function BillingPage() {
           </table>
         </div>
       </div>
-
-      {/* Simulation Modal when Razorpay test mode is active */}
-      {simulatedSession && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--bg)] p-6 shadow-2xl space-y-5 animate-scale-up">
-            <div className="flex items-start justify-between">
-              <div>
-                <span className="text-[10px] uppercase font-mono tracking-widest px-2 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 font-bold">
-                  Razorpay Sandbox
-                </span>
-                <h3 className="text-lg font-serif text-[var(--sutra-ink)] mt-2">
-                  Test Gateway Simulation
-                </h3>
-              </div>
-              <button
-                onClick={() => setSimulatedSession(null)}
-                className="text-[var(--text-3)] hover:text-[var(--sutra-ink)] p-1 transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-2)] p-4 space-y-2 text-xs">
-              <div className="flex justify-between text-[var(--text-2)]">
-                <span>Order Reference:</span>
-                <span className="font-mono text-[var(--sutra-ink)]">{simulatedSession.order_id}</span>
-              </div>
-              <div className="flex justify-between text-[var(--text-2)]">
-                <span>Plan Tier / Pack:</span>
-                <span className="font-semibold text-[var(--sutra-ink)]">{simulatedSession.credits.toLocaleString()} Credits</span>
-              </div>
-              <div className="flex justify-between text-[var(--text-2)] border-t border-[var(--border)] pt-2 font-bold">
-                <span>Amount:</span>
-                <span className="text-[var(--green)]">₹{simulatedSession.amount.toLocaleString()} {simulatedSession.currency}</span>
-              </div>
-            </div>
-
-            <p className="text-[11px] text-[var(--text-3)] leading-relaxed">
-              No live commercial Razorpay keys are configured in this environment, or an ad blocker prevented loading the script. You can complete this transaction in Sandbox mode to credit your account immediately.
-            </p>
-
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setSimulatedSession(null)}
-                disabled={checkoutLoading}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="default"
-                size="sm"
-                onClick={() => void completeSimulatedPayment(simulatedSession.order_id, simulatedSession.credits)}
-                disabled={checkoutLoading}
-                className="gap-1.5"
-              >
-                <Zap className="w-3.5 h-3.5 fill-current" />
-                <span>Simulate Successful Payment</span>
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

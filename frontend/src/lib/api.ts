@@ -24,13 +24,12 @@ import {
     MVPEnvUpdateResult,
   OpenCodeChatPayload,
   SystemResources,
+  SocialProvidersResponse,
+  AnonymousAuthResponse,
+  UpgradeAnonymousPayload,
   MVPChatEditResponse,
-  ArtifactExplainability,
 } from '@/types';
 import { getActiveLanguageCode } from '@/lib/i18n/client';
-import { ApiError, codeForStatus, toApiError } from '@/lib/errors';
-import { logger, logError } from '@/lib/logger';
-import { isAuthBypassed } from '@/lib/auth-bypass';
 
 function normalizeApiUrl(url?: string | null): string {
   if (!url) return '';
@@ -40,72 +39,6 @@ function normalizeApiUrl(url?: string | null): string {
   return trimmed.endsWith('/api/v1') ? trimmed : `${trimmed}/api/v1`;
 }
 
-/**
- * Origins a bearer token may be sent to.
- *
- * `getApiBaseUrl()` honours a `custom_backend_url` from localStorage, which the
- * Settings screen writes. The override only trimmed the string and appended
- * `/api/v1`, so any origin could be named — and `request()` then attaches
- * `Authorization: Bearer <access token>` to whatever host came out. That meant a
- * single XSS payload, or one user pasting an attacker's URL, could exfiltrate
- * the session token and defeat the in-memory token storage this app otherwise
- * gets right.
- *
- * So an absolute override must now resolve to an allowed origin. A rejected
- * override falls back to the build-time default rather than failing the request,
- * and the reason is logged.
- */
-function allowedApiOrigins(): ReadonlySet<string> {
-  const origins = new Set<string>();
-
-  // Same-origin proxy (`/api/v1`) and the page's own origin are always fine.
-  if (typeof window !== 'undefined') origins.add(window.location.origin);
-
-  // The build-time URL is operator-controlled, so trust it.
-  const configured = process.env.NEXT_PUBLIC_API_URL;
-  if (configured) {
-    try {
-      origins.add(new URL(configured).origin);
-    } catch {
-      // Unparseable build-time value; the default below still applies.
-    }
-  }
-
-  // Explicit allowlist for anything else, so production hosts do not have to be
-  // hard-coded here.
-  for (const entry of (process.env.NEXT_PUBLIC_ALLOWED_API_ORIGINS ?? '').split(',')) {
-    const value = entry.trim();
-    if (value) origins.add(value.replace(/\/+$/, ''));
-  }
-
-  // Loopback in any form, for local development and the Capacitor WebView.
-  if (process.env.NODE_ENV !== 'production') {
-    for (const host of ['localhost', '127.0.0.1', '[::1]']) {
-      origins.add(`http://${host}`);
-      origins.add(`https://${host}`);
-    }
-  }
-
-  return origins;
-}
-
-/** True when `url` is safe to attach credentials to. */
-function isAllowedApiUrl(url: string): boolean {
-  // Relative paths stay same-origin and are always allowed.
-  if (url.startsWith('/')) return true;
-
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-
-  // `javascript:` and `data:` URLs parse but must never receive a token.
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
-
-  return allowedApiOrigins().has(parsed.origin);
-}
 
 export function getApiBaseUrl(): string {
   if (typeof window === 'undefined') {
@@ -113,15 +46,8 @@ export function getApiBaseUrl(): string {
   }
 
   // 1. Check local storage override (allows mobile users / devs to point to custom backend)
-  const customUrl = localStorage.getItem('custom_backend_url') || localStorage.getItem('apiBaseUrl()');
-  if (customUrl) {
-    const normalized = normalizeApiUrl(customUrl);
-    if (isAllowedApiUrl(customUrl)) return normalized;
-    // Previously any origin was accepted here and the bearer token went with it.
-    logger.warn('Ignoring a backend URL that is not on the allow list', {
-      requested: customUrl,
-    });
-  }
+  const customUrl = localStorage.getItem('custom_backend_url') || localStorage.getItem('api_base_url');
+  if (customUrl) return normalizeApiUrl(customUrl);
 
   // 2. Check build-time env variable (if it's not a localhost address)
   if (process.env.NEXT_PUBLIC_API_URL && !process.env.NEXT_PUBLIC_API_URL.startsWith('http://localhost')) {
@@ -139,15 +65,16 @@ export function getApiBaseUrl(): string {
   return '/api/v1';
 }
 
-/**
- * Resolved per call, never cached at module load.
- *
- * This used to be a module-level `const` built from a duplicated copy of the
- * base-url logic that skipped the localStorage override, while `request()`
- * called the function above. The two could disagree, so a custom backend set
- * in Settings worked for most calls and silently failed for the ~9 raw
- * `fetch()` call sites. Everything now goes through `getApiBaseUrl()`.
- */
+const rawApiUrl =
+  typeof window !== 'undefined'
+    ? (process.env.NEXT_PUBLIC_API_URL && !process.env.NEXT_PUBLIC_API_URL.startsWith('http://localhost')
+      ? normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL)
+      : (typeof window !== 'undefined' && ('Capacitor' in window || (window.location.protocol === 'https:' && window.location.hostname === 'localhost' && window.location.port === '')))
+      ? 'https://ai-solution-builder.onrender.com/api/v1'
+      : '/api/v1')
+    : normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api/v1');
+
+const API_BASE_URL = rawApiUrl;
 
 export interface RawWorkableEntity {
   name?: string;
@@ -174,52 +101,41 @@ export interface WorkableSystemResponse {
   modules: RawWorkableModule[];
 }
 
-// ── Access token ────────────────────────────────────
-// The token is never mirrored into localStorage. It used to be, which meant an
-// XSS payload could simply read it out, and it went stale the moment Auth0
-// renewed the session, leaving the app issuing 401s for a valid user.
-//
-// Instead the Auth0 SDK owns the token and the API layer asks for a fresh one
-// per request. `getAccessTokenSilently` returns from the SDK's in-memory cache
-// when the token is still valid, so this costs nothing on the common path and
-// only hits the network when a silent renewal is actually due.
-// `undefined` is the SDK's "no token" value (`getAccessTokenSilently` resolves
-// without a token when there is no session), so it is what this contract uses.
-// `getAuthToken` normalises it to `null` for the `if (token)` guards below.
-type AccessTokenProvider = () => Promise<string | undefined>;
-
-let tokenProvider: AccessTokenProvider | null = null;
-
-/** Registered by <AuthProvider>; cleared on unmount or logout. */
-export function setTokenProvider(provider: AccessTokenProvider | null): void {
-  tokenProvider = provider;
+export function getAuthToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem('access_token') || localStorage.getItem('token');
 }
 
-export async function getAuthToken(): Promise<string | null> {
-  if (!tokenProvider) return null;
-  try {
-    return (await tokenProvider()) ?? null;
-  } catch (err) {
-    // A renewal failure is not fatal to the call site: the request will 401
-    // with a proper ApiError, and the 401 handler drives the re-login. Swallow
-    // here so a token problem does not surface as an unrelated network error.
-    logError('failed to obtain an access token', err);
-    return null;
+export function setAuthToken(token: string) {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('access_token', token);
+  }
+}
+
+export function removeAuthToken() {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('demo_session');
   }
 }
 
 /**
- * Headers for the call sites that must bypass `request()` because they need a
- * blob, a stream or a browser-native navigation rather than parsed JSON.
+ * Write a client-side-only demo session so the app can be explored
+ * fully offline without a running backend.
  */
-export async function authHeaders(): Promise<Record<string, string>> {
-  const token = await getAuthToken();
-  const currentLang = getCurrentLanguage() || getActiveLanguageCode();
-  return {
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    'X-Content-Language': currentLang,
-    'Accept-Language': currentLang,
-  };
+export function setDemoSession() {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('demo_session', 'true');
+    // Use a synthetic token so API calls include an Authorization header
+    // (they'll still fail at the network level, but the app has
+    // extensive mock-data fallbacks for every route).
+    localStorage.setItem('access_token', 'DEMO_SESSION');
+  }
+}
+
+export function isDemoSession(): boolean {
+  if (typeof window === 'undefined') return false;
+  return localStorage.getItem('demo_session') === 'true';
 }
 
 export function getCurrentLanguage(): string {
@@ -239,29 +155,8 @@ export function setCurrentLanguage(lang: string) {
   }
 }
 
-/** Per-request timeout. Generous, because builds and exports are slow. */
-const DEFAULT_TIMEOUT_MS = 60_000;
-const RETRYABLE_METHODS = new Set(['GET', 'HEAD']);
-
-/**
- * Core transport.
- *
- * Guarantees, all of which the previous version lacked:
- *  - the request always settles: `AbortSignal.timeout` bounds it instead of
- *    leaving the UI spinning forever on a stalled socket;
- *  - HTTP failures throw `ApiError`, so callers can branch on `status` or
- *    `code` instead of matching on English text;
- *  - a user-supplied `signal` (SSE teardown, unmount) still aborts promptly,
- *    and the two signals are combined rather than overwriting each other;
- *  - idempotent reads retry once on a transport failure, which matters because
- *    the Render free tier sleeps and the first request after a wake always 502s.
- */
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  // Awaited per call so a renewed token is picked up without a reload. When no
-  // provider is registered (SSR, or a build with Auth0 unconfigured) the request
-  // still goes out unauthenticated and the backend answers 401, which is a far
-  // clearer signal than a client-side throw.
-  const token = await getAuthToken();
+  const token = getAuthToken();
   const currentLang = getCurrentLanguage() || getActiveLanguageCode();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -273,24 +168,6 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-
-  // Honour a caller-supplied per-request timeout; otherwise use the default.
-  // Destructured once so `timeoutMs` is stripped from the `fetch` init (it is
-  // not a fetch option) and the same value is not read twice.
-  const {
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-    signal: callerSignal,
-    ...init
-  } = options as RequestInit & { timeoutMs?: number };
-
-  // `AbortSignal.any` is unavailable on older Safari; fall back to the caller's
-  // signal alone, which still aborts, just without the timeout backstop.
-  const timeoutSignal =
-    typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(timeoutMs) : undefined;
-  const signal =
-    callerSignal && timeoutSignal
-      ? AbortSignal.any([callerSignal, timeoutSignal])
-      : (callerSignal ?? timeoutSignal);
 
   const baseUrl = getApiBaseUrl();
   const primaryUrl = `${baseUrl}${endpoint}`;
@@ -304,151 +181,129 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   }
 
   const uniqueUrls = Array.from(new Set(urlsToTry));
-  const method = (init.method ?? 'GET').toUpperCase();
-  const canRetry = RETRYABLE_METHODS.has(method) && !callerSignal?.aborted;
-  const maxAttempts = canRetry ? 2 : 1;
-
+  let response: Response | undefined;
   let lastError: unknown;
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    let response: Response | undefined;
+  for (let i = 0; i < uniqueUrls.length; i++) {
+    const url = uniqueUrls[i];
+    try {
+      const res = await fetch(url, {
+        ...options,
+        headers,
+      });
 
-    for (let i = 0; i < uniqueUrls.length; i++) {
-      const url = uniqueUrls[i];
-      try {
-        const res = await fetch(url, { ...init, headers, signal });
-
-        if (res.status === 404 && i < uniqueUrls.length - 1) {
-          // If the 404 came with an API JSON body (e.g. from FastAPI with detail
-          // or error), the backend was reached and explicitly returned an
-          // application response. Do not fall back to a frontend route that
-          // would mask the true error message.
-          const contentType = res.headers.get('content-type') || '';
-          if (contentType.includes('application/json')) {
-            response = res;
-            break;
-          }
-          continue;
+      if (res.status === 404 && i < uniqueUrls.length - 1) {
+        // If the 404 came with an API JSON body (e.g. from FastAPI with detail or error),
+        // the backend was reached and explicitly returned an application response.
+        // Do not fallback to a frontend route that will mask the true error message.
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          response = res;
+          break;
         }
-        response = res;
-        break;
-      } catch (err) {
-        // A caller-initiated abort is a decision, not a failure: let it through
-        // untouched so the originating code can recognise its own cancellation.
-        if (err instanceof DOMException && err.name === 'AbortError' && callerSignal?.aborted) {
-          throw new ApiError('Request cancelled', { code: 'CANCELLED', endpoint, cause: err });
-        }
-        lastError = err;
-      }
-    }
-
-    if (!response) {
-      const isTimeout =
-        lastError instanceof DOMException && lastError.name === 'TimeoutError';
-      const networkish =
-        lastError instanceof TypeError &&
-        (lastError.message.toLowerCase().includes('fetch') ||
-          lastError.message.toLowerCase().includes('network'));
-
-      if (attempt < maxAttempts) {
-        logger.warn('request retrying', { endpoint, attempt, reason: isTimeout ? 'timeout' : 'network' });
         continue;
       }
-      if (isTimeout) {
-        throw new ApiError(
-          `The backend did not respond within ${Math.round(timeoutMs / 1000)}s.`,
-          { code: 'TIMEOUT', endpoint, cause: lastError },
-        );
-      }
-      if (networkish) {
-        throw new ApiError(
-          `Unable to reach backend (${getApiBaseUrl()}). The backend service may be waking up from idle sleep or BACKEND_URL / NEXT_PUBLIC_API_URL is unconfigured.`,
-          { code: 'NETWORK', endpoint, cause: lastError },
-        );
-      }
-      throw lastError
-        ? toApiError(lastError, endpoint)
-        : new ApiError(`Failed to request ${endpoint}`, { code: 'NETWORK', endpoint });
-    }
-
-    if (!response.ok) {
-      // A 401 means the access token is gone, expired past silent renewal, or
-      // was revoked. Clearing the provider forces the next call to go back to
-      // Auth0, and a hard navigation is the only way to reliably unwind the
-      // signed-in React tree without a full router-aware re-render.
-      //
-      // Skipped while the auth bypass is on. That build has no real token by
-      // design, so every request 401s — and without this the hard navigation
-      // threw the user straight back to /login, making the bypass useless even
-      // though the route guard was correctly bypassed.
-      if (response.status === 401 && !isAuthBypassed) {
-        if (token) {
-          setTokenProvider(null);
-        }
-        if (
-          typeof window !== 'undefined' &&
-          !window.location.pathname.startsWith('/login') &&
-          !window.location.pathname.startsWith('/callback')
-        ) {
-          const returnTo = `${window.location.pathname}${window.location.search}`;
-          // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- api layer has no router access
-          window.location.href = `/login?returnTo=${encodeURIComponent(returnTo)}`;
-        }
-      }
-      const errorData = await response.json().catch(() => null);
-      const message =
-        errorData?.error?.message ||
-        errorData?.detail ||
-        (typeof errorData?.error === 'string' ? errorData.error : null) ||
-        `Request failed with status ${response.status}`;
-
-      const error = new ApiError(message, {
-        status: response.status,
-        code: codeForStatus(response.status),
-        details: errorData?.error?.details ?? errorData?.detail,
-        endpoint,
-      });
-      logError('request failed', error);
-      throw error;
-    }
-
-    if (response.status === 204) {
-      return {} as T;
-    }
-
-    // A 200 with an unparseable body is a real failure mode (proxy error page,
-    // truncated response). Surface it as an ApiError rather than leaking a
-    // SyntaxError out of the API layer.
-    try {
-      return (await response.json()) as T;
+      response = res;
+      break;
     } catch (err) {
-      throw new ApiError('The backend returned a malformed response.', {
-        status: response.status,
-        code: 'SERVER',
-        endpoint,
-        cause: err,
-      });
+      lastError = err;
     }
   }
 
-  throw toApiError(lastError, endpoint);
+  if (!response) {
+    const isNetworkError =
+      lastError instanceof TypeError &&
+      (lastError.message.toLowerCase().includes('fetch') || lastError.message.toLowerCase().includes('network'));
+    if (isNetworkError) {
+      throw new Error(
+        `Unable to reach backend (${API_BASE_URL}). The backend service may be waking up from idle sleep or BACKEND_URL / NEXT_PUBLIC_API_URL is unconfigured.`
+      );
+    }
+    throw lastError || new Error(`Failed to request ${endpoint}`);
+  }
+
+  if (!response.ok) {
+    // Treat a 401 as a session problem only for real sessions — a demo session
+    // must not be torn down or hard-redirected mid-flow.
+    if (response.status === 401 && !isDemoSession()) {
+      removeAuthToken();
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- api layer has no router access
+        window.location.href = '/login';
+      }
+    }
+    const errorData = await response.json().catch(() => null);
+    const message =
+      errorData?.error?.message ||
+      errorData?.detail ||
+      (typeof errorData?.error === 'string' ? errorData.error : null) ||
+      `Request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  if (response.status === 204) {
+    return {} as T;
+  }
+
+  return response.json();
 }
 
 // ── Auth ──────────────────────────────────────────
-// No register, login, logout or provider-listing calls here. Those are Auth0's:
-// the browser is redirected to Universal Login and comes back holding a token,
-// and the session is destroyed by the SDK's logout. The only thing left for the
-// API to answer is "who is this, and what may they do".
 export const authApi = {
+  async register(data: { email: string; password: string; org_name: string; full_name?: string }) {
+    const res = await request<{ access_token: string; token_type: string }>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    setAuthToken(res.access_token);
+    return res;
+  },
+
+  async login(data: { email: string; password: string }) {
+    const res = await request<{ access_token: string; token_type: string }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    setAuthToken(res.access_token);
+    return res;
+  },
+
   async me() {
     return request<User>('/auth/me');
   },
 
-  async updateSettings(data: { github_token?: string; render_api_key?: string; vercel_token?: string }) {
+  async getProviders() {
+    return request<SocialProvidersResponse>('/auth/providers');
+  },
+
+  async anonymousLogin() {
+    const res = await request<AnonymousAuthResponse>('/auth/anonymous', {
+      method: 'POST',
+    });
+    setAuthToken(res.access_token);
+    return res;
+  },
+
+  async upgradeAnonymous(data: UpgradeAnonymousPayload) {
+    return request<User>('/auth/upgrade-anonymous', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getOAuthAuthorizeUrl(provider: 'github' | 'google') {
+    return request<{ authorization_url: string }>(`/auth/oauth/${provider}/authorize`);
+  },
+
+  async updateSettings(data: { github_token?: string; render_api_key?: string }) {
     return request<{ updated: boolean }>('/auth/me/settings', {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
+  },
+
+  logout() {
+    removeAuthToken();
   },
 };
 
@@ -554,10 +409,6 @@ export const solutionApi = {
     });
   },
 
-  async getClarifications(id: string): Promise<ClarificationResponse> {
-    return request<ClarificationResponse>(`/mvp/${id}/clarifications`);
-  },
-
   async delete(id: string) {
     return request<void>(`/solutions/${id}`, {
       method: 'DELETE',
@@ -590,23 +441,13 @@ export const artifactApi = {
    * caller owns the returned URL and must `URL.revokeObjectURL` it.
    */
   async getImageObjectUrl(artifactId: string): Promise<string> {
-    const token = await getAuthToken();
+    const token = getAuthToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const res = await fetch(`${getApiBaseUrl()}/artifacts/${artifactId}/image`, { headers });
+    const res = await fetch(`${API_BASE_URL}/artifacts/${artifactId}/image`, { headers });
     if (!res.ok) throw new Error(`Failed to load image with status ${res.status}`);
     return URL.createObjectURL(await res.blob());
-  },
-
-  async explain(
-    artifactId: string,
-    signal?: AbortSignal
-  ): Promise<ArtifactExplainability> {
-    return request<ArtifactExplainability>(
-      `/artifacts/${artifactId}/explain`,
-      { signal }
-    );
   },
 };
 
@@ -656,16 +497,16 @@ export const exportApi = {
   // Authorization header (downloadExport below) so it never leaks into logs,
   // referrers, or browser history via a ?token= query param.
   getExportUrl(solutionId: string, format: 'json' | 'markdown' | 'zip'): string {
-    return `${getApiBaseUrl()}/export/${solutionId}/${format}`;
+    return `${API_BASE_URL}/export/${solutionId}/${format}`;
   },
 
   async downloadExport(solutionId: string, format: 'json' | 'markdown' | 'zip', filename?: string) {
-    const token = await getAuthToken();
+    const token = getAuthToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
     headers['X-Content-Language'] = getActiveLanguageCode();
 
-    const res = await fetch(`${getApiBaseUrl()}/export/${solutionId}/${format}`, { headers });
+    const res = await fetch(`${API_BASE_URL}/export/${solutionId}/${format}`, { headers });
     if (!res.ok) throw new Error(`Export failed with status ${res.status}`);
 
     const blob = await res.blob();
@@ -702,45 +543,29 @@ export const mvpApi = {
     return request<MVPBuild[]>(`/mvp/${solutionId}/builds`);
   },
 
-async getStatus(buildId: string): Promise<MVPBuild> {
-      return request<MVPBuild>(`/mvp/builds/${buildId}/status`);
-    },
+  async getStatus(buildId: string): Promise<MVPBuild> {
+    return request<MVPBuild>(`/mvp/builds/${buildId}/status`);
+  },
 
-    /**
-     * Address of the backend-served preview for a build, used when the app has
-     * not been deployed yet. Returns a URL rather than fetching, because the
-     * sandbox renders it in an iframe and needs the address, not the HTML.
-     */
-    getPreviewUrl(buildId: string): string {
-      return `${getApiBaseUrl()}/mvp/builds/${encodeURIComponent(buildId)}/preview`;
-    },
-
-  async getFileContent(
-    buildId: string,
-    filePath: string,
-    signal?: AbortSignal
-  ): Promise<string> {
-    const token = await getAuthToken();
+  async getFileContent(buildId: string, filePath: string): Promise<string> {
+    const token = getAuthToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
     
     // Ensure the path does not start with a leading slash to construct the URL correctly
     const cleanPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
-    const res = await fetch(`${getApiBaseUrl()}/mvp/builds/${buildId}/files/${cleanPath}`, {
-      headers,
-      signal,
-    });
+    const res = await fetch(`${API_BASE_URL}/mvp/builds/${buildId}/files/${cleanPath}`, { headers });
     if (!res.ok) throw new Error(`Failed to get file with status ${res.status}`);
     return res.text();
   },
 
   async downloadBuild(buildId: string, filename?: string) {
-    const token = await getAuthToken();
+    const token = getAuthToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
     headers['X-Content-Language'] = getActiveLanguageCode();
 
-    const res = await fetch(`${getApiBaseUrl()}/mvp/builds/${buildId}/download`, { headers });
+    const res = await fetch(`${API_BASE_URL}/mvp/builds/${buildId}/download`, { headers });
     if (!res.ok) throw new Error(`Download failed with status ${res.status}`);
 
     const blob = await res.blob();
@@ -811,6 +636,10 @@ async getStatus(buildId: string): Promise<MVPBuild> {
     });
   },
 
+  getPreviewUrl(buildId: string): string {
+    return `${API_BASE_URL}/mvp/builds/${buildId}/preview`;
+  },
+
   async destroyPreview(buildId: string): Promise<{ destroyed: boolean; build_id: string }> {
     return request<{ destroyed: boolean; build_id: string }>(
       `/mvp/builds/${buildId}/preview/destroy`,
@@ -853,10 +682,6 @@ async getStatus(buildId: string): Promise<MVPBuild> {
       }
     );
   },
-
-  async getClarifications(solutionId: string): Promise<ClarificationResponse> {
-    return request<ClarificationResponse>(`/mvp/${solutionId}/clarifications`);
-  },
 };
 
 // ── Billing & Credits ────────────────────────────
@@ -892,10 +717,14 @@ export const billingApi = {
     });
   },
 
-  async simulateCapture(order_id: string): Promise<{ status: string; credits: number }> {
-    return request<{ status: string; credits: number }>('/billing/simulate-capture', {
+  async verifyPayment(payload: {
+    order_id: string;
+    payment_id: string;
+    signature?: string;
+  }): Promise<{ status: string; credits?: number }> {
+    return request<{ status: string; credits?: number }>('/billing/verify', {
       method: 'POST',
-      body: JSON.stringify({ order_id }),
+      body: JSON.stringify(payload),
     });
   },
 };
@@ -918,7 +747,7 @@ export const adminApi = {
 // ── Upload ───────────────────────────────────────
 export const uploadApi = {
   async uploadFile(file: File): Promise<{ filename: string; text: string; size: number }> {
-    const token = await getAuthToken();
+    const token = getAuthToken();
     const formData = new FormData();
     formData.append('file', file);
 
@@ -926,7 +755,7 @@ export const uploadApi = {
     if (token) headers['Authorization'] = `Bearer ${token}`;
     headers['X-Content-Language'] = getActiveLanguageCode();
 
-    const response = await fetch(`${getApiBaseUrl()}/upload/document`, {
+    const response = await fetch(`${API_BASE_URL}/upload/document`, {
       method: 'POST',
       headers,
       body: formData,
@@ -948,12 +777,12 @@ export const uploadApi = {
   },
 
   async parseUrl(url: string): Promise<{ url: string; extractedText: string; characterCount: number }> {
-    const token = await getAuthToken();
+    const token = getAuthToken();
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
     headers['X-Content-Language'] = getActiveLanguageCode();
 
-    const response = await fetch(`${getApiBaseUrl()}/upload/url`, {
+    const response = await fetch(`${API_BASE_URL}/upload/url`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ url }),
@@ -984,7 +813,7 @@ export const uploadApi = {
     detected_language: string;
     character_count: number;
   }> {
-    const token = await getAuthToken();
+    const token = getAuthToken();
     const currentLang = language || getCurrentLanguage();
     const formData = new FormData();
     formData.append('file', audioBlob, filename);
@@ -999,7 +828,7 @@ export const uploadApi = {
       headers['Accept-Language'] = currentLang;
     }
 
-    const response = await fetch(`${getApiBaseUrl()}/upload/audio`, {
+    const response = await fetch(`${API_BASE_URL}/upload/audio`, {
       method: 'POST',
       headers,
       body: formData,
@@ -1039,7 +868,7 @@ async function streamSSE(
   payload: object,
   handlers: StreamHandlers
 ) {
-  const token = await getAuthToken();
+  const token = getAuthToken();
   const currentLang = getCurrentLanguage() || getActiveLanguageCode();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -1170,9 +999,6 @@ export interface EngineHealth {
   healthy: boolean;
   sidecar_healthy: boolean;
   mode: 'opencode-sidecar' | 'integrated-synthesizer';
-  worker_mode?: string;
-  sidecar_error?: string;
-  sidecar_fix?: string;
   version?: string;
   model?: string;
   latency_ms?: number;
@@ -1199,32 +1025,7 @@ export const opencodeApi = {
   async diagnose(): Promise<OpenCodeDiagnosis> {
     return request<OpenCodeDiagnosis>('/opencode/diagnose');
   },
-  async probeClarifications(prompt: string): Promise<ClarificationResponse> {
-    return request<ClarificationResponse>('/opencode/chat/clarify', {
-      method: 'POST',
-      body: JSON.stringify({ prompt }),
-    });
-  },
 };
-
-export interface ClarificationOption {
-  label: string;
-  value: string;
-  description?: string;
-}
-
-export interface ClarificationQuestion {
-  id: string;
-  field: string;
-  question: string;
-  rationale: string;
-  options: ClarificationOption[];
-}
-
-export interface ClarificationResponse {
-  has_gaps: boolean;
-  questions: ClarificationQuestion[];
-}
 
 export async function sendOpenCodeChatStream(
   payload: OpenCodeChatPayload,
@@ -1387,8 +1188,8 @@ export const legacyRepoApi = {
   async analyzeUpload(file: File): Promise<LegacyRepoAnalysis> {
     const formData = new FormData();
     formData.append('file', file);
-    const token = await getAuthToken();
-    const res = await fetch(`${getApiBaseUrl()}/legacy-repo/analyze-upload`, {
+    const token = getAuthToken();
+    const res = await fetch(`${API_BASE_URL}/legacy-repo/analyze-upload`, {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: formData,
@@ -1424,7 +1225,7 @@ export const legacyRepoApi = {
   },
 
   getDownloadUrl(buildId: string): string {
-    return `${getApiBaseUrl()}/legacy-repo/download/${buildId}`;
+    return `${API_BASE_URL}/legacy-repo/download/${buildId}`;
   },
 };
 
@@ -1507,8 +1308,8 @@ export const securityApi = {
   async scanFile(file: File) {
     const formData = new FormData();
     formData.append('file', file);
-    const token = await getAuthToken();
-    const res = await fetch(`${getApiBaseUrl()}/security/scan/file`, {
+    const token = getAuthToken();
+    const res = await fetch(`${API_BASE_URL}/security/scan/file`, {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: formData,

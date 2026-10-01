@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { mvpApi, solutionApi, workspaceApi } from '@/lib/api';
 import type { MVPBuild, OpenCodeBuildProgress, Solution } from '@/types';
-import type { ClarificationQuestion } from '@/components/chat/ClarificationPanel';
 
 export type ChatRole = 'user' | 'assistant' | 'system';
 
@@ -19,7 +18,6 @@ export interface BuildCapability {
   llm_authenticated: boolean;
   simulation: boolean;
   mode: string;
-  worker_mode?: string;
 }
 
 export interface Milestone {
@@ -73,9 +71,6 @@ export interface ChatState {
   engine: EngineStatus;
   capability: BuildCapability | null;
 
-  // ── Clarifications (Requirement Alignment) ──────────────
-  clarifications: ClarificationQuestion[] | null;
-
   // ── Sidecar ─────────────────────────────────────────────
   history: Solution[];
   historyStatus: AsyncStatus;
@@ -101,7 +96,6 @@ export const initialChatState: ChatState = {
   buildsStatus: 'idle',
   engine: 'connecting',
   capability: null,
-  clarifications: null,
   history: [],
   historyStatus: 'idle',
   historyQuery: '',
@@ -120,8 +114,6 @@ export type ChatAction =
   | { type: 'set-capability'; value: BuildCapability | null }
   | { type: 'set-error'; value: string | null }
   | { type: 'set-context'; value: { filename: string; text: string } | null }
-  | { type: 'set-clarifications'; questions: ClarificationQuestion[] | null }
-  | { type: 'dismiss-clarifications' }
   // History
   | { type: 'history/loading' }
   | { type: 'history/loaded'; items: Solution[] }
@@ -188,20 +180,6 @@ export function milestonesFromPhase(phase: string, _target: number, done: boolea
   }));
 }
 
-/**
- * Collapse consecutive identical bubbles.
- *
- * The backend can persist a turn's reply more than once (stream event plus
- * terminal payload), so a re-hydrated history would replay it as a visible
- * duplicate. Only *adjacent* equal texts are collapsed — a genuinely repeated
- * line later in a conversation is still shown.
- */
-function dedupeMessages(messages: ChatMessage[]): ChatMessage[] {
-  return messages.filter(
-    (m, i) => !(i > 0 && m.role === 'assistant' && messages[i - 1].role === 'assistant' && m.content === messages[i - 1].content)
-  );
-}
-
 function appendLog(progress: BuildProgress | null, message: string): BuildProgress {
   const startedAt = progress?.startedAt ?? Date.now();
   const seconds = Math.round((Date.now() - startedAt) / 1000);
@@ -243,12 +221,6 @@ function reduce(state: ChatState, action: ChatAction): ChatState {
     case 'set-context':
       return { ...state, context: action.value };
 
-    case 'set-clarifications':
-      return { ...state, clarifications: action.questions };
-
-    case 'dismiss-clarifications':
-      return { ...state, clarifications: null };
-
     case 'history/loading':
       return { ...state, historyStatus: 'loading' };
 
@@ -283,13 +255,11 @@ function reduce(state: ChatState, action: ChatAction): ChatState {
           : state.sessionId,
         appName: solution.title || state.appName,
         messages: history.length
-          ? dedupeMessages(
-              history.map((m) => ({
-                role: (m.role as ChatRole) || 'assistant',
-                content: m.content || '',
-                agent: m.role === 'assistant' ? agent : undefined,
-              }))
-            )
+          ? history.map((m) => ({
+              role: (m.role as ChatRole) || 'assistant',
+              content: m.content || '',
+              agent: m.role === 'assistant' ? agent : undefined,
+            }))
           : [{ role: 'assistant', agent, content: action.welcome }],
       };
     }
@@ -324,7 +294,6 @@ function reduce(state: ChatState, action: ChatAction): ChatState {
         builds: [],
         buildsStatus: action.solutionId ? 'loading' : 'ready',
         buildRequested: false,
-        clarifications: null,
       };
 
     case 'stream/start':
@@ -364,19 +333,11 @@ function reduce(state: ChatState, action: ChatAction): ChatState {
     case 'user/message':
       return { ...state, messages: [...state.messages, { role: 'user', content: action.message }] };
 
-    case 'stream/message': {
-      // A turn's reply can reach us from more than one channel (the `message`
-      // event, the terminal `complete` payload, or a re-hydrated history). If
-      // the last bubble is already this exact text, do not stack a copy.
-      const last = state.messages[state.messages.length - 1];
-      if (last && last.role === 'assistant' && last.content === action.message) {
-        return state;
-      }
+    case 'stream/message':
       return {
         ...state,
         messages: [...state.messages, { role: 'assistant', content: action.message, agent: action.agent }],
       };
-    }
 
     case 'stream/progress': {
       const p = action.progress;
@@ -753,9 +714,7 @@ export function useChatSession(options: UseChatSessionOptions) {
         upsertCachedSolution(solution);
       } catch {
         loadedRef.current = null;
-        removeCachedSolution(solutionId);
-        dispatch({ type: 'history/remove', id: solutionId });
-        dispatch({ type: 'activate', solutionId: null, welcome });
+        dispatch({ type: 'conversation/failed' });
         dispatch({ type: 'builds/loaded', builds: [] });
       }
     },

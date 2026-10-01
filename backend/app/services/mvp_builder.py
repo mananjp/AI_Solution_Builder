@@ -29,7 +29,7 @@ import time
 import zipfile
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from app.services.app_spec import AppSpec
@@ -512,6 +512,11 @@ async def health_info() -> dict[str, Any]:
                     agent_val = d.get("agent")
                     agent_model = agent_val.get("model") if isinstance(agent_val, dict) else None
                     return d.get("model") or agent_model
+                if p == "/api/session":
+                    items = d.get("data") or []
+                    if items and isinstance(items[0], dict):
+                        m = items[0].get("model")
+                        return m.get("id") if isinstance(m, dict) else m
                 if p == "/api/model/default":
                     return d.get("model") or d.get("id")
                 if p == "/api/config":
@@ -519,16 +524,21 @@ async def health_info() -> dict[str, Any]:
                 return None
 
             model = None
-            for cfg_path in ("/config", "/api/model/default", "/api/config"):
-                cfg = await client.get(cfg_path, timeout=3.0)
-                if cfg.status_code == 200:
-                    model = _extract_model(cfg_path, cfg.json()) or None
-                    if model:
-                        break
-            info["model"] = model
+            for cfg_path in ("/config", "/api/session", "/api/model/default", "/api/config"):
+                try:
+                    cfg = await client.get(cfg_path, timeout=3.0)
+                    ct = cfg.headers.get("content-type", "")
+                    if cfg.status_code == 200 and "json" in ct:
+                        model = _extract_model(cfg_path, cfg.json()) or None
+                        if model:
+                            break
+                except Exception:
+                    continue
+            info["model"] = model or getattr(settings, "OPENCODE_MODEL", None) or "big-pickle"
     except Exception as exc:
         logger.debug("health_info detail check failed: %s", exc)
-        info["error"] = f"{type(exc).__name__}: {exc}"
+        if not info.get("sidecar_healthy"):
+            info["error"] = f"{type(exc).__name__}: {exc}"
     return info
 
 
@@ -741,32 +751,39 @@ async def send_message(
     seed: str = "",
 ) -> dict[str, Any]:
     """Send a message to an OpenCode session and wait for the full response."""
-    payload: dict[str, Any] = {
-        "agent": agent or settings.OPENCODE_AGENT,
-        "parts": [{"type": "text", "text": text}],
-    }
+    agent_candidates = [agent or settings.OPENCODE_AGENT or "build"]
+    if "build" not in agent_candidates:
+        agent_candidates.append("build")
+
     paths = (
         f"/session/{session_id}/message",
         f"/api/session/{session_id}/prompt",
     )
     base_url = _pick_base_url(seed=seed, session_id=session_id)
     async with _client(base_url=base_url) as client:
-        resp = None
-        for path in paths:
-            resp = await client.post(
-                path,
-                json=payload,
-                timeout=timeout or settings.MVP_BUILD_TIMEOUT,
-            )
-            if resp.status_code not in (404, 501):
-                break
-        if resp is None or resp.status_code not in (200, 201):
-            raise MVPBuilderError(
-                _auth_hint(resp.status_code if resp else 0)
-                or f"OpenCode message failed ({resp.status_code if resp else 'n/a'}): {(resp.text[:500] if resp else 'no response')}"
-            )
-        result: dict[str, Any] = resp.json()
-        return result
+        last_resp = None
+        for candidate_agent in agent_candidates:
+            payload: dict[str, Any] = {
+                "agent": candidate_agent,
+                "parts": [{"type": "text", "text": text}],
+            }
+            resp = None
+            for path in paths:
+                resp = await client.post(
+                    path,
+                    json=payload,
+                    timeout=timeout or settings.MVP_BUILD_TIMEOUT,
+                )
+                if resp.status_code not in (404, 501):
+                    break
+            last_resp = resp
+            if resp is not None and resp.status_code in (200, 201):
+                return cast(dict[str, Any], resp.json())
+
+        raise MVPBuilderError(
+            _auth_hint(last_resp.status_code if last_resp else 0)
+            or f"OpenCode message failed ({last_resp.status_code if last_resp else 'n/a'}): {(last_resp.text[:500] if last_resp else 'no response')}"
+        )
 
 
 async def send_build_prompt(session_id: str, prompt: str, *, seed: str = "") -> dict[str, Any]:

@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import { ProgressStepper } from '@/components/lab/progress-stepper';
 
 export type StageKey = 'input' | 'clarify' | 'blueprint' | 'approve' | 'build' | 'deploy' | 'live';
 
@@ -21,39 +20,66 @@ const STAGES: Step[] = [
   { key: 'live', label: '7. Live', description: 'Verified System' },
 ];
 
-/**
- * Stage rail across the top of a solution.
- *
- * Drawn with the lab's `ProgressStepper`, which fills its connector with one
- * spring shared by the fill and the head, so advancing a stage reads as the
- * line growing rather than a colour change landing after the fact.
- *
- * Completion is derived from `currentStage`: everything before the head is
- * done, everything after it is not. The previous hand-rolled version also took
- * a `completedStages` list, but it was only ever passed the stages that were
- * already implied by the current index, so the second source of truth could
- * disagree with the first rather than add anything.
- */
-export function GuidedStepper({ currentStage }: { currentStage: StageKey }) {
-  const currentIndex = Math.max(
-    STAGES.findIndex((stage) => stage.key === currentStage),
-    0,
-  );
+interface GuidedStepperProps {
+  currentStage: StageKey;
+  completedStages?: StageKey[];
+  onStageClick?: (stage: StageKey) => void;
+}
+
+export function GuidedStepper({
+  currentStage,
+  completedStages = [],
+  onStageClick,
+}: GuidedStepperProps) {
+  const currentIndex = STAGES.findIndex((s) => s.key === currentStage);
 
   return (
     <div className="w-full bg-[var(--bg-2)] border-b border-[var(--border)] px-6 py-3 shadow-2xs">
-      <div className="max-w-6xl mx-auto">
-        <ProgressStepper
-          // Label and description on one line: the lab stepper renders a single
-          // label per step, and the sub-label is the part that can be dropped
-          // without losing the sequence.
-          steps={STAGES.map((stage) => `${stage.label} · ${stage.description}`)}
-          current={currentIndex}
-          label="Solution stages"
-        />
+      <div className="max-w-6xl mx-auto flex items-center justify-between">
+        {STAGES.map((step, idx) => {
+          const isCurrent = step.key === currentStage;
+          const isDone = completedStages.includes(step.key) || idx < currentIndex;
+
+          return (
+            <React.Fragment key={step.key}>
+              <div
+                onClick={() => onStageClick?.(step.key)}
+                className={`flex items-center gap-2.5 cursor-pointer transition-all ${
+                  isCurrent
+                    ? 'text-[var(--sutra-charcoal)] font-semibold scale-105'
+                    : isDone
+                    ? 'text-emerald-700 font-medium'
+                    : 'text-[var(--text-3)] hover:text-[var(--text-2)]'
+                }`}
+              >
+                <div
+                  className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-mono transition-colors ${
+                    isCurrent
+                      ? 'bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] shadow-sm ring-2 ring-[var(--sutra-muted-gold)]/50'
+                      : isDone
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-[var(--bg-3)] text-[var(--text-3)] border border-[var(--border)]'
+                  }`}
+                >
+                  {isDone ? '✓' : idx + 1}
+                </div>
+                <div className="hidden sm:block text-left">
+                  <div className="text-xs font-semibold leading-tight">{step.label}</div>
+                  <div className="text-[10px] text-[var(--text-3)] font-light">{step.description}</div>
+                </div>
+              </div>
+
+              {idx < STAGES.length - 1 && (
+                <div
+                  className={`flex-1 h-0.5 mx-3 transition-colors ${
+                    idx < currentIndex ? 'bg-emerald-600/70' : 'bg-[var(--border)]'
+                  }`}
+                />
+              )}
+            </React.Fragment>
+          );
+        })}
       </div>
     </div>
   );
 }
-
-export { STAGES };

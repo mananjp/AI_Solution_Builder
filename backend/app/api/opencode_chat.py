@@ -590,10 +590,23 @@ async def _synthesize_domain_artifacts_dynamic(
     except Exception as exc:
         logger.warning("LLM dynamic domain synthesis skipped or failed (%s)", exc)
 
-    # 5. No canned-domain fallback: honoring spec-first design, a generic
-    #    {name, status} shell must never be shipped as the user's app. If the
-    #    user already has a domain model, preserve it; otherwise fail honestly
-    #    so the UI can ask for more detail instead of building a look-alike.
+    # 5. Smart fallback: if LLM synthesis is temporarily unavailable (e.g. rate limits),
+    #    synthesize a tailored AppSpec using the domain lexicon rather than failing.
+    try:
+        from app.services.app_spec import fallback_app_spec
+
+        fb_spec = fallback_app_spec(existing_state or {}, effective_prompt)
+        if fb_spec and fb_spec.entities:
+            res = _artifacts_from_app_spec(fb_spec)
+            logger.info(
+                "Synthesized fallback AppSpec for '%s' (%d entities)",
+                fb_spec.app_name,
+                len(fb_spec.entities),
+            )
+            return res
+    except Exception as fb_exc:
+        logger.warning("Emergency domain fallback failed: %s", fb_exc)
+
     if existing_state and (existing_state.get("er_diagram") or existing_state.get("entities")):
         return dict(existing_state)
     raise ValueError(

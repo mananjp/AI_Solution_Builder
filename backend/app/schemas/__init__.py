@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 # ── Ingestion ──────────────────────────────────────
 
@@ -20,9 +20,23 @@ class UrlParseRequest(BaseModel):
 
 
 # ── Auth ──────────────────────────────────────────
-# There are no credential schemas any more. Registration, login, password
-# reset and social connection all happen inside Auth0's Universal Login, and
-# the API only ever reads the resulting bearer token.
+
+
+class UserRegister(BaseModel):
+    email: EmailStr
+    full_name: str = Field(..., min_length=2, max_length=255)
+    password: str = Field(..., min_length=8, max_length=128)
+    org_name: str = Field(..., min_length=2, max_length=255)
+
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
 
 
 class UserResponse(BaseModel):
@@ -31,13 +45,39 @@ class UserResponse(BaseModel):
     full_name: str
     role: str
     org_id: UUID | None = None
-    auth_provider: str = "auth0"
+    auth_provider: str = "local"
     email_verified: bool = False
     is_anonymous: bool = False
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class SocialProvidersResponse(BaseModel):
+    """List of fully configured social OAuth providers and anonymous auth status."""
+
+    providers: list[str] = Field(default_factory=list)
+    allow_anonymous: bool = True
+
+
+class AnonymousAuthResponse(BaseModel):
+    """Token response returned when creating a throwaway demo identity."""
+
+    access_token: str
+    token_type: str = "bearer"
+    is_anonymous: bool = True
+    credits_remaining: int | None = None
+    user: UserResponse
+
+
+class UpgradeAnonymousRequest(BaseModel):
+    """Converts a temporary anonymous account to a permanent registered account."""
+
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
+    full_name: str = Field(..., min_length=2, max_length=255)
+    org_name: str | None = None
 
 
 class UserSettingsUpdate(BaseModel):

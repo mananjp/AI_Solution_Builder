@@ -25,7 +25,6 @@ import {
 import '@xyflow/react/dist/style.css';
 import { Plus, Save, Trash2 } from 'lucide-react';
 import type { Artifact } from '@/types';
-import { Button } from "@/components/ui/button";
 
 // --- Node data shapes -------------------------------------------------
 type ScreenNodeData = { label: string; subtitle?: string; kind: 'screen' };
@@ -45,23 +44,23 @@ type NodeKind<T extends WireframeNodeData, K extends T['kind']> = T extends { ki
 function ScreenNode({ data, selected }: NodeProps<Node<NodeKind<WireframeNodeData, 'screen'>>>) {
   return (
     <div
-      className={`w-[240px] rounded-lg border bg-[var(--text)] shadow-lg transition-shadow ${
-        selected ? 'border-[var(--sutra-strong)] ring-2 ring-[var(--sutra-strong)]/40' : 'border-[var(--border)]'
+      className={`w-[240px] rounded-lg border bg-slate-900 shadow-lg transition-shadow ${
+        selected ? 'border-[var(--sutra-muted-gold)] ring-2 ring-[var(--sutra-muted-gold)]/40' : 'border-white/10'
       }`}
     >
-      <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-t-lg bg-[var(--text)] border-b border-[var(--border)]">
-        <span className="w-2 h-2 rounded-full bg-[var(--red-wash)]" />
-        <span className="w-2 h-2 rounded-full bg-[var(--amber-wash)]" />
-        <span className="w-2 h-2 rounded-full bg-[var(--green-wash)]" />
-        <span className="ml-2 text-[10px] font-medium text-[var(--border)] truncate">{data.label}</span>
+      <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-t-lg bg-slate-950/80 border-b border-white/5">
+        <span className="w-2 h-2 rounded-full bg-rose-400/80" />
+        <span className="w-2 h-2 rounded-full bg-amber-400/80" />
+        <span className="w-2 h-2 rounded-full bg-emerald-400/80" />
+        <span className="ml-2 text-[10px] font-medium text-slate-200 truncate">{data.label}</span>
       </div>
       <div className="px-3 py-3">
-        <div className="text-[10px] font-semibold text-[var(--sutra-strong)] uppercase tracking-wide">Screen</div>
-        <div className="mt-0.5 text-[10px] text-[var(--text-3)] leading-relaxed line-clamp-2">
+        <div className="text-[10px] font-semibold text-[var(--sutra-muted-gold)] uppercase tracking-wide">Screen</div>
+        <div className="mt-0.5 text-[10px] text-slate-400 leading-relaxed line-clamp-2">
           {data.subtitle || 'Mobile screen blueprint — drag to reposition'}
         </div>
       </div>
-      <Handle type="source" position={Position.Bottom} className="!w-2 !h-2 !bg-[var(--sutra-strong)]" />
+      <Handle type="source" position={Position.Bottom} className="!w-2 !h-2 !bg-[var(--sutra-muted-gold)]" />
     </div>
   );
 }
@@ -69,29 +68,25 @@ function ScreenNode({ data, selected }: NodeProps<Node<NodeKind<WireframeNodeDat
 function ComponentNode({ data, selected }: NodeProps<Node<NodeKind<WireframeNodeData, 'component'>>>) {
   return (
     <div
-      className={`w-[210px] rounded-lg border bg-[var(--text)] shadow-md transition-shadow ${
-        selected ? 'border-[var(--info)] ring-2 ring-[var(--info-wash)]' : 'border-[var(--border)]'
+      className={`w-[210px] rounded-lg border bg-slate-800/90 shadow-md transition-shadow ${
+        selected ? 'border-cyan-400 ring-2 ring-cyan-500/30' : 'border-white/10'
       }`}
     >
       <div className="px-3 py-2">
         <div className="flex items-center justify-between gap-2">
-          {/* This node's header is the dark panel (bg-[var(--text)]), so the
-              label is drawn in the background colour to read as reversed out of
-              it. Tying it to --background rather than white keeps the pairing
-              correct if the panel and page ever swap values. */}
-          <span className="text-[11px] font-semibold text-[var(--background)] truncate">{data.label}</span>
-          <span className="px-1.5 py-0.5 rounded bg-[var(--info-wash)] text-[var(--info)] text-[9px] font-bold uppercase">
+          <span className="text-[11px] font-semibold text-white truncate">{data.label}</span>
+          <span className="px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 text-[9px] font-bold uppercase">
             {data.componentType}
           </span>
         </div>
         {data.description && (
-          <p className="mt-1 text-[10px] text-[var(--text-3)] leading-relaxed line-clamp-2">{data.description}</p>
+          <p className="mt-1 text-[10px] text-slate-400 leading-relaxed line-clamp-2">{data.description}</p>
         )}
         {data.fieldCount > 0 && (
-          <p className="mt-1.5 text-[9px] text-[var(--text-2)]">Fields: {data.fieldCount}</p>
+          <p className="mt-1.5 text-[9px] text-slate-500">Fields: {data.fieldCount}</p>
         )}
       </div>
-      <Handle type="target" position={Position.Top} className="!w-2 !h-2 !bg-[var(--info)]" />
+      <Handle type="target" position={Position.Top} className="!w-2 !h-2 !bg-cyan-400" />
     </div>
   );
 }
@@ -99,21 +94,6 @@ function ComponentNode({ data, selected }: NodeProps<Node<NodeKind<WireframeNode
 // --- Canvas serialization helpers --------------------------------------
 const SCREEN_GAP_X = 300;
 const COMPONENT_GAP_Y = 130;
-
-/* React Flow's Background and MiniMap take colours as SVG attributes, not as
-   class names, so they cannot read a CSS variable in a utility. These resolve
-   the theme's own tokens once at module load instead, which keeps the canvas
-   on the same palette as the rest of the app and lets it follow the theme
-   rather than carrying three hardcoded hexes. */
-const themeColor = (name: string, fallback: string) => {
-  if (typeof window === 'undefined') return fallback;
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return value || fallback;
-};
-
-const CANVAS_SURFACE = themeColor('--surface', '#161616');
-const CANVAS_PRIMARY = themeColor('--foreground', '#ededed');
-const CANVAS_ACCENT = themeColor('--info', '#58a6ff');
 
 function buildCanvas(wireframes: Artifact[]): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = [];
@@ -167,7 +147,7 @@ function buildCanvas(wireframes: Artifact[]): { nodes: Node[]; edges: Edge[] } {
           source: screenNodeId,
           target: compNodeId,
           animated: true,
-          style: { stroke: CANVAS_PRIMARY, strokeWidth: 1.5 },
+          style: { stroke: '#B08A4A', strokeWidth: 1.5 },
         });
       });
       cursorX += SCREEN_GAP_X;
@@ -325,37 +305,37 @@ function WireframeCanvasInner({ wireframes, onUpdate }: WireframeCanvasInnerProp
   const nodeTypes = useMemo(() => ({ screen: ScreenNode, component: ComponentNode }), []);
 
   return (
-    <div className="rounded-xl border border-[var(--border)] overflow-hidden bg-[var(--text)]">
+    <div className="rounded-xl border border-white/5 overflow-hidden bg-slate-950">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border)] bg-[var(--text)]/70">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-white/5 bg-slate-900/70">
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="default"
+          <button
             onClick={addComponent}
-            className="flex items-center gap-1.5 bg-[var(--info-wash)] hover:bg-[var(--info-wash)] border border-[var(--info-wash)] text-[var(--info)] text-xs font-semibold transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 text-cyan-300 text-xs font-semibold transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Add Component</span>
-          </Button>
-          <Button variant="outline" size="default"
+          </button>
+          <button
             onClick={deleteSelected}
             disabled={selectedIds.length === 0}
-            className="flex items-center gap-1.5 bg-[var(--red-wash)] hover:bg-[var(--red-wash)] border border-[var(--red-wash)] text-[var(--red)] text-xs font-semibold transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-300 text-xs font-semibold transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <Trash2 className="w-3.5 h-3.5" />
             <span>Delete</span>
-          </Button>
+          </button>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-[10px] text-[var(--text-2)] hidden sm:block">
+          <span className="text-[10px] text-slate-500 hidden sm:block">
             Drag nodes to reposition • Connect screens to components
           </span>
-          <Button variant="outline" size="default"
+          <button
             onClick={save}
-            className="flex items-center gap-1.5 bg-[var(--green-wash)] hover:bg-[var(--green-wash)] border border-[var(--green-wash)] text-[var(--green)] text-xs font-bold transition-colors"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/25 text-emerald-300 text-xs font-bold transition-colors"
           >
             <Save className="w-3.5 h-3.5" />
             <span>Save Layout</span>
-          </Button>
+          </button>
         </div>
       </div>
 
@@ -376,19 +356,14 @@ function WireframeCanvasInner({ wireframes, onUpdate }: WireframeCanvasInnerProp
           defaultEdgeOptions={{ type: 'smoothstep' }}
           colorMode="dark"
         >
-          {/* These are SVG attributes rather than class names, so they cannot
-              read a CSS variable. The two node colours come from the theme's
-              text and info tokens, resolved against the canvas element; the
-              dot grid uses the surface token so it stays visible on the dark
-              canvas without being a second hardcoded value. */}
-          <Background variant={BackgroundVariant.Dots} gap={18} size={1} color={CANVAS_SURFACE} />
+          <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#1e293b" />
           <MiniMap
             pannable
             zoomable
-            className="!bg-[var(--text)]/80"
-            nodeColor={(n) => (n.type === 'screen' ? CANVAS_PRIMARY : CANVAS_ACCENT)}
+            className="!bg-slate-900/80"
+            nodeColor={(n) => (n.type === 'screen' ? '#B08A4A' : '#06b6d4')}
           />
-          <Controls className="!bg-[var(--text)] !border-[var(--border)]" />
+          <Controls className="!bg-slate-900 !border-white/10" />
         </ReactFlow>
       </div>
     </div>

@@ -433,7 +433,12 @@ def verify_mvp_quality(workspace_dir: Path, spec: Any = None) -> list[str]:
             for token, msg in placeholder_patterns:
                 if token in content:
                     issues.append(f"{tsx.relative_to(workspace_dir)}: Contains {msg}")
-            if "<img" in content or "Image" in content or "image_url" in content or "unsplash" in content:
+            if (
+                "<img" in content
+                or "Image" in content
+                or "image_url" in content
+                or "unsplash" in content
+            ):
                 has_image = True
         except Exception:
             pass
@@ -444,7 +449,8 @@ def verify_mvp_quality(workspace_dir: Path, spec: Any = None) -> list[str]:
     if app_kind in visual_kinds and not has_image:
         credits_file = workspace_dir / "CREDITS.json"
         if not credits_file.exists():
-            issues.append(f"Visual application kind '{app_kind}' has no image assets or CREDITS.json configured")
+            issues.append(
+                f"Visual application kind '{app_kind}' has no image assets or CREDITS.json configured"
+            )
 
     return issues
-
