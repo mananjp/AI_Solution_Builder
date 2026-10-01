@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 # ── Ingestion ──────────────────────────────────────
 
@@ -23,14 +23,14 @@ class UrlParseRequest(BaseModel):
 
 
 class UserRegister(BaseModel):
-    email: EmailStr
+    email: str = Field(..., min_length=3, max_length=255)
     full_name: str = Field(..., min_length=2, max_length=255)
     password: str = Field(..., min_length=8, max_length=128)
     org_name: str = Field(..., min_length=2, max_length=255)
 
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    email: str = Field(..., min_length=3, max_length=255)
     password: str
 
 
@@ -74,7 +74,7 @@ class AnonymousAuthResponse(BaseModel):
 class UpgradeAnonymousRequest(BaseModel):
     """Converts a temporary anonymous account to a permanent registered account."""
 
-    email: EmailStr
+    email: str = Field(..., min_length=3, max_length=255)
     password: str = Field(..., min_length=8, max_length=128)
     full_name: str = Field(..., min_length=2, max_length=255)
     org_name: str | None = None
