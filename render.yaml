@@ -9,7 +9,6 @@ services:
     dockerContext: .
     dockerCommand: api
     healthCheckPath: /ready
-    maxShutdownDelaySeconds: 120
     envVars:
       - key: APP_NAME
         value: AI Solution Builder
@@ -155,7 +154,6 @@ services:
     dockerfilePath: ./builder.Dockerfile
     dockerContext: .
     dockerCommand: builder
-    maxShutdownDelaySeconds: 120
     disk:
       name: ai-solution-builder-workspace
       mountPath: /workspace
