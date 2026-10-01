@@ -1171,6 +1171,8 @@ export interface EngineHealth {
   sidecar_healthy: boolean;
   mode: 'opencode-sidecar' | 'integrated-synthesizer';
   worker_mode?: string;
+  sidecar_error?: string;
+  sidecar_fix?: string;
   version?: string;
   model?: string;
   latency_ms?: number;

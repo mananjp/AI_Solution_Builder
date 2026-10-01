@@ -21,7 +21,7 @@ import socket
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.mvp import execute_build_job
@@ -47,14 +47,20 @@ def generate_worker_id() -> str:
     return f"worker-{host}-{pid}-{rand}"
 
 
-async def reconcile_orphaned_jobs(db: AsyncSession, worker_id: str, stale_seconds: int = 60) -> int:
+async def reconcile_orphaned_jobs(
+    db: AsyncSession,
+    worker_id: str,
+    stale_seconds: int | None = None,
+) -> int:
     """Reconcile orphaned builds stuck in 'running' status.
 
     On worker startup, any job that was claimed but never completed is reconciled:
     - If attempts < max_attempts: reset status to 'queued' for retry.
     - If attempts >= max_attempts: mark as 'failed'.
     """
-    threshold = datetime.now(UTC) - timedelta(seconds=stale_seconds)
+    threshold = datetime.now(UTC) - timedelta(
+        seconds=stale_seconds or settings.WORKER_HEARTBEAT_STALE_SECONDS
+    )
     result = await db.execute(
         select(BuildJob).where(
             BuildJob.status == "running",
@@ -104,9 +110,14 @@ async def reconcile_orphaned_jobs(db: AsyncSession, worker_id: str, stale_second
 async def claim_next_job(db: AsyncSession, worker_id: str) -> BuildJob | None:
     """Atomically claim the oldest queued job using FOR UPDATE SKIP LOCKED."""
     dialect_name = db.bind.dialect.name if db.bind else ""
+    retry_ready = or_(
+        BuildJob.attempts == 0,
+        BuildJob.updated_at
+        <= datetime.now(UTC) - timedelta(seconds=settings.WORKER_RETRY_DELAY_SECONDS),
+    )
     query = (
         select(BuildJob)
-        .where(BuildJob.status == "queued")
+        .where(BuildJob.status == "queued", retry_ready)
         .order_by(BuildJob.created_at.asc())
         .limit(1)
     )
@@ -149,12 +160,12 @@ async def claim_next_job(db: AsyncSession, worker_id: str) -> BuildJob | None:
 async def _heartbeat_loop(
     build_id: uuid.UUID,
     stop_event: asyncio.Event,
-    interval: float = 10.0,
+    interval: float | None = None,
 ) -> None:
     """Periodically update heartbeat_at for the active build job."""
     while not stop_event.is_set():
         try:
-            await asyncio.sleep(interval)
+            await asyncio.sleep(interval or settings.WORKER_HEARTBEAT_INTERVAL)
             if stop_event.is_set():
                 break
             async with async_session_factory() as db:

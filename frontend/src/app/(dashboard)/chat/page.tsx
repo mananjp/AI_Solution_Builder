@@ -125,7 +125,7 @@ function ChatContent() {
       opencodeApi
         .health()
         .then((r) => {
-          if (mounted) dispatch({ type: 'set-engine', value: r.healthy ? 'online' : 'offline' });
+          if (mounted) dispatch({ type: 'set-engine', value: r.sidecar_healthy ? 'online' : 'offline' });
         })
         .catch(() => {
           if (mounted) dispatch({ type: 'set-engine', value: 'offline' });

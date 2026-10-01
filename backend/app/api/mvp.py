@@ -18,6 +18,7 @@ import asyncio
 import io
 import json
 import logging
+import os
 import re
 import tempfile
 from datetime import UTC, datetime
@@ -25,6 +26,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import (
     FileResponse,
@@ -117,6 +119,57 @@ router = APIRouter(prefix="/mvp", tags=["OpenCode MVP Builder"])
 _STATUS_END_STATES = {"complete", "failed", "cancelled"}
 
 _build_tasks: set[asyncio.Task[None]] = set()
+_inline_build_semaphore = asyncio.Semaphore(1)
+
+
+def _is_retryable_build_error(exc: Exception) -> bool:
+    """Retry transient sidecar/network failures, never bad config or user input."""
+    current: BaseException | None = exc
+    while current is not None:
+        if isinstance(
+            current,
+            (httpx.TimeoutException, httpx.NetworkError, TimeoutError, ConnectionError),
+        ):
+            return True
+        if isinstance(current, httpx.HTTPStatusError):
+            return current.response.status_code in (408, 425, 429, 500, 502, 503, 504)
+        current = current.__cause__ or current.__context__
+
+    message = str(exc).lower()
+    if any(
+        marker in message
+        for marker in ("401", "403", "unauthorized", "invalid api key", "model not found")
+    ):
+        return False
+    return any(
+        marker in message
+        for marker in (
+            "429",
+            "rate limit",
+            "temporarily unavailable",
+            "connection refused",
+            "connection reset",
+            "server disconnected",
+            "timed out",
+            "timeout",
+            "502",
+            "503",
+            "504",
+            "interrupted by a server restart",
+            "interrupted by server restart",
+            "worker terminated",
+            "abandoned mid-execution",
+            "worker stopped responding",
+        )
+    )
+
+
+def _age_seconds(timestamp: datetime | None, now: datetime) -> float:
+    if timestamp is None:
+        return float("inf")
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=UTC)
+    return max(0.0, (now - timestamp).total_seconds())
 
 
 def _storage_key(build: MVPBuild) -> str:
@@ -126,7 +179,21 @@ def _storage_key(build: MVPBuild) -> str:
 
 def _spawn_build_job(build_id: UUID) -> None:
     """Run a build in a background task (used when WORKER_MODE='inline')."""
-    task = asyncio.create_task(execute_build_job(build_id), name=f"mvp-build-{build_id}")
+
+    async def run_inline() -> None:
+        while True:
+            async with _inline_build_semaphore:
+                await execute_build_job(build_id)
+                async with async_session_factory() as db:
+                    result = await db.execute(select(BuildJob).where(BuildJob.build_id == build_id))
+                    job = result.scalar_one_or_none()
+                    should_retry = bool(job and job.status == "queued" and job.attempts > 0)
+                    attempt = job.attempts if job else 0
+            if not should_retry:
+                return
+            await asyncio.sleep(min(30, 5 * (2 ** max(0, attempt - 1))))
+
+    task = asyncio.create_task(run_inline(), name=f"mvp-build-{build_id}")
     _build_tasks.add(task)
     task.add_done_callback(_build_tasks.discard)
 
@@ -219,6 +286,16 @@ async def execute_build_job(build_id: UUID) -> None:
                 await db.commit()
                 return
 
+            if settings.WORKER_MODE == "inline":
+                job_res = await db.execute(select(BuildJob).where(BuildJob.build_id == build_id))
+                job = job_res.scalar_one_or_none()
+                if job and job.status == "queued":
+                    job.status = "running"
+                    job.attempts += 1
+                    job.claimed_by = f"inline-{os.getpid()}"
+                    job.claimed_at = datetime.now(UTC)
+                    job.heartbeat_at = job.claimed_at
+
             # Mark build as building with initial progress
             build.status = "building"
             cfg = dict(build.app_config or {})
@@ -281,9 +358,7 @@ async def execute_build_job(build_id: UUID) -> None:
                 user_prompts = [
                     str(item.get("content", "")).strip()
                     for item in (solution.conversation_history or [])
-                    if isinstance(item, dict)
-                    and item.get("role") == "user"
-                    and item.get("content")
+                    if isinstance(item, dict) and item.get("role") == "user" and item.get("content")
                 ]
                 user_msg = (
                     "\n\n".join(user_prompts[-5:])
@@ -407,36 +482,58 @@ async def execute_build_job(build_id: UUID) -> None:
         try:
             async with async_session_factory() as db:
                 build = await db.get(MVPBuild, build_id)
-                org_id: str | None = None
-                if build is not None:
-                    solution = await db.get(Solution, build.solution_id)
-                    if solution is not None:
-                        workspace = await db.get(Workspace, solution.workspace_id)
-                        if workspace is not None:
-                            org_id = str(workspace.org_id)
-                    build.status = "failed"
-                    build.error_message = str(exc)[:1000]
-                    # Refund the mvp_build credit (P0.4): credits were deducted
-                    # at trigger time, so a failed build must reverse the ledger.
-                    if org_id:
-                        try:
-                            await refund_credit(
-                                db,
-                                action_type="mvp_build",
-                                cost=action_cost("mvp_build"),
-                                description=f"Refund for failed MVP build ({build.build_number})",
-                                solution_id=build.solution_id,
-                                org_id=org_id,
-                            )
-                        except Exception as refund_err:  # noqa: BLE001
-                            logger.error(
-                                "Failed to refund MVP build %s credits: %s", build_id, refund_err
-                            )
                 job_res = await db.execute(select(BuildJob).where(BuildJob.build_id == build_id))
                 job = job_res.scalar_one_or_none()
+                retryable = bool(
+                    job and job.attempts < job.max_attempts and _is_retryable_build_error(exc)
+                )
+                org_id: str | None = None
+                if build is not None:
+                    if retryable:
+                        build.status = "queued"
+                        build.error_message = None
+                        cfg = dict(build.app_config or {})
+                        cfg["last_build_error"] = str(exc)[:500]
+                        cfg["progress"] = progress_payload(
+                            0,
+                            f"Temporary service error. Retrying build attempt {job.attempts + 1} of {job.max_attempts}.",
+                            percentage=0,
+                        )
+                        build.app_config = cfg
+                    else:
+                        solution = await db.get(Solution, build.solution_id)
+                        if solution is not None:
+                            workspace = await db.get(Workspace, solution.workspace_id)
+                            if workspace is not None:
+                                org_id = str(workspace.org_id)
+                        build.status = "failed"
+                        build.error_message = str(exc)[:1000]
+                        # A terminal failure refunds the charge; transient retries do not.
+                        if org_id:
+                            try:
+                                await refund_credit(
+                                    db,
+                                    action_type="mvp_build",
+                                    cost=action_cost("mvp_build"),
+                                    description=f"Refund for failed MVP build ({build.build_number})",
+                                    solution_id=build.solution_id,
+                                    org_id=org_id,
+                                )
+                            except Exception as refund_err:  # noqa: BLE001
+                                logger.error(
+                                    "Failed to refund MVP build %s credits: %s",
+                                    build_id,
+                                    refund_err,
+                                )
                 if job:
-                    job.status = "failed"
                     job.error_message = str(exc)[:1000]
+                    if retryable:
+                        job.status = "queued"
+                        job.claimed_by = None
+                        job.claimed_at = None
+                        job.heartbeat_at = None
+                    else:
+                        job.status = "failed"
                 await db.commit()
         except Exception as persist_exc:  # noqa: BLE001
             logger.error("Failed to persist MVP build failure: %s", persist_exc)
@@ -716,28 +813,111 @@ async def build_status(
     """
     build = await _get_build_for_user(db, build_id, current_user)
 
-    # Auto-reconcile stranded builds that lost their executing task (e.g. after container restart or OOM)
+    if build.status == "failed":
+        job_result = await db.execute(select(BuildJob).where(BuildJob.build_id == build.id))
+        job = job_result.scalar_one_or_none()
+        previous_error = build.error_message or (job.error_message if job else "") or ""
+        if (
+            job
+            and job.attempts < job.max_attempts
+            and job.status in ("failed", "queued")
+            and _is_retryable_build_error(RuntimeError(previous_error))
+        ):
+            logger.warning("Automatically recovering interrupted build %s", build.id)
+            job.status = "queued"
+            job.error_message = None
+            job.claimed_by = None
+            job.claimed_at = None
+            job.heartbeat_at = None
+            build.status = "queued"
+            build.error_message = None
+            cfg = dict(build.app_config or {})
+            cfg["progress"] = progress_payload(
+                0, "Recovering this build after an interrupted worker attempt.", percentage=0
+            )
+            build.app_config = cfg
+            await db.commit()
+            await db.refresh(build)
+            if settings.WORKER_MODE == "inline":
+                _spawn_build_job(build.id)
+            return await _build_response(build)
+
+    # Reconcile only when the actual executor is gone. The API and worker are
+    # separate processes in production, so `_build_tasks` alone is insufficient.
     if build.status in ("building", "queued"):
         now = datetime.now(UTC)
-        age = (now - build.updated_at).total_seconds() if build.updated_at else 9999
+        age = _age_seconds(build.updated_at, now)
         task_active = any(
             t.get_name() == f"mvp-build-{build.id}" and not t.done() for t in _build_tasks
         )
-        if not task_active and age > 180:  # 3 minutes with no active task
-            local_dir = Path(build.workspace_path)
-            files: list[Path] = builder.list_build_files(local_dir) if local_dir.exists() else []
-            if files:
-                build.status = "complete"
-                build.file_count = len(files)
-                build.file_list = builder.relative_paths(local_dir)
-                build.error_message = None
-            else:
+        job_result = await db.execute(select(BuildJob).where(BuildJob.build_id == build.id))
+        job = job_result.scalar_one_or_none()
+        heartbeat_age = _age_seconds(job.heartbeat_at if job else None, now)
+        heartbeat_stale = settings.WORKER_HEARTBEAT_STALE_SECONDS
+        worker_active = bool(job and job.status == "running" and heartbeat_age <= heartbeat_stale)
+
+        if not task_active and not worker_active:
+            if job and job.status == "running" and heartbeat_age > heartbeat_stale:
+                if job.attempts < job.max_attempts:
+                    logger.warning(
+                        "Requeueing build %s after its worker heartbeat expired", build.id
+                    )
+                    job.status = "queued"
+                    job.claimed_by = None
+                    job.claimed_at = None
+                    job.heartbeat_at = None
+                    build.status = "queued"
+                    build.error_message = None
+                    cfg = dict(build.app_config or {})
+                    cfg["progress"] = progress_payload(
+                        0,
+                        "The previous worker stopped responding. The build has been queued to retry.",
+                        percentage=0,
+                    )
+                    build.app_config = cfg
+                    await db.commit()
+                    await db.refresh(build)
+                    if settings.WORKER_MODE == "inline":
+                        _spawn_build_job(build.id)
+                else:
+                    build.status = "failed"
+                    build.error_message = (
+                        "The build worker stopped responding after its retry limit. "
+                        "Check the Render worker logs, then retry the build."
+                    )
+                    job.status = "failed"
+                    job.error_message = build.error_message
+                    await db.commit()
+                    await db.refresh(build)
+            elif job and job.status == "queued":
+                if settings.WORKER_MODE == "inline":
+                    # Recover queued inline jobs after an API process restart.
+                    _spawn_build_job(build.id)
+                    return await _build_response(build)
+                # A queued build can wait while a worker is restarting. Give it
+                # at least one full build timeout before reporting no worker.
+                queue_age = _age_seconds(job.updated_at, now)
+                if queue_age > max(600, settings.MVP_BUILD_TIMEOUT):
+                    build.status = "failed"
+                    build.error_message = (
+                        "No build worker claimed this job. Set WORKER_MODE=worker and "
+                        "check the Render worker logs before retrying."
+                    )
+                    job.status = "failed"
+                    job.error_message = build.error_message
+                    await db.commit()
+                    await db.refresh(build)
+            elif age > 180:
                 build.status = "failed"
                 build.error_message = (
-                    "Build timed out or was interrupted by a server restart. Please click retry."
+                    "Build execution stopped without a worker heartbeat. "
+                    "Check the Render worker logs, then retry the build."
                 )
-            await db.commit()
-            await db.refresh(build)
+                if job:
+                    job.status = "failed"
+                    job.error_message = build.error_message
+                await db.commit()
+                await db.refresh(build)
 
     return await _build_response(build, include_files=(build.status in _STATUS_END_STATES))
 

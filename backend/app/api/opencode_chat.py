@@ -105,7 +105,8 @@ def _extract_app_title(prompt: str, fallback: str = "Custom App") -> str:
     if persona_match:
         persona = persona_match.group("persona").strip()
         persona_words = [
-            w for w in re.findall(r"[a-zA-Z0-9]+", persona)
+            w
+            for w in re.findall(r"[a-zA-Z0-9]+", persona)
             if w.lower() not in ("a", "an", "the", "i", "am", "are", "we", "this", "my")
         ]
         if persona_words:
@@ -132,7 +133,8 @@ def _extract_app_title(prompt: str, fallback: str = "Custom App") -> str:
     )[0].strip()
     raw_words = first_clause.split()
     words = [
-        w for w in raw_words
+        w
+        for w in raw_words
         if w.lower() not in ("a", "an", "the", "my", "our", "this", "i", "am", "are", "we", "me")
     ]
     if 1 <= len(words) <= 6:
@@ -617,6 +619,13 @@ async def health() -> dict[str, Any]:
         "mode": "opencode-sidecar" if sidecar_ok else "integrated-synthesizer",
         "worker_mode": settings.WORKER_MODE,
     }
+    if info.get("error"):
+        payload["sidecar_error"] = info["error"]
+        if "401" in str(info["error"]):
+            payload["sidecar_fix"] = (
+                "Set OPENCODE_SERVER_PASSWORD on the API service to the same value "
+                "used by the OpenCode sidecar; username defaults to 'opencode'."
+            )
     if info.get("version"):
         payload["version"] = info["version"]
     if info.get("model"):
@@ -1907,6 +1916,7 @@ async def chat(
             if not payload.build_requested:
                 try:
                     from app.services.clarification import propose_clarification
+
                     clarifications = propose_clarification(payload.message, solution.ai_state)
                     if clarifications.get("has_gaps"):
                         yield {
@@ -1965,4 +1975,3 @@ async def probe_clarifications(
 
     prompt = str(payload.get("prompt", ""))
     return propose_clarification(prompt)
-
