@@ -121,7 +121,7 @@ export function BuildProgressPanel({
           )}
         </div>
 
-        <p className="text-[11px] text-[var(--text-2)] font-light mt-2 break-words min-h-[2.5em]">
+        <p className="mt-2 min-h-[2.5em] min-w-0 break-words whitespace-normal text-[11px] font-light text-[var(--text-2)] [overflow-wrap:anywhere]">
           {progress?.message}
           {stalled && (
             <span className="text-[var(--text-3)]">

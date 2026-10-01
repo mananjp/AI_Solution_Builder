@@ -277,7 +277,7 @@ export function ChatSidecar({
 }) {
   return (
     <div className="flex flex-col h-full min-h-0 bg-[var(--bg-2)] border border-[var(--border)] rounded-sm overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 shrink-0">
+      <div className="sticky top-0 z-10 flex shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg)] px-2 py-1.5">
         {/* The lab tab bar draws one pill that slides between tabs, so the
             active tab cannot be a second border that drifts out of step with
             the label. Icons are drawn once and reused for both states. */}

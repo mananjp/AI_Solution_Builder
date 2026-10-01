@@ -1,256 +1,115 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, type ReactElement, type ReactNode } from 'react';
+import ReactMarkdown from 'react-markdown';
+import rehypeSanitize from 'rehype-sanitize';
+import remarkGfm from 'remark-gfm';
 import { Check, Copy } from 'lucide-react';
-import { Button } from "@/components/ui/button";
+import { Button } from '@/components/ui/button';
 
 interface MarkdownRendererProps {
-    content: string;
-    className?: string;
+  content: string;
+  className?: string;
 }
 
 export default function MarkdownRenderer({ content, className = '' }: MarkdownRendererProps) {
-    if (!content) return null;
+  if (!content) return null;
 
-    // Split content into code blocks and text segments
-    const blocks = parseMarkdownBlocks(content);
-
-    return (
-        <div className={`space-y-4 text-[13px] leading-relaxed text-[var(--sutra-ink)] font-light ${className}`}>
-            {blocks.map((block, i) => {
-                if (block.type === 'code') {
-                    return <CodeBlock key={i} language={block.language} code={block.content} />;
-                }
-                if (block.type === 'table') {
-                    return <TableBlock key={i} headers={block.headers} rows={block.rows} />;
-                }
-                return <TextGroup key={i} text={block.content} />;
-            })}
-        </div>
-    );
+  return (
+    <div className={`min-w-0 space-y-3 break-words text-[13px] leading-6 text-[var(--sutra-ink)] [overflow-wrap:anywhere] ${className}`}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeSanitize]}
+        components={{
+          h1: ({ children }) => <h1 className="mt-6 text-xl font-semibold leading-tight first:mt-0">{children}</h1>,
+          h2: ({ children }) => <h2 className="mt-5 border-b border-[var(--border)] pb-2 text-lg font-semibold leading-tight first:mt-0">{children}</h2>,
+          h3: ({ children }) => <h3 className="mt-4 text-base font-semibold leading-snug first:mt-0">{children}</h3>,
+          h4: ({ children }) => <h4 className="mt-3 text-sm font-semibold first:mt-0">{children}</h4>,
+          p: ({ children }) => <p className="my-2 min-w-0">{children}</p>,
+          ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5 marker:text-[var(--sutra-strong)]">{children}</ul>,
+          ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5 marker:text-[var(--sutra-strong)]">{children}</ol>,
+          li: ({ children }) => <li className="pl-1">{children}</li>,
+          blockquote: ({ children }) => (
+            <blockquote className="my-3 border-l-2 border-[var(--sutra-strong)] bg-[var(--bg-2)] py-1 pl-4 text-[var(--text-2)]">
+              {children}
+            </blockquote>
+          ),
+          a: ({ children, href }) => (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[var(--info)] underline decoration-current/40 underline-offset-2 hover:decoration-current"
+            >
+              {children}
+            </a>
+          ),
+          table: ({ children }) => (
+            <div className="my-3 max-w-full overflow-x-auto rounded-lg border border-[var(--border)]">
+              <table className="w-full border-collapse text-left text-xs">{children}</table>
+            </div>
+          ),
+          thead: ({ children }) => <thead className="bg-[var(--bg-2)]">{children}</thead>,
+          th: ({ children }) => <th className="whitespace-nowrap border-b border-[var(--border)] px-3 py-2 font-semibold">{children}</th>,
+          td: ({ children }) => <td className="border-t border-[var(--border)] px-3 py-2 align-top">{children}</td>,
+          code: ({ children, className: codeClass }) => (
+            <code className={`${codeClass ?? ''} rounded bg-[var(--bg-2)] px-1.5 py-0.5 font-mono text-[0.92em] text-[var(--sutra-ink)]`}>
+              {children}
+            </code>
+          ),
+          pre: ({ children }) => {
+            const child = React.Children.toArray(children)[0] as ReactElement<{
+              className?: string;
+              children?: ReactNode;
+            }> | undefined;
+            const source = child?.props?.children;
+            const code = (Array.isArray(source) ? source.join('') : String(source ?? '')).replace(/\n$/, '');
+            const language = child?.props?.className?.match(/language-([\w-]+)/)?.[1] ?? 'code';
+            return <CodeBlock language={language} code={code} />;
+          },
+          hr: () => <hr className="my-4 border-[var(--border)]" />,
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
 function CodeBlock({ language, code }: { language: string; code: string }) {
-    const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-    const handleCopy = () => {
-        navigator.clipboard.writeText(code);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
-
-    return (
-        <div className="my-4 rounded-sm bg-[var(--bg-2)] border border-[var(--border)] overflow-hidden font-mono text-[12px] shadow-sm">
-            <div className="flex items-center justify-between px-4 py-2 bg-[var(--bg)] border-b border-[var(--border)] text-[10px] text-[var(--text-3)]">
-                <span className="font-bold uppercase tracking-widest text-[var(--sutra-ink)]">{language || 'code'}</span>
-                <Button variant="ghost" size="icon-sm"
-                    onClick={handleCopy}
-                    className="flex items-center gap-1.5 text-[var(--text-3)] hover:text-[var(--sutra-ink)] transition-colors uppercase tracking-widest font-bold"
-                >
-                    {copied ? <Check className="w-3 h-3 text-[var(--green)]" /> : <Copy className="w-3 h-3" />}
-                    <span>{copied ? 'Copied' : 'Copy'}</span>
-                </Button>
-            </div>
-            <pre className="p-4 overflow-x-auto text-[var(--sutra-ink)] leading-relaxed select-text font-mono text-[12px]">
-                {code}
-            </pre>
-        </div>
-    );
-}
-
-function TableBlock({ headers, rows }: { headers: string[]; rows: string[][] }) {
-    return (
-        <div className="my-4 border border-[var(--border)] rounded-sm overflow-hidden bg-[var(--bg)] shadow-sm">
-            <div className="overflow-x-auto">
-                <table className="w-full text-left text-[12px] text-[var(--sutra-ink)]">
-                    <thead className="bg-[var(--bg-2)] text-[var(--sutra-ink)] font-bold text-[10px] uppercase tracking-widest border-b border-[var(--border)]">
-                        <tr>
-                            {headers.map((h, idx) => (
-                                <th key={idx} className="p-3">{renderInline(h.trim())}</th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[var(--border)]">
-                        {rows.map((row, rIdx) => (
-                            <tr key={rIdx} className="hover:bg-[var(--bg-2)] transition-colors">
-                                {row.map((cell, cIdx) => (
-                                    <td key={cIdx} className="p-3 text-[var(--text-2)] font-light">{renderInline(cell.trim())}</td>
-                                ))}
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    );
-}
-
-function TextGroup({ text }: { text: string }) {
-    const lines = text.split('\n');
-    return (
-        <>
-            {lines.map((line, i) => {
-                const trimmed = line.trim();
-
-                if (!trimmed) {
-                    return <div key={i} className="h-2" />;
-                }
-
-                if (trimmed.startsWith('#### ')) {
-                    return (
-                        <h4 key={i} className="text-[11px] font-bold text-[var(--sutra-ink)] uppercase tracking-widest mt-5 mb-2">
-                            {renderInline(trimmed.slice(5))}
-                        </h4>
-                    );
-                }
-                if (trimmed.startsWith('### ')) {
-                    return (
-                        <h3 key={i} className="text-sm font-semibold text-[var(--sutra-ink)] mt-5 mb-2 uppercase tracking-wide">
-                            {renderInline(trimmed.slice(4))}
-                        </h3>
-                    );
-                }
-                if (trimmed.startsWith('## ')) {
-                    return (
-                        <h2 key={i} className="text-lg font-serif text-[var(--sutra-ink)] mt-6 mb-3 pb-2 border-b border-[var(--border)]">
-                            {renderInline(trimmed.slice(3))}
-                        </h2>
-                    );
-                }
-                if (trimmed.startsWith('# ')) {
-                    return (
-                        <h1 key={i} className="text-xl font-serif text-[var(--sutra-ink)] mt-8 mb-4">
-                            {renderInline(trimmed.slice(2))}
-                        </h1>
-                    );
-                }
-
-                if (trimmed.startsWith('> ')) {
-                    return (
-                        <blockquote key={i} className="pl-4 py-2 my-3 border-l-2 border-[var(--sutra-strong)] text-[var(--text-2)] bg-[var(--bg-2)] text-[12px] italic">
-                            {renderInline(trimmed.slice(2))}
-                        </blockquote>
-                    );
-                }
-
-                if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-                    return (
-                        <li key={i} className="ml-5 list-disc text-[var(--sutra-ink)] my-1.5 pl-1 marker:text-[var(--sutra-strong)]">
-                            {renderInline(trimmed.slice(2))}
-                        </li>
-                    );
-                }
-
-                const numMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
-                if (numMatch) {
-                    return (
-                        <li key={i} className="ml-5 list-decimal text-[var(--sutra-ink)] my-1.5 pl-1 marker:text-[var(--sutra-strong)]">
-                            {renderInline(numMatch[2])}
-                        </li>
-                    );
-                }
-
-                return (
-                    <p key={i} className="my-2 text-[var(--sutra-ink)] leading-relaxed">
-                        {renderInline(line)}
-                    </p>
-                );
-            })}
-        </>
-    );
-}
-
-function renderInline(text: string) {
-    // Split inline code blocks (`code`)
-    const codeParts = text.split(/(`[^`]+`)/g);
-    return codeParts.map((part, idx) => {
-        if (part.startsWith('`') && part.endsWith('`')) {
-            return (
-                <code key={idx} className="px-1.5 py-0.5 mx-0.5 rounded-sm bg-[var(--bg-2)] border border-[var(--border)] text-[var(--sutra-ink)] font-mono text-[12px]">
-                    {part.slice(1, -1)}
-                </code>
-            );
-        }
-        // Handle bold (**text**)
-        const boldParts = part.split(/(\*\*.*?\*\*)/g);
-        return boldParts.map((p, j) => {
-            if (p.startsWith('**') && p.endsWith('**')) {
-                return (
-                    <strong key={`${idx}-${j}`} className="text-[var(--sutra-ink)] font-semibold">
-                        {p.slice(2, -2)}
-                    </strong>
-                );
-            }
-            return <span key={`${idx}-${j}`}>{p}</span>;
-        });
-    });
-}
-
-type Block =
-    | { type: 'code'; language: string; content: string }
-    | { type: 'table'; headers: string[]; rows: string[][] }
-    | { type: 'text'; content: string };
-
-function parseMarkdownBlocks(raw: string): Block[] {
-    const blocks: Block[] = [];
-    const lines = raw.split('\n');
-    let i = 0;
-
-    while (i < lines.length) {
-        const line = lines[i];
-
-        // Detect Code Block (```lang)
-        if (line.trim().startsWith('```')) {
-            const language = line.trim().slice(3).trim();
-            i++;
-            const codeLines: string[] = [];
-            while (i < lines.length && !lines[i].trim().startsWith('```')) {
-                codeLines.push(lines[i]);
-                i++;
-            }
-            if (i < lines.length) i++; // skip closing ```
-            blocks.push({ type: 'code', language, content: codeLines.join('\n') });
-            continue;
-        }
-
-        // Detect Table (| col | col |)
-        if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
-            const tableLines: string[] = [];
-            while (i < lines.length && lines[i].trim().startsWith('|') && lines[i].trim().endsWith('|')) {
-                tableLines.push(lines[i].trim());
-                i++;
-            }
-            if (tableLines.length >= 2) {
-                const headers = tableLines[0]
-                    .slice(1, -1)
-                    .split('|')
-                    .map((h) => h.trim());
-                const rowLines = tableLines.slice(2); // skip separator row (|---|---|)
-                const rows = rowLines.map((rl) =>
-                    rl
-                        .slice(1, -1)
-                        .split('|')
-                        .map((c) => c.trim())
-                );
-                blocks.push({ type: 'table', headers, rows });
-                continue;
-            }
-        }
-
-        // Text block
-        const textLines: string[] = [];
-        while (
-            i < lines.length &&
-            !lines[i].trim().startsWith('```') &&
-            !(lines[i].trim().startsWith('|') && lines[i].trim().endsWith('|'))
-        ) {
-            textLines.push(lines[i]);
-            i++;
-        }
-        if (textLines.length > 0) {
-            blocks.push({ type: 'text', content: textLines.join('\n') });
-        }
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
     }
+  };
 
-    return blocks;
+  return (
+    <div className="my-4 min-w-0 max-w-full overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-2)] font-mono text-xs shadow-sm">
+      <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--bg)] px-3 py-1.5">
+        <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-wider text-[var(--text-2)]">
+          {language}
+        </span>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={handleCopy}
+          className="h-8 shrink-0 gap-2 px-3 text-xs"
+          aria-label={copied ? 'Code copied' : 'Copy code'}
+        >
+          {copied ? <Check className="size-3.5 text-[var(--green)]" /> : <Copy className="size-3.5" />}
+          <span>{copied ? 'Copied' : 'Copy code'}</span>
+        </Button>
+      </div>
+      <pre className="max-w-full overflow-x-auto p-4 text-[var(--sutra-ink)] leading-relaxed">
+        <code className="font-mono">{code}</code>
+      </pre>
+    </div>
+  );
 }

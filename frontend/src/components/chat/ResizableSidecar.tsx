@@ -164,16 +164,16 @@ export function ResizableSidecar({
 
   if (!open) {
   return (
-    <div className={cn("flex shrink-0", className)}>
-      {/* Reopen affordance. A full-height strip rather than a floating button,
-          so it lines up with the panel it restores. */}
+    <div className={cn("sticky top-3 flex shrink-0 self-start", className, !open && "!min-h-0 h-8 w-8 border-0 bg-transparent p-0")}>
+      {/* Keep the closed rail to the icon's footprint; stretching it to the
+          height of the workspace made the history toggle look like a blank pane. */}
         <Button variant="outline" size="icon-sm"
           type="button"
           onClick={() => onOpenChange(true)}
           aria-label={`Show ${label}`}
           aria-expanded={false}
           aria-controls={panelId}
-          className="flex h-full w-8 shrink-0 cursor-pointer items-start justify-center self-stretch border-r border-border bg-surface/50 pt-3 text-muted transition-colors hover:bg-surface hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-foreground"
+          className="flex size-8 shrink-0 cursor-pointer items-center justify-center border-border bg-surface/70 p-0 text-muted shadow-sm transition-colors hover:bg-surface hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-foreground"
         >
           <PanelLeft className="size-4" aria-hidden />
         </Button>

@@ -54,7 +54,7 @@ export function ArtifactsPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-2)]">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--bg)] p-3.5">
+      <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--bg)] p-3.5">
         <div className="flex items-center gap-2 min-w-0">
           <Layers className="w-4 h-4 text-[var(--text-3)] shrink-0" />
           <h2 className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-ink)] truncate">
