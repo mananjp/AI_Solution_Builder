@@ -135,21 +135,21 @@ export default function AdminGovernancePage() {
         <p className="text-[13px] text-[var(--text-2)] mt-1 font-light">Platform telemetry, tenant organizations, user roles, and security audit logs.</p>
       </div>
 
-      <div className="sutra-card p-6 bg-[var(--bg-2)] flex flex-wrap items-center justify-between gap-6">
-        <div className="flex items-center gap-4">
-          <div className="w-10 h-10 bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] flex items-center justify-center">
+      <div className="sutra-card p-4 sm:p-6 bg-[var(--bg-2)] flex flex-wrap items-center justify-between gap-4 sm:gap-6">
+        <div className="flex items-center gap-3 sm:gap-4">
+          <div className="w-10 h-10 bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] flex items-center justify-center shrink-0">
             <ShieldCheck className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-[14px] font-semibold text-[var(--sutra-charcoal)] uppercase tracking-widest">Sutra Core</h2>
+              <h2 className="text-[13px] sm:text-[14px] font-semibold text-[var(--sutra-charcoal)] uppercase tracking-widest">Sutra Core</h2>
               <span className="badge badge-amber text-[9px]">Superadmin</span>
             </div>
-            <p className="text-[11px] text-[var(--text-2)] mt-1 font-mono uppercase tracking-widest">Intelligence Layer Control</p>
+            <p className="text-[10px] sm:text-[11px] text-[var(--text-2)] mt-1 font-mono uppercase tracking-widest">Intelligence Layer Control</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--bg)] border border-[var(--border)] text-[10px] text-[var(--sutra-charcoal)] font-mono uppercase tracking-widest shadow-sm">
             <Cpu className="w-3 h-3 text-[var(--sutra-muted-gold)]" />
             <span>{stats?.active_llm_model || 'Groq 120B'}</span>
@@ -199,14 +199,14 @@ export default function AdminGovernancePage() {
       </div>
 
       {/* User Directory */}
-      <div className="sutra-card p-6 space-y-4 bg-[var(--bg-2)]">
+      <div className="sutra-card p-4 sm:p-6 space-y-4 bg-[var(--bg-2)]">
         <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--border)] pb-4">
           <div>
             <h2 className="text-lg font-serif text-[var(--sutra-charcoal)]">Directory & Hierarchy</h2>
             <p className="text-[12px] text-[var(--text-2)] mt-1 font-light">Manage permissions and organizational access.</p>
           </div>
 
-          <div className="relative w-64">
+          <div className="relative w-full sm:w-64">
             <Search className="w-3.5 h-3.5 text-[var(--text-3)] absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
@@ -252,8 +252,8 @@ export default function AdminGovernancePage() {
       </div>
 
       {/* Audit Log Trail */}
-      <div className="sutra-card p-6 space-y-4 bg-[var(--bg-2)]">
-        <div className="flex items-end justify-between border-b border-[var(--border)] pb-4">
+      <div className="sutra-card p-4 sm:p-6 space-y-4 bg-[var(--bg-2)]">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 border-b border-[var(--border)] pb-4">
           <div>
             <h2 className="text-lg font-serif text-[var(--sutra-charcoal)] flex items-center gap-2">
               <Clock className="w-5 h-5 text-[var(--sutra-muted-gold)]" />
@@ -261,7 +261,7 @@ export default function AdminGovernancePage() {
             </h2>
             <p className="text-[12px] text-[var(--text-2)] mt-1 font-light">Immutable audit logging for compliance and governance</p>
           </div>
-          <span className="text-[10px] text-[var(--text-3)] font-bold uppercase tracking-widest">Retention: 365 Days</span>
+          <span className="text-[10px] text-[var(--text-3)] font-bold uppercase tracking-widest self-start sm:self-auto">Retention: 365 Days</span>
         </div>
 
         <div className="overflow-x-auto">

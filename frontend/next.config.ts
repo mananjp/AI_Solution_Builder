@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
   compress: false, // Prevents memory spikes from internal zlib compression buffers in 512MB RAM
   poweredByHeader: false,
   productionBrowserSourceMaps: false,
+  devIndicators:false,
 
   // When deployed to Vercel, proxy API calls to the Render backend URL.
   // When running locally / in-container, proxy to http://127.0.0.1:8000.

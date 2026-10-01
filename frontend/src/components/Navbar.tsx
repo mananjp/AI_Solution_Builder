@@ -7,6 +7,7 @@ import { authApi, workspaceApi } from '@/lib/api';
 import { User, Workspace } from '@/types';
 import { useI18n } from '@/components/I18nProvider';
 import { LanguageSelector } from '@/components/LanguageSelector';
+import { MobileNavDrawer } from '@/components/MobileNav';
 
 export default function Navbar() {
   const { t } = useI18n();
@@ -41,7 +42,16 @@ export default function Navbar() {
   }, []);
 
   return (
-    <header className="h-[52px] border-b border-[var(--border)] bg-[var(--bg)] sticky top-0 z-30 flex items-center gap-4 px-6 lg:ml-[64px]">
+    <header className="h-[52px] border-b border-[var(--border)] bg-[var(--bg)] sticky top-0 z-30 flex items-center gap-3 px-4 lg:px-6">
+      {/* Mobile Drawer Trigger & Brand Logo */}
+      <div className="flex items-center gap-2 lg:hidden">
+        <MobileNavDrawer user={user} activeWorkspace={activeWorkspace} />
+        <Link href="/dashboard" className="flex items-center gap-1.5 shrink-0">
+          <span className="text-[var(--sutra-muted-gold)] font-sanskrit font-bold text-2xl leading-none">सूत्र</span>
+          <span className="font-serif font-bold text-sm tracking-wide text-[var(--sutra-charcoal)]">SUTRA</span>
+        </Link>
+      </div>
+
       {/* Workspace pill */}
       <div className="hidden sm:flex items-center gap-3 text-[12px] shrink-0 uppercase tracking-widest text-[var(--text-2)] font-semibold">
         <span>{t('common.workspace')}</span>
