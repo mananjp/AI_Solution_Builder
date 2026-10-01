@@ -303,9 +303,10 @@ async def create_checkout_session(
             "order_id": order_id,
             "amount": amount_inr,
             "currency": currency,
-            "key_id": "rzp_test_live",
+            "key_id": "rzp_test_simulated",
             "org_id": str(org_id),
             "credits": credits,
+            "simulated": True,
         }
 
     db.add(
@@ -321,6 +322,42 @@ async def create_checkout_session(
     )
     await db.commit()
     return order_payload
+
+
+class SimulateCaptureRequest(BaseModel):
+    order_id: str
+
+
+@router.post("/simulate-capture")
+async def simulate_payment_capture(
+    payload: SimulateCaptureRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Capture a simulated payment order when running without live gateway credentials."""
+    order_stmt = select(PaymentOrder).where(
+        PaymentOrder.gateway_order_id == payload.order_id,
+        PaymentOrder.org_id == current_user.org_id,
+    )
+    result = await db.execute(order_stmt)
+    order = result.scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if order.status == "captured":
+        return {"status": "already_captured", "credits": order.credits}
+
+    order.status = "captured"
+    credit_entry = OrganizationCredit(
+        org_id=order.org_id,
+        amount=order.credits,
+        source="topup_simulated",
+        description=f"Simulated topup ({order.gateway} order {order.gateway_order_id})",
+    )
+    db.add(credit_entry)
+    await db.commit()
+    logger.info("Simulated payment captured: credited %d to org=%s", order.credits, order.org_id)
+    return {"status": "captured", "credits": order.credits}
 
 
 class WebhookPayload(BaseModel):

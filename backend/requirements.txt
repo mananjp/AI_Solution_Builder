@@ -62,5 +62,5 @@ httpx==0.28.1
 psutil==7.1.1  # optional — live CPU/memory sampling (/api/v1/system/resources)
 
 # MVP Verifier Test Runtime (invoked by mvp_verifier in production worker)
-pytest>=8.3.4
-pytest-asyncio>=0.24.0
+pytest>=8.3,<10
+pytest-asyncio>=1.4,<2

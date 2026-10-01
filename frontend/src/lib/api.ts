@@ -382,8 +382,14 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       // threw the user straight back to /login, making the bypass useless even
       // though the route guard was correctly bypassed.
       if (response.status === 401 && !isAuthBypassed) {
-        setTokenProvider(null);
-        if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        if (token) {
+          setTokenProvider(null);
+        }
+        if (
+          typeof window !== 'undefined' &&
+          !window.location.pathname.startsWith('/login') &&
+          !window.location.pathname.startsWith('/callback')
+        ) {
           const returnTo = `${window.location.pathname}${window.location.search}`;
           // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- api layer has no router access
           window.location.href = `/login?returnTo=${encodeURIComponent(returnTo)}`;
@@ -546,6 +552,10 @@ export const solutionApi = {
       method: 'PATCH',
       body: JSON.stringify(theme),
     });
+  },
+
+  async getClarifications(id: string): Promise<ClarificationResponse> {
+    return request<ClarificationResponse>(`/mvp/${id}/clarifications`);
   },
 
   async delete(id: string) {
@@ -843,6 +853,10 @@ async getStatus(buildId: string): Promise<MVPBuild> {
       }
     );
   },
+
+  async getClarifications(solutionId: string): Promise<ClarificationResponse> {
+    return request<ClarificationResponse>(`/mvp/${solutionId}/clarifications`);
+  },
 };
 
 // ── Billing & Credits ────────────────────────────
@@ -875,6 +889,13 @@ export const billingApi = {
     return request<CheckoutSession>('/billing/checkout', {
       method: 'POST',
       body: JSON.stringify(payload),
+    });
+  },
+
+  async simulateCapture(order_id: string): Promise<{ status: string; credits: number }> {
+    return request<{ status: string; credits: number }>('/billing/simulate-capture', {
+      method: 'POST',
+      body: JSON.stringify({ order_id }),
     });
   },
 };
@@ -1175,7 +1196,32 @@ export const opencodeApi = {
   async diagnose(): Promise<OpenCodeDiagnosis> {
     return request<OpenCodeDiagnosis>('/opencode/diagnose');
   },
+  async probeClarifications(prompt: string): Promise<ClarificationResponse> {
+    return request<ClarificationResponse>('/opencode/chat/clarify', {
+      method: 'POST',
+      body: JSON.stringify({ prompt }),
+    });
+  },
 };
+
+export interface ClarificationOption {
+  label: string;
+  value: string;
+  description?: string;
+}
+
+export interface ClarificationQuestion {
+  id: string;
+  field: string;
+  question: string;
+  rationale: string;
+  options: ClarificationOption[];
+}
+
+export interface ClarificationResponse {
+  has_gaps: boolean;
+  questions: ClarificationQuestion[];
+}
 
 export async function sendOpenCodeChatStream(
   payload: OpenCodeChatPayload,

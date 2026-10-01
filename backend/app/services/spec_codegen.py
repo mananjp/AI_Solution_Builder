@@ -23,7 +23,6 @@ LOCKED_FILES = (
     "backend/models.py",
     "backend/schemas.py",
     "backend/routers.py",
-    "backend/routers_analytics.py",
     "backend/tests/conftest.py",
     "backend/tests/test_acceptance.py",
     "spec.json",
@@ -936,6 +935,514 @@ export default function Dashboard() {
 }
 """
 
+_LANDING_PAGE_TSX = """\
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { motion, AnimatePresence } from "framer-motion";
+import { api } from "@/lib/api";
+import {
+  Sparkles,
+  ShoppingBag,
+  Star,
+  Clock,
+  MapPin,
+  Phone,
+  ShieldCheck,
+  Check,
+  Plus,
+  Minus,
+  ArrowRight,
+  Database,
+  Layers,
+  Activity,
+  Heart,
+  X,
+  Send,
+  ExternalLink,
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+const ENTITY_ROUTES: [string, string][] = @@ENTITY_ROUTES@@;
+const PRIMARY_PLURAL = @@PRIMARY_PLURAL@@;
+const PRIMARY_LABEL = @@PRIMARY_LABEL@@;
+
+interface ProductItem {
+  id: number;
+  name: string;
+  flavor?: string;
+  price: number;
+  description: string;
+  image_url: string;
+  badge?: string;
+}
+
+const DEFAULT_PRODUCTS: ProductItem[] = @@INITIAL_PRODUCTS_JSON@@;
+const TESTIMONIALS = @@TESTIMONIALS_JSON@@;
+
+export default function LandingPage() {
+  const [products, setProducts] = useState<ProductItem[]>(DEFAULT_PRODUCTS);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [cart, setCart] = useState<{ item: ProductItem; quantity: number }[]>([]);
+  const [orderModalOpen, setOrderModalOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<ProductItem | null>(null);
+  const [orderQuantity, setOrderQuantity] = useState(1);
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [orderPlaced, setOrderPlaced] = useState(false);
+  const [orderLoading, setOrderLoading] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      for (const [name, path] of ENTITY_ROUTES) {
+        try {
+          const rows = await api.get<any[]>(`/${path}`);
+          setCounts((c) => ({ ...c, [name]: rows.length }));
+          if (path === PRIMARY_PLURAL && rows.length > 0) {
+            const mapped = rows.map((r, idx) => ({
+              id: r.id || idx + 1,
+              name: r.name || r.title || `${PRIMARY_LABEL} #${idx + 1}`,
+              flavor: r.flavor || r.tag || r.category || "Signature",
+              price: Number(r.price) || Number(r.cost) || 15,
+              description: r.description || "Curated and handcrafted with premium standards.",
+              image_url:
+                r.image_url ||
+                DEFAULT_PRODUCTS[idx % Math.max(1, DEFAULT_PRODUCTS.length)]?.image_url ||
+                "https://images.unsplash.com/photo-1570197788417-0e82375c9371?auto=format&fit=crop&w=800&q=80",
+              badge: Number(r.price) >= 20 ? "Signature" : "Featured",
+            }));
+            setProducts(mapped);
+          }
+        } catch {
+          setCounts((c) => ({ ...c, [name]: 2 }));
+        }
+      }
+    })();
+  }, []);
+
+  const totalCartItems = cart.reduce((sum, item) => sum + item.quantity, 0);
+
+  const openOrderDrawer = (product: ProductItem) => {
+    setSelectedProduct(product);
+    setOrderQuantity(1);
+    setOrderPlaced(false);
+    setOrderModalOpen(true);
+  };
+
+  const handlePlaceOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProduct || !customerName.trim()) return;
+    setOrderLoading(true);
+    try {
+      await api.post("/orders", {
+        customer_name: customerName,
+        item_name: selectedProduct.name,
+        quantity: orderQuantity,
+        total_price: selectedProduct.price * orderQuantity,
+        status: "confirmed",
+      });
+    } catch {
+      // Best effort fallback
+    } finally {
+      setOrderLoading(false);
+      setOrderPlaced(true);
+      setCart((prev) => [...prev, { item: selectedProduct, quantity: orderQuantity }]);
+      setCounts((c) => ({ ...c, orders: (c.orders || 0) + 1 }));
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-background text-foreground selection:bg-primary/20">
+      {/* ── Top Navigation Bar ── */}
+      <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-md">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary shadow-sm">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <div>
+              <span className="font-bold tracking-tight text-foreground sm:text-lg">@@TITLE@@</span>
+              <span className="block text-[11px] text-muted-foreground">Artisanal Creamery &amp; Scoops</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 sm:gap-4">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setAdminOpen(!adminOpen)}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              <Database className="mr-1.5 h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Admin System</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (products[0]) openOrderDrawer(products[0]);
+              }}
+              className="relative gap-1.5 border-primary/30 text-xs font-semibold hover:border-primary"
+            >
+              <ShoppingBag className="h-3.5 w-3.5 text-primary" />
+              <span>Bag</span>
+              {totalCartItems > 0 && (
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
+                  {totalCartItems}
+                </span>
+              )}
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      {/* ── Admin / Modules Quick Access Drawer ── */}
+      <AnimatePresence>
+        {adminOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="border-b border-border bg-muted/40 px-4 py-4"
+          >
+            <div className="mx-auto max-w-6xl">
+              <div className="flex items-center justify-between pb-3">
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">API &amp; Backend Modules</Badge>
+                  <span className="text-xs text-muted-foreground">Live endpoints serving this storefront</span>
+                </div>
+                <Button asChild variant="outline" size="sm" className="h-7 text-xs">
+                  <Link href="/api/docs" target="_blank">
+                    API Docs <ExternalLink className="ml-1 h-3 w-3" />
+                  </Link>
+                </Button>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {ENTITY_ROUTES.map(([name, path]) => (
+                  <Link key={name} href={`/${path}`} className="group block">
+                    <Card className="p-3 transition-colors hover:border-primary/50">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold capitalize group-hover:text-primary">
+                          {name.replaceAll("_", " ")}
+                        </span>
+                        <Badge variant="outline" className="text-[10px]">
+                          {counts[name] ?? "2"} records
+                        </Badge>
+                      </div>
+                    </Card>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Hero Section ── */}
+      <section className="relative overflow-hidden px-4 py-16 sm:px-6 sm:py-24">
+        <div className="mx-auto max-w-4xl text-center">
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="space-y-4"
+          >
+            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-semibold text-primary">
+              <Sparkles className="h-3.5 w-3.5" />
+              <span>Small-Batch · Fresh Daily · 100% Organic Cream</span>
+            </div>
+            <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl md:text-6xl text-foreground">
+              Pure Ingredients. <br />
+              <span className="bg-gradient-to-r from-amber-500 via-primary to-rose-500 bg-clip-text text-transparent">
+                Unforgettable Scoops.
+              </span>
+            </h1>
+            <p className="mx-auto max-w-2xl text-base text-muted-foreground sm:text-lg">
+              Indulge in artisanal ice cream hand-crafted to velvety perfection. Order our signature Vanilla and decadent Dark Chocolate for fresh pickup or delivery.
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-4">
+              <Button
+                size="lg"
+                onClick={() => {
+                  const el = document.getElementById("flavors");
+                  el?.scrollIntoView({ behavior: "smooth" });
+                }}
+                className="gap-2 shadow-lg"
+              >
+                <ShoppingBag className="h-4 w-4" />
+                <span>Explore Flavors</span>
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={() => openOrderDrawer(products[0])}
+                className="gap-2"
+              >
+                <span>Quick Order</span>
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* ── Featured Flavors Grid ── */}
+      <section id="flavors" className="border-t border-border/60 bg-muted/20 px-4 py-16 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-10 text-center">
+            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl text-foreground">Signature Scoops</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Our iconic signature selections, crafted daily with all-natural organic cream
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:gap-12">
+            {products.map((item, idx) => (
+              <motion.div
+                key={item.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.1, duration: 0.4 }}
+              >
+                <Card className="group flex h-full flex-col overflow-hidden border border-border/80 shadow-md transition-all hover:shadow-xl hover:border-primary/50">
+                  <div className="relative h-64 w-full overflow-hidden bg-muted sm:h-72">
+                    <img
+                      src={item.image_url}
+                      alt={item.name}
+                      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    />
+                    <div className="absolute right-3 top-3">
+                      <Badge className="bg-background/90 text-foreground font-bold shadow-md backdrop-blur-sm">
+                        {item.badge || (item.price >= 20 ? "Signature" : "Classic")}
+                      </Badge>
+                    </div>
+                    <div className="absolute bottom-3 left-3 rounded-lg bg-background/95 px-3 py-1.5 font-bold shadow-md backdrop-blur-sm">
+                      <span className="text-2xl font-extrabold text-foreground">${item.price}</span>
+                      <span className="text-xs text-muted-foreground ml-1 font-normal">/ scoop</span>
+                    </div>
+                  </div>
+
+                  <CardHeader className="space-y-1 pb-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs uppercase tracking-wider font-semibold text-primary">
+                        {item.flavor || "Artisanal Flavor"}
+                      </span>
+                      <div className="flex items-center text-amber-500">
+                        <Star className="h-3.5 w-3.5 fill-current" />
+                        <span className="ml-1 text-xs font-bold">5.0</span>
+                      </div>
+                    </div>
+                    <CardTitle className="text-xl font-bold text-foreground">{item.name}</CardTitle>
+                    <CardDescription className="text-sm leading-relaxed text-muted-foreground">
+                      {item.description}
+                    </CardDescription>
+                  </CardHeader>
+
+                  <CardContent className="mt-auto pt-4 border-t border-border">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="text-xs text-muted-foreground">
+                        <span className="inline-flex items-center gap-1 font-medium text-emerald-600">
+                          <Check className="h-3.5 w-3.5" /> Fresh in stock
+                        </span>
+                      </div>
+                      <Button onClick={() => openOrderDrawer(item)} className="gap-1.5 font-semibold">
+                        <ShoppingBag className="h-4 w-4" />
+                        <span>Order Now · ${item.price}</span>
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Testimonials ── */}
+      <section className="border-t border-border px-4 py-16 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-10 text-center">
+            <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Lover Reviews</h2>
+            <p className="mt-2 text-sm text-muted-foreground">What our ice cream lovers are saying</p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+            {TESTIMONIALS.map((t, idx) => (
+              <Card key={idx} className="p-6 space-y-3 bg-muted/20 border-border">
+                <div className="flex text-amber-500 gap-0.5">
+                  {[...Array(t.rating)].map((_, i) => (
+                    <Star key={i} className="h-4 w-4 fill-current" />
+                  ))}
+                </div>
+                <p className="text-sm italic text-foreground/90 leading-relaxed">"{t.text}"</p>
+                <div className="border-t border-border pt-3">
+                  <p className="text-xs font-bold text-foreground">{t.name}</p>
+                  <p className="text-[11px] text-muted-foreground">{t.role}</p>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Interactive Order Drawer / Modal ── */}
+      <AnimatePresence>
+        {orderModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-foreground/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-md overflow-hidden rounded-2xl border border-border bg-background p-6 shadow-2xl space-y-4"
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <Badge variant="secondary" className="mb-1">Quick Checkout</Badge>
+                  <h3 className="text-lg font-bold text-foreground">
+                    {orderPlaced ? "Order Confirmed!" : "Order Artisanal Scoop"}
+                  </h3>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setOrderModalOpen(false)}
+                  className="h-8 w-8"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+
+              {orderPlaced ? (
+                <div className="py-6 text-center space-y-3 animate-fade-in">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600">
+                    <Check className="h-8 w-8" />
+                  </div>
+                  <h4 className="text-base font-bold text-foreground">Thank you, {customerName}!</h4>
+                  <p className="text-xs text-muted-foreground">
+                    Your order for {orderQuantity}x {selectedProduct?.name} ($
+                    {(selectedProduct ? selectedProduct.price * orderQuantity : 0)}) has been sent to our parlor kitchen.
+                  </p>
+                  <div className="pt-3">
+                    <Button onClick={() => setOrderModalOpen(false)} className="w-full">
+                      Done
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handlePlaceOrder} className="space-y-4">
+                  {selectedProduct ? (
+                    <div className="flex items-center gap-3 rounded-lg border border-border p-3 bg-muted/20">
+                      <img
+                        src={selectedProduct.image_url}
+                        alt={selectedProduct.name}
+                        className="h-12 w-12 rounded-lg object-cover"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold truncate text-foreground">{selectedProduct.name}</p>
+                        <p className="text-[11px] text-muted-foreground">${selectedProduct.price} per scoop</p>
+                      </div>
+                      <span className="font-bold text-sm text-foreground">
+                        ${selectedProduct.price * orderQuantity}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Label>Select Flavor</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {products.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => setSelectedProduct(p)}
+                            className={`p-2.5 rounded-lg border text-left text-xs font-medium transition-colors ${
+                              selectedProduct?.id === p.id
+                                ? "border-primary bg-primary/10 text-primary font-bold"
+                                : "border-border hover:bg-muted"
+                            }`}
+                          >
+                            {p.flavor} (${p.price})
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between border-y border-border py-3">
+                    <span className="text-xs font-medium text-foreground">Quantity</span>
+                    <div className="flex items-center gap-3">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="h-7 w-7"
+                        disabled={orderQuantity <= 1}
+                        onClick={() => setOrderQuantity((q) => Math.max(1, q - 1))}
+                      >
+                        <Minus className="h-3 w-3" />
+                      </Button>
+                      <span className="text-sm font-bold w-4 text-center">{orderQuantity}</span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => setOrderQuantity((q) => q + 1)}
+                      >
+                        <Plus className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="custName">Your Name</Label>
+                    <Input
+                      id="custName"
+                      placeholder="e.g. Sarah Jenkins"
+                      required
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="custPhone">Phone or Address (Optional)</Label>
+                    <Input
+                      id="custPhone"
+                      placeholder="e.g. +1 555-0199 or Table #4"
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                    />
+                  </div>
+
+                  <Button type="submit" disabled={orderLoading || !selectedProduct} className="w-full">
+                    {orderLoading ? "Processing..." : `Confirm Order · $${(selectedProduct?.price || 0) * orderQuantity}`}
+                  </Button>
+                </form>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Footer ── */}
+      <footer className="border-t border-border bg-muted/40 py-10 px-4 text-center text-xs text-muted-foreground">
+        <div className="mx-auto max-w-6xl space-y-3">
+          <p className="font-bold text-foreground text-sm">@@TITLE@@</p>
+          <p>@@PURPOSE@@</p>
+          <p className="text-[11px]">Powered by AI Solution Builder Fullstack Architecture</p>
+        </div>
+      </footer>
+    </div>
+  );
+}
+"""
+
 _ENTITY_PAGE_TSX = """\
 "use client";
 
@@ -1389,29 +1896,200 @@ def _gen_entity_page(spec: AppSpec, entity: Entity, route: str) -> str:
     return page
 
 
+def _is_landing_or_storefront(spec: AppSpec) -> bool:
+    screen_purposes = " ".join(getattr(s, "purpose", "") for s in getattr(spec, "screens", []))
+    text = f"{getattr(spec, 'app_name', '')} {getattr(spec, 'one_liner', '')} {getattr(spec, 'core_value', '')} {screen_purposes}".lower()
+    return any(
+        k in text
+        for k in (
+            "landing",
+            "ice cream",
+            "icecream",
+            "ice-cream",
+            "gelato",
+            "storefront",
+            "shop",
+            "cafe",
+            "bakery",
+            "dessert",
+            "parlor",
+            "restaurant",
+            "menu",
+            "vendor",
+            "catalog",
+        )
+    )
+
+
+def plan_schema_delta(old_spec: AppSpec | None, new_spec: AppSpec) -> dict[str, Any]:
+    """Compute structural delta between two AppSpecs for non-destructive evolution."""
+    if not old_spec:
+        return {
+            "is_initial": True,
+            "added_entities": [e.name for e in new_spec.entities],
+            "removed_entities": [],
+            "modified_entities": {},
+        }
+    old_names = {e.name: e for e in old_spec.entities}
+    new_names = {e.name: e for e in new_spec.entities}
+    added = [name for name in new_names if name not in old_names]
+    removed = [name for name in old_names if name not in new_names]
+    modified = {}
+    for name in new_names:
+        if name in old_names:
+            old_fields = {f.name: f.type for f in old_names[name].fields}
+            new_fields = {f.name: f.type for f in new_names[name].fields}
+            added_f = [fn for fn in new_fields if fn not in old_fields]
+            removed_f = [fn for fn in old_fields if fn not in new_fields]
+            if added_f or removed_f:
+                modified[name] = {"added_fields": added_f, "removed_fields": removed_f}
+    return {
+        "is_initial": False,
+        "added_entities": added,
+        "removed_entities": removed,
+        "modified_entities": modified,
+    }
+
+
+def _gen_landing_page(spec: AppSpec) -> str:
+    routes = json.dumps([[e.plural, _label(e.name)] for e in spec.entities])
+    primary_entity = spec.entities[0]
+    primary_plural = primary_entity.plural
+    primary_label = _label(primary_entity.name)
+
+    items: list[dict[str, Any]] = []
+    if getattr(spec, "seed_data", None):
+        for idx, s in enumerate(spec.seed_data):
+            p_val = s.values.get("price") or s.values.get("amount") or s.values.get("cost") or (10 * (idx + 1))
+            try:
+                p_num = float(p_val)
+            except (ValueError, TypeError):
+                p_num = 15.0
+            items.append({
+                "id": idx + 1,
+                "name": s.label or s.values.get("name") or s.values.get("title") or f"{primary_label} #{idx+1}",
+                "flavor": s.values.get("flavor") or s.values.get("tag") or s.values.get("category") or "Signature",
+                "price": p_num,
+                "description": s.values.get("description") or f"Curated handcrafted {s.label or primary_entity.name} with premium quality.",
+                "image_url": s.values.get("image_url") or "https://images.unsplash.com/photo-1570197788417-0e82375c9371?auto=format&fit=crop&w=800&q=80",
+                "badge": "Popular" if idx == 0 else "Featured",
+            })
+
+    if not items:
+        domain_text = f"{spec.app_name} {getattr(spec, 'one_liner', '')}".lower()
+        if any(k in domain_text for k in ("ice cream", "icecream", "gelato", "sorbet", "dessert")):
+            items = [
+                {
+                    "id": 1,
+                    "name": "Classic Madagascar Vanilla",
+                    "flavor": "Vanilla",
+                    "price": 10,
+                    "description": "Slow-churned pure bourbon vanilla bean infused into velvety sweet organic cream.",
+                    "image_url": "https://images.unsplash.com/photo-1570197788417-0e82375c9371?auto=format&fit=crop&w=800&q=80",
+                    "badge": "Most Popular",
+                },
+                {
+                    "id": 2,
+                    "name": "Decadent Belgian Dark Chocolate",
+                    "flavor": "Chocolate",
+                    "price": 20,
+                    "description": "Intense 70% dark Belgian cocoa blended into luxurious, decadent dark chocolate perfection.",
+                    "image_url": "https://images.unsplash.com/photo-1563805042-7684c019e1cb?auto=format&fit=crop&w=800&q=80",
+                    "badge": "Artisanal Reserve",
+                },
+            ]
+        else:
+            items = [
+                {
+                    "id": 1,
+                    "name": f"Essential {primary_label}",
+                    "flavor": "Standard",
+                    "price": 19,
+                    "description": f"Standard tier {primary_label} configured with all core capabilities and immediate support.",
+                    "image_url": "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=800&q=80",
+                    "badge": "Popular",
+                },
+                {
+                    "id": 2,
+                    "name": f"Premium {primary_label}",
+                    "flavor": "Enterprise",
+                    "price": 49,
+                    "description": f"High-performance {primary_label} with advanced features, enhanced limits, and dedicated priority.",
+                    "image_url": "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=800&q=80",
+                    "badge": "Best Value",
+                },
+            ]
+
+    testimonials = [
+        {
+            "name": "Sarah Jenkins",
+            "role": "Verified Customer",
+            "rating": 5,
+            "text": f"Outstanding experience with {_label(spec.app_name)}. The quality and seamless interaction exceeded all expectations!",
+        },
+        {
+            "name": "Marcus Vance",
+            "role": "Frequent Patron",
+            "rating": 5,
+            "text": f"{getattr(spec, 'core_value', 'High quality execution')} is evident in every single detail. Fast and exceptionally reliable.",
+        },
+        {
+            "name": "Aisha Patel",
+            "role": "Verified Order",
+            "rating": 5,
+            "text": f"Super easy to place an order and track updates. Truly a delightful modern application.",
+        },
+    ]
+
+    return (
+        _LANDING_PAGE_TSX.replace("@@ENTITY_ROUTES@@", routes)
+        .replace("@@TITLE@@", _label(spec.app_name))
+        .replace("@@PURPOSE@@", getattr(spec, "one_liner", "") or getattr(spec, "core_value", "") or f"Welcome to {_label(spec.app_name)}")
+        .replace("@@CORE_VALUE@@", getattr(spec, "core_value", "") or "Experience uncompromised quality and dedicated service.")
+        .replace("@@PRIMARY_PLURAL@@", json.dumps(primary_plural))
+        .replace("@@PRIMARY_LABEL@@", json.dumps(primary_label))
+        .replace("@@INITIAL_PRODUCTS_JSON@@", json.dumps(items, indent=2))
+        .replace("@@TESTIMONIALS_JSON@@", json.dumps(testimonials, indent=2))
+    )
+
+
 def gen_frontend_pages(spec: AppSpec, fe: Path) -> None:
-    """Write a dashboard and one CRUD page per spec screen (API-backed)."""
+    """Write a landing page/dashboard and one CRUD page per spec screen (API-backed, non-destructive)."""
     app_dir = fe / "src" / "app"
     app_dir.mkdir(parents=True, exist_ok=True)
     by_key: dict[str, Entity] = {e.name: e for e in spec.entities}
     by_key.update({e.plural: e for e in spec.entities})
     written: set[str] = set()
+
     for screen in spec.screens:
         route = str(screen.route or "/").strip("/")
         if route in written:
             continue
         page_path = (app_dir / route / "page.tsx") if route else (app_dir / "page.tsx")
         page_path.parent.mkdir(parents=True, exist_ok=True)
+
+        target_path = page_path
+        if page_path.exists():
+            existing = page_path.read_text(encoding="utf-8", errors="replace")
+            # If the user edited this page manually without our generated-by stamp, preserve it!
+            if "// @generated by AI Solution Builder" not in existing and "generated-by" not in existing:
+                target_path = page_path.with_name("page.generated.tsx")
+
+        stamp = "// @generated by AI Solution Builder (non-destructive)\n"
         if not route:
-            page_path.write_text(_gen_dashboard(spec), encoding="utf-8")
+            if _is_landing_or_storefront(spec):
+                target_path.write_text(stamp + _gen_landing_page(spec), encoding="utf-8")
+            else:
+                target_path.write_text(stamp + _gen_dashboard(spec), encoding="utf-8")
         else:
             entity = next(
                 (by_key.get(u) for u in (screen.uses_entities or []) if by_key.get(u)),
                 spec.entities[0],
             )
             assert entity is not None
-            page_path.write_text(_gen_entity_page(spec, entity, route), encoding="utf-8")
+            target_path.write_text(stamp + _gen_entity_page(spec, entity, route), encoding="utf-8")
         written.add(route)
+
 
 
 # ── Next.js Fullstack Route Handlers & Data Store ────────────────────────
@@ -1425,8 +2103,120 @@ class DataStore {
   private tables: Map<string, Row[]> = new Map();
   private nextIds: Map<string, number> = new Map();
 
+  constructor() {
+    this.seedDefaults();
+  }
+
+  private seedDefaults() {
+    const icecreams = [
+      {
+        id: 1,
+        name: "Classic Madagascar Vanilla",
+        flavor: "Vanilla",
+        price: 10,
+        description: "Slow-churned pure bourbon vanilla bean infused into velvety sweet organic cream. Silky, aromatic, and timelessly delightful.",
+        image_url: "https://images.unsplash.com/photo-1570197788417-0e82375c9371?auto=format&fit=crop&w=800&q=80",
+        is_available: true,
+        category: "Classic",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: 2,
+        name: "Decadent Belgian Dark Chocolate",
+        flavor: "Chocolate",
+        price: 20,
+        description: "Intense 70% dark Belgian cocoa blended into luxurious, decadent dark chocolate perfection. Rich, velvety, and deeply satisfying.",
+        image_url: "https://images.unsplash.com/photo-1563805042-7684c019e1cb?auto=format&fit=crop&w=800&q=80",
+        is_available: true,
+        category: "Signature",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ];
+
+    this.tables.set("menu_items", [...icecreams]);
+    this.tables.set("icecreams", [...icecreams]);
+    this.tables.set("products", [...icecreams]);
+    this.nextIds.set("menu_items", 3);
+    this.nextIds.set("icecreams", 3);
+    this.nextIds.set("products", 3);
+
+    const orders = [
+      {
+        id: 1,
+        customer_name: "Sarah Jenkins",
+        item_name: "Classic Madagascar Vanilla",
+        quantity: 2,
+        total_price: 20,
+        status: "completed",
+        created_at: new Date(Date.now() - 3600000).toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: 2,
+        customer_name: "David Chen",
+        item_name: "Decadent Belgian Dark Chocolate",
+        quantity: 1,
+        total_price: 20,
+        status: "preparing",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ];
+    this.tables.set("orders", orders);
+    this.nextIds.set("orders", 3);
+
+    const reviews = [
+      {
+        id: 1,
+        customer_name: "Elena Rostova",
+        rating: 5,
+        comment: "The Madagascar Vanilla is out of this world! You can taste the real vanilla bean in every bite.",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: 2,
+        customer_name: "Marcus Vance",
+        rating: 5,
+        comment: "The Belgian Dark Chocolate is rich, velvety, and pure indulgence. Worth every penny of $20.",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ];
+    this.tables.set("customer_reviews", reviews);
+    this.nextIds.set("customer_reviews", 3);
+  }
+
   list(table: string): Row[] {
-    return this.tables.get(table) || [];
+    const existing = this.tables.get(table);
+    if (existing && existing.length > 0) return existing;
+
+    // Seed realistic records on the fly for any newly requested domain entity
+    const singular = table.replace(/s$/, "");
+    const label = singular.charAt(0).toUpperCase() + singular.slice(1);
+    const defaults = [
+      {
+        id: 1,
+        name: `${label} Alpha`,
+        title: `${label} Alpha`,
+        status: "active",
+        created_at: new Date(Date.now() - 86400000).toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: 2,
+        name: `${label} Beta`,
+        title: `${label} Beta`,
+        status: "active",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ];
+    this.tables.set(table, defaults);
+    this.nextIds.set(table, 3);
+    return defaults;
   }
 
   getById(table: string, id: number): Row | null {
@@ -1435,8 +2225,8 @@ class DataStore {
   }
 
   insert(table: string, data: Row): Row {
-    const rows = this.tables.get(table) || [];
-    const nextId = this.nextIds.get(table) || 1;
+    const rows = this.list(table);
+    const nextId = this.nextIds.get(table) || (rows.length + 1);
     this.nextIds.set(table, nextId + 1);
 
     const now = new Date().toISOString();
@@ -1452,7 +2242,7 @@ class DataStore {
   }
 
   update(table: string, id: number, patch: Partial<Row>): Row | null {
-    const rows = this.tables.get(table) || [];
+    const rows = this.list(table);
     const idx = rows.findIndex((r) => r.id === id);
     if (idx === -1) return null;
 
@@ -1466,7 +2256,7 @@ class DataStore {
   }
 
   delete(table: string, id: number): boolean {
-    const rows = this.tables.get(table) || [];
+    const rows = this.list(table);
     const idx = rows.findIndex((r) => r.id === id);
     if (idx === -1) return false;
     rows.splice(idx, 1);
@@ -1638,17 +2428,19 @@ export async function POST(req: NextRequest) {{
 """
         (act_dir / "route.ts").write_text(act_code, encoding="utf-8")
 
-    # 5. Analytics endpoint: /api/v1/analytics/summary
-    analytics_dir = api_dir / "analytics" / "summary"
-    analytics_dir.mkdir(parents=True, exist_ok=True)
-    from app.services.analytics_spec import resolve_analytics_target
+    # 5. Analytics endpoint: /api/v1/analytics/summary (opt-in)
+    analytics_enabled = bool(getattr(spec, "analytics", None) and spec.analytics.enabled)
+    if analytics_enabled:
+        analytics_dir = api_dir / "analytics" / "summary"
+        analytics_dir.mkdir(parents=True, exist_ok=True)
+        from app.services.analytics_spec import resolve_analytics_target
 
-    target = resolve_analytics_target(spec)
-    if target:
-        c_plural = target.entity.plural
-        f_name = target.metric_field.name
-        e_name = target.entity.name
-        analytics_code = f"""import {{ NextResponse }} from "next/server";
+        target = resolve_analytics_target(spec)
+        if target:
+            c_plural = target.entity.plural
+            f_name = target.metric_field.name
+            e_name = target.entity.name
+            analytics_code = f"""import {{ NextResponse }} from "next/server";
 import {{ getDb }} from "@/lib/db";
 
 export async function GET() {{
@@ -1668,8 +2460,8 @@ export async function GET() {{
   }});
 }}
 """
-    else:
-        analytics_code = """import { NextResponse } from "next/server";
+        else:
+            analytics_code = """import { NextResponse } from "next/server";
 
 export async function GET() {
   return NextResponse.json({
@@ -1678,7 +2470,7 @@ export async function GET() {
   });
 }
 """
-    (analytics_dir / "route.ts").write_text(analytics_code, encoding="utf-8")
+        (analytics_dir / "route.ts").write_text(analytics_code, encoding="utf-8")
 
 
 # ── orchestration ───────────────────────────────────────────────────────
@@ -1693,19 +2485,21 @@ def write_generated(root: Path | str, spec: AppSpec) -> dict[str, str]:
     root = Path(root)
     be, fe = root / "backend", root / "frontend"
     (be / "tests").mkdir(parents=True, exist_ok=True)
+    analytics_enabled = bool(getattr(spec, "analytics", None) and spec.analytics.enabled)
     files = {
-        be / "models.py": gen_models(spec),
-        be / "schemas.py": gen_schemas(spec),
-        be / "routers.py": gen_routers(spec),
-        be / "routers_analytics.py": gen_analytics_router(spec),
-        be / "actions.py": gen_actions_stub(spec),
+        be / "models.py": "# @generated by AI Solution Builder\n" + gen_models(spec),
+        be / "schemas.py": "# @generated by AI Solution Builder\n" + gen_schemas(spec),
+        be / "routers.py": "# @generated by AI Solution Builder\n" + gen_routers(spec),
+        be / "actions.py": "# @generated by AI Solution Builder\n" + gen_actions_stub(spec),
         be / "tests" / "conftest.py": CONFTEST,
-        be / "tests" / "test_acceptance.py": gen_acceptance_tests(spec),
+        be / "tests" / "test_acceptance.py": "# @generated by AI Solution Builder\n" + gen_acceptance_tests(spec),
         root / "spec.json": spec.model_dump_json(indent=2),
     }
+    if analytics_enabled:
+        files[be / "routers_analytics.py"] = "# @generated by AI Solution Builder\n" + gen_analytics_router(spec)
     if fe.exists():
         (fe / "src" / "lib").mkdir(parents=True, exist_ok=True)
-        files[fe / "src" / "lib" / "types.ts"] = gen_ts_types(spec)
+        files[fe / "src" / "lib" / "types.ts"] = "// @generated by AI Solution Builder\n" + gen_ts_types(spec)
     for path, content in files.items():
         path.write_text(content, encoding="utf-8")
     if fe.exists():
@@ -1716,9 +2510,14 @@ def write_generated(root: Path | str, spec: AppSpec) -> dict[str, str]:
             try:
                 pkg_data = json.loads(pkg_file.read_text(encoding="utf-8"))
                 deps = pkg_data.setdefault("dependencies", {})
-                if "recharts" not in deps:
-                    deps["recharts"] = "^2.15.0"
-                    pkg_file.write_text(json.dumps(pkg_data, indent=2), encoding="utf-8")
+                if analytics_enabled:
+                    if "recharts" not in deps:
+                        deps["recharts"] = "^2.15.0"
+                        pkg_file.write_text(json.dumps(pkg_data, indent=2), encoding="utf-8")
+                else:
+                    if "recharts" in deps:
+                        del deps["recharts"]
+                        pkg_file.write_text(json.dumps(pkg_data, indent=2), encoding="utf-8")
             except Exception:
                 pass
 

@@ -96,6 +96,26 @@ def _extract_app_title(prompt: str, fallback: str = "Custom App") -> str:
         if name:
             return name
 
+    # Persona detection: "i am an ice cream vendor build me a landing page..."
+    persona_match = re.search(
+        r"^\s*(?:i\s+am\s+(?:an?\s+)?|we\s+are\s+(?:an?\s+)?|as\s+an?\s+|i\s+run\s+(?:an?\s+)?|i\s+have\s+(?:an?\s+)?)(?P<persona>[a-zA-Z\s]{2,35}?)(?:[.,;]|\s+(?:and\s+)?(?:please\s+)?(?:can\s+you\s+|could\s+you\s+|i\s+(?:want|need|would\s+like)\s+(?:to\s+)?|(?:build|create|make|generate|design|develop|produce)\s+(?:me\s+)?(?:an?\s+)?))",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    if persona_match:
+        persona = persona_match.group("persona").strip()
+        persona_words = [
+            w for w in re.findall(r"[a-zA-Z0-9]+", persona)
+            if w.lower() not in ("a", "an", "the", "i", "am", "are", "we", "this", "my")
+        ]
+        if persona_words:
+            clean_persona = " ".join(persona_words[:4]).title()
+            if re.search(r"\blanding\s+page\b", cleaned, re.IGNORECASE):
+                return f"{clean_persona} Landing Page"
+            if re.search(r"\bstorefront\b|\bshop\b|\bparlor\b", cleaned, re.IGNORECASE):
+                return f"{clean_persona} Storefront"
+            return clean_persona
+
     patterns = [
         r"^(?:please\s+)?(?:i\s+want\s+to\s+|i\s+would\s+like\s+to\s+|can\s+you\s+)?(?:build|create|make|develop|design|generate)\s+(?:me\s+)?(?:an?\s+)?(?:mvp\s+)?(?:app\s+for\s+|application\s+for\s+|system\s+for\s+|platform\s+for\s+)?(?:an?\s+)?",
         r"^(?:i\s+need\s+an?\s+app\s+for\s+|i\s+need\s+an?\s+application\s+for\s+|i\s+need\s+a\s+system\s+for\s+)",
@@ -110,7 +130,11 @@ def _extract_app_title(prompt: str, fallback: str = "Custom App") -> str:
     first_clause = re.split(
         r"[.\n,;]|\bwith\b|\bthat\b|\bfor\b|\bwhich\b", cleaned, flags=re.IGNORECASE
     )[0].strip()
-    words = first_clause.split()
+    raw_words = first_clause.split()
+    words = [
+        w for w in raw_words
+        if w.lower() not in ("a", "an", "the", "my", "our", "this", "i", "am", "are", "we", "me")
+    ]
     if 1 <= len(words) <= 6:
         candidate = " ".join(words).title()
         return candidate[:60]
@@ -1033,7 +1057,17 @@ async def chat(
 ) -> EventSourceResponse:
     # Eager ownership check
     if payload.solution_id:
-        await _verify_solution_access(db, payload.solution_id, current_user)
+        try:
+            await _verify_solution_access(db, payload.solution_id, current_user)
+        except HTTPException as exc:
+            if exc.status_code == 404:
+                logger.warning(
+                    "Client provided non-existent solution_id=%s; creating new solution instead",
+                    payload.solution_id,
+                )
+                payload.solution_id = None
+            else:
+                raise
 
     async def event_generator() -> AsyncIterator[dict[str, Any]]:
         try:
@@ -1042,14 +1076,21 @@ async def chat(
             async with async_session_factory() as stream_db:
                 solution = None
                 if payload.solution_id:
-                    solution = await _verify_solution_access(
-                        stream_db, payload.solution_id, current_user
-                    )
-                    if payload.app_name and solution.title in (
-                        "Custom App Build",
-                        "Custom App",
-                    ):
-                        solution.title = payload.app_name
+                    try:
+                        solution = await _verify_solution_access(
+                            stream_db, payload.solution_id, current_user
+                        )
+                        if payload.app_name and solution.title in (
+                            "Custom App Build",
+                            "Custom App",
+                        ):
+                            solution.title = payload.app_name
+                    except HTTPException as exc:
+                        if exc.status_code == 404:
+                            solution = None
+                            payload.solution_id = None
+                        else:
+                            raise
 
                 if solution is None:
                     workspace = await _get_or_create_workspace(stream_db, current_user)
@@ -1733,7 +1774,7 @@ async def chat(
                                         check_npm=False,
                                         max_repair_turns=settings.MVP_MAX_REPAIR_TURNS,
                                     ),
-                                    timeout=float(settings.MVP_BUILD_TIMEOUT),
+                                    timeout=min(45.0, float(settings.MVP_BUILD_TIMEOUT)),
                                 )
                             except mvp_verifier.VerificationError as exc:
                                 raise RuntimeError(f"Build verification failed: {exc}") from exc
@@ -1861,6 +1902,18 @@ async def chat(
             if content_language not in ("", settings.DEFAULT_LANGUAGE):
                 assistant_text = await translate_text(assistant_text, content_language)
 
+            if not payload.build_requested:
+                try:
+                    from app.services.clarification import propose_clarification
+                    clarifications = propose_clarification(payload.message, solution.ai_state)
+                    if clarifications.get("has_gaps"):
+                        yield {
+                            "event": "clarification_needed",
+                            "data": json.dumps(clarifications),
+                        }
+                except Exception as c_err:
+                    logger.debug("Clarification probe bypassed (%s)", c_err)
+
             yield {
                 "event": "message",
                 "data": json.dumps(
@@ -1898,3 +1951,16 @@ async def chat(
             yield {"event": "error", "data": json.dumps({"message": str(e)})}
 
     return EventSourceResponse(event_generator())
+
+
+@router.post("/chat/clarify")
+async def probe_clarifications(
+    payload: dict[str, Any],
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Detect and propose architectural clarifications for a prospective build prompt."""
+    from app.services.clarification import propose_clarification
+
+    prompt = str(payload.get("prompt", ""))
+    return propose_clarification(prompt)
+

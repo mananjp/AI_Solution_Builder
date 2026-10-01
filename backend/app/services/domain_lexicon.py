@@ -53,7 +53,7 @@ _FIELD_HINTS: dict[str, list[tuple[str, str]]] = {
         ("job_title", "string"),
         ("status", "string"),
     ],
-    "department": [("name", "string"), ("location", "string")],
+    "department": [("name", "string"), ("code", "string"), ("location", "string")],
     "course": [("title", "string"), ("credits", "int"), ("instructor", "string")],
     "student": [("full_name", "string"), ("email", "string"), ("enrolled_on", "date")],
     "property": [("title", "string"), ("address", "string"), ("rent", "float")],
@@ -68,6 +68,34 @@ _FIELD_HINTS: dict[str, list[tuple[str, str]]] = {
     "contact": [("name", "string"), ("email", "string"), ("message", "text")],
     "project": [("title", "string"), ("status", "string"), ("due_date", "date")],
     "task": [("title", "string"), ("status", "string"), ("due_date", "date")],
+    "menu_item": [
+        ("name", "string"),
+        ("flavor", "string"),
+        ("price", "float"),
+        ("description", "text"),
+        ("image_url", "string"),
+        ("is_available", "bool"),
+    ],
+    "icecream": [
+        ("name", "string"),
+        ("flavor", "string"),
+        ("price", "float"),
+        ("description", "text"),
+        ("image_url", "string"),
+        ("is_available", "bool"),
+    ],
+    "flavor": [
+        ("name", "string"),
+        ("price", "float"),
+        ("description", "text"),
+        ("image_url", "string"),
+    ],
+    "dessert": [
+        ("name", "string"),
+        ("price", "float"),
+        ("description", "text"),
+        ("image_url", "string"),
+    ],
 }
 
 _DEFAULT_FIELDS = [("name", "string"), ("description", "text")]
@@ -174,11 +202,69 @@ _LEXICON: list[tuple[tuple[str, ...], list[tuple[str, str, list[tuple[str, str]]
                     ("status", "string"),
                 ],
             ),
-            ("department", "departments", [("name", "string"), ("location", "string")]),
+            (
+                "department",
+                "departments",
+                [("name", "string"), ("code", "string"), ("location", "string")],
+            ),
             (
                 "leave_request",
                 "leave_requests",
                 [("start_date", "date"), ("end_date", "date"), ("status", "string")],
+            ),
+            (
+                "payroll_record",
+                "payroll_records",
+                [("pay_period", "string"), ("amount", "float"), ("status", "string")],
+            ),
+        ],
+    ),
+    (
+        (
+            "ice cream",
+            "icecream",
+            "ice-cream",
+            "icecreams",
+            "gelato",
+            "sorbet",
+            "sundae",
+            "dessert",
+            "frozen yogurt",
+            "parlor",
+            "sweet shop",
+        ),
+        [
+            (
+                "menu_item",
+                "menu_items",
+                [
+                    ("name", "string"),
+                    ("flavor", "string"),
+                    ("price", "float"),
+                    ("description", "text"),
+                    ("image_url", "string"),
+                    ("is_available", "bool"),
+                ],
+            ),
+            (
+                "order",
+                "orders",
+                [
+                    ("customer_name", "string"),
+                    ("item_name", "string"),
+                    ("quantity", "int"),
+                    ("total_price", "float"),
+                    ("status", "string"),
+                ],
+            ),
+            (
+                "customer_review",
+                "customer_reviews",
+                [
+                    ("customer_name", "string"),
+                    ("rating", "int"),
+                    ("comment", "text"),
+                ],
             ),
         ],
     ),
@@ -389,6 +475,24 @@ _STOP_NOUNS = {
     "backend",
     "web app",
     "web application",
+    "price",
+    "prices",
+    "pricing",
+    "cost",
+    "costs",
+    "image",
+    "images",
+    "photo",
+    "photos",
+    "picture",
+    "pictures",
+    "landing",
+    "vendor",
+    "vendors",
+    "storefront",
+    "shopfront",
+    "ui",
+    "ux",
 }
 
 _PLURAL_RE = re.compile(r"ies$|ses$|xes$|zes$|ches$|shes$|s$", re.IGNORECASE)
@@ -507,10 +611,42 @@ def _title_from_prompt(prompt: str) -> str:
 
     ``"Create a clinic appointment booking system"`` -> ``"Clinic Appointment Booking"``
     ``"I need an inventory management system for a warehouse"`` -> ``"Inventory Management"``
+    ``"I am an ice cream vendor build me a landing page..."`` -> ``"Ice Cream Vendor Landing Page"``
     """
     text = re.sub(r"\s+", " ", (prompt or "").strip())
     if not text:
         return "Custom App"
+
+    # Check for explicit named patterns: "called XYZ", "named XYZ"
+    named_match = re.search(
+        r"(?:called|named)\s+[\"']?([^\W_][\w\-\s]{1,40}?)[\"']?(?:\s+(?:for|with|that|which|\.|\,)|$)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if named_match:
+        name = named_match.group(1).strip()
+        if name:
+            return name.title()
+
+    # Persona detection: "i am an ice cream vendor build me a landing page..."
+    persona_match = re.search(
+        r"^\s*(?:i\s+am\s+(?:an?\s+)?|we\s+are\s+(?:an?\s+)?|as\s+an?\s+|i\s+run\s+(?:an?\s+)?|i\s+have\s+(?:an?\s+)?)(?P<persona>[a-zA-Z\s]{2,35}?)(?:[.,;]|\s+(?:and\s+)?(?:please\s+)?(?:can\s+you\s+|could\s+you\s+|i\s+(?:want|need|would\s+like)\s+(?:to\s+)?|(?:build|create|make|generate|design|develop|produce)\s+(?:me\s+)?(?:an?\s+)?))",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if persona_match:
+        persona = persona_match.group("persona").strip()
+        persona_words = [
+            w for w in _TOKEN_RE.findall(persona)
+            if w.lower() not in ("a", "an", "the", "i", "am", "are", "we", "this", "my")
+        ]
+        if persona_words:
+            clean_persona = " ".join(persona_words[:4]).title()
+            if re.search(r"\blanding\s+page\b", text, re.IGNORECASE):
+                return f"{clean_persona} Landing Page"
+            if re.search(r"\bstorefront\b|\bshop\b|\bparlor\b", text, re.IGNORECASE):
+                return f"{clean_persona} Storefront"
+            return clean_persona
 
     # Drop the leading request frame so the name is the subject, not the verb.
     text = re.sub(
@@ -543,15 +679,27 @@ def _title_from_prompt(prompt: str) -> str:
     }:
         words.pop()
 
-    # Drop a leading article left behind once the request frame is removed
-    # ("I need an inventory management system" -> "an inventory management").
-    while words and words[0].lower() in ("a", "an", "the", "my", "our", "this"):
+    # Drop a leading article or pronoun left behind once the request frame is removed
+    while words and words[0].lower() in (
+        "a",
+        "an",
+        "the",
+        "my",
+        "our",
+        "this",
+        "i",
+        "am",
+        "are",
+        "we",
+        "me",
+        "for",
+    ):
         words.pop(0)
 
     if not words:
         return "Custom App"
     name_words = words[:3]
-    return " ".join(name_words).strip()
+    return " ".join(name_words).title().strip()
 
 
 def _fields_for(noun: str) -> list[tuple[str, str]]:
@@ -607,7 +755,7 @@ def infer_entities(prompt: str, limit: int = 4) -> list[tuple[str, str, list[tup
 
     # 1. Curated vertical.
     for keywords, entities in _LEXICON:
-        if any(k in text for k in keywords):
+        if any(_keyword_matches(k, text) for k in keywords):
             return [(_safe_entity_name(n), p, list(f)) for n, p, f in entities]
 
     # 2. Nouns the user actually typed, in the order they appear.

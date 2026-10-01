@@ -293,6 +293,8 @@ body {
   --sutra-muted: var(--muted);
   --sutra-raised: var(--surface);
   --sutra-line: var(--border);
+  --sutra-warm-ivory: var(--background);
+  --sutra-gold: var(--amber);
 
   --bg: var(--background);
   --bg-1: var(--background);

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { mvpApi, solutionApi, workspaceApi } from '@/lib/api';
 import type { MVPBuild, OpenCodeBuildProgress, Solution } from '@/types';
+import type { ClarificationQuestion } from '@/components/chat/ClarificationPanel';
 
 export type ChatRole = 'user' | 'assistant' | 'system';
 
@@ -71,6 +72,9 @@ export interface ChatState {
   engine: EngineStatus;
   capability: BuildCapability | null;
 
+  // ── Clarifications (Requirement Alignment) ──────────────
+  clarifications: ClarificationQuestion[] | null;
+
   // ── Sidecar ─────────────────────────────────────────────
   history: Solution[];
   historyStatus: AsyncStatus;
@@ -96,6 +100,7 @@ export const initialChatState: ChatState = {
   buildsStatus: 'idle',
   engine: 'connecting',
   capability: null,
+  clarifications: null,
   history: [],
   historyStatus: 'idle',
   historyQuery: '',
@@ -114,6 +119,8 @@ export type ChatAction =
   | { type: 'set-capability'; value: BuildCapability | null }
   | { type: 'set-error'; value: string | null }
   | { type: 'set-context'; value: { filename: string; text: string } | null }
+  | { type: 'set-clarifications'; questions: ClarificationQuestion[] | null }
+  | { type: 'dismiss-clarifications' }
   // History
   | { type: 'history/loading' }
   | { type: 'history/loaded'; items: Solution[] }
@@ -235,6 +242,12 @@ function reduce(state: ChatState, action: ChatAction): ChatState {
     case 'set-context':
       return { ...state, context: action.value };
 
+    case 'set-clarifications':
+      return { ...state, clarifications: action.questions };
+
+    case 'dismiss-clarifications':
+      return { ...state, clarifications: null };
+
     case 'history/loading':
       return { ...state, historyStatus: 'loading' };
 
@@ -310,6 +323,7 @@ function reduce(state: ChatState, action: ChatAction): ChatState {
         builds: [],
         buildsStatus: action.solutionId ? 'loading' : 'ready',
         buildRequested: false,
+        clarifications: null,
       };
 
     case 'stream/start':
@@ -738,7 +752,9 @@ export function useChatSession(options: UseChatSessionOptions) {
         upsertCachedSolution(solution);
       } catch {
         loadedRef.current = null;
-        dispatch({ type: 'conversation/failed' });
+        removeCachedSolution(solutionId);
+        dispatch({ type: 'history/remove', id: solutionId });
+        dispatch({ type: 'activate', solutionId: null, welcome });
         dispatch({ type: 'builds/loaded', builds: [] });
       }
     },

@@ -191,6 +191,7 @@ export interface CheckoutSession {
   org_id: string;
   credits: number;
   gateway_status?: string;
+  simulated?: boolean;
 }
 
 declare global {

@@ -2,11 +2,13 @@
 
 import type { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
+import { Loader2 } from 'lucide-react';
 
 import { ShellProvider } from '@/components/ShellContext';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import { BYPASS_USER, isAuthBypassed } from '@/lib/auth-bypass';
+import { useAuthSession } from '@/components/auth/AuthProvider';
 
 // Routes that own the whole viewport (chat, sandbox, file tree) and must not be
 // boxed into the centered reading column.
@@ -20,6 +22,22 @@ function isFullBleed(pathname: string | null): boolean {
 function Shell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const fullBleed = isFullBleed(pathname);
+  const { isLoading, isAuthenticated, isMisconfigured } = useAuthSession();
+
+  if (!isAuthBypassed && !isMisconfigured && isLoading) {
+    return (
+      <div className="flex min-h-dvh w-full items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3 text-muted">
+          <Loader2 className="size-6 animate-spin text-foreground" />
+          <p className="text-[13px] font-light">Loading workspace…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthBypassed && !isMisconfigured && !isAuthenticated) {
+    return null;
+  }
 
   return (
     // A column, so the banner can sit above the shell.

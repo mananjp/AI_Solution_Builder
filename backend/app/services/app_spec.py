@@ -9,6 +9,7 @@ generates plumbing + tests from it; the coding agent only implements actions/UI.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -206,6 +207,209 @@ def detect_ml_requirements(data: Any) -> tuple[bool, list[str]]:
     return len(found) > 0, found
 
 
+# ── AppSpec v2: growth curve, theming, seeding ───────────────────────────
+#
+# v1 forced a single shape on every build ("3-6 entities, a screen per
+# entity"), which made a one-page landing site and an operating dashboard the
+# same app. v2 adds two orthogonal axes instead:
+#
+#   app_kind        what it is    (landing / catalog / dashboard / …)
+#   lifecycle_stage how far it goes (showcase -> transact -> operate)
+#
+# The invariant is that the *backend is always generated*. A `showcase` build
+# still gets its entities, typed CRUD, seed data and acceptance tests — the
+# landing page simply reads them. Adding a cart later is purely additive, so
+# the growth path never requires a re-scaffold. See docs/adr/0003.
+
+AppKind = Literal[
+    "landing",
+    "catalog",
+    "dashboard",
+    "booking",
+    "marketplace",
+    "tool",
+    "portfolio",
+    "social",
+    "internal",
+]
+
+LifecycleStage = Literal["showcase", "transact", "operate"]
+
+DataLayer = Literal["api", "static"]
+
+# Weakest → strongest. A spec claiming a stronger stage than its kind can
+# support is a contradiction, not a stretch goal, so it is a hard error.
+STAGE_ORDER: dict[str, int] = {"showcase": 0, "transact": 1, "operate": 2}
+
+# Kinds whose entire value proposition is visual. Used by the quality gate to
+# decide whether "no images anywhere" is a finding or a non-issue.
+VISUAL_APP_KINDS: frozenset[str] = frozenset(
+    {"landing", "catalog", "portfolio", "marketplace"}
+)
+
+
+class ColourModel(BaseModel):
+    """An HSL colour, matching the Tailwind token form ``H S% L%``.
+
+    Stored as HSL rather than hex because that is exactly the shape the
+    generated ``globals.css`` tokens already use (``--primary: 221.2 83.2%
+    53.3%``), so theming is a token rewrite and not a colour-space conversion.
+    """
+
+    h: float = Field(ge=0, le=360, description="Hue 0-360")
+    s: float = Field(ge=0, le=100, description="Saturation percent")
+    l: float = Field(ge=0, le=100, description="Lightness percent")
+
+    @model_validator(mode="after")
+    def _normalise(self) -> ColourModel:
+        # Hue wraps; saturation/lightness clamp. An out-of-range palette that
+        # silently becomes black-on-black is worse than a hard validation error.
+        object.__setattr__(self, "h", self.h % 360)
+        object.__setattr__(self, "s", min(100.0, max(0.0, self.s)))
+        object.__setattr__(self, "l", min(100.0, max(0.0, self.l)))
+        return self
+
+    def css(self) -> str:
+        """Render as a Tailwind HSL token body (``217.2 91.2% 59.8%``)."""
+        return f"{self.h:.1f} {self.s:.1f}% {self.l:.1f}%"
+
+    def hex(self) -> str:
+        r, g, b = self._rgb255()
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    def _rgb255(self) -> tuple[int, int, int]:
+        h = self.h / 360.0
+        s = self.s / 100.0
+        lightness = self.l / 100.0
+        c = (1 - abs(2 * lightness - 1)) * s
+        x = c * (1 - abs(((h * 6) % 2) - 1))
+        m = lightness - c / 2
+        sector = int(h * 6) % 6
+        r, g, b = (
+            (c, x, 0.0),
+            (x, c, 0.0),
+            (0.0, c, x),
+            (0.0, x, c),
+            (x, 0.0, c),
+            (c, 0.0, x),
+        )[sector]
+        return (
+            round((r + m) * 255),
+            round((g + m) * 255),
+            round((b + m) * 255),
+        )
+
+    def luminance(self) -> float:
+        """WCAG relative luminance."""
+        channels = []
+        for raw in self._rgb255():
+            channel = raw / 255
+            channels.append(
+                channel / 12.92
+                if channel <= 0.03928
+                else ((channel + 0.055) / 1.055) ** 2.4
+            )
+        r, g, b = channels
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def contrast_ratio(a: ColourModel, b: ColourModel) -> float:
+    """WCAG 2.1 contrast ratio between two colours (1.0 … 21.0)."""
+    la, lb = a.luminance(), b.luminance()
+    lighter, darker = max(la, lb), min(la, lb)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+# WCAG 2.1 AA. Body text is the strict threshold; large text and UI borders
+# (which is what a `primary` token mostly paints) get the relaxed one.
+BODY_CONTRAST_MIN = 4.5
+LARGE_CONTRAST_MIN = 3.0
+
+
+class ThemeSpec(BaseModel):
+    """Domain-derived design tokens.
+
+    The v1 palette was a hardcoded shadcn blue that every generated app
+    inherited verbatim. This is the colour system that replaces it, and it is
+    contrast-checked at validation time so a bad proposal can never ship.
+    """
+
+    primary: ColourModel
+    background: ColourModel
+    foreground: ColourModel
+    accent: ColourModel | None = None
+    muted: ColourModel | None = None
+    ring: ColourModel | None = None
+    radius: str = "0.5rem"
+    font_sans: str = "Inter"
+    font_display: str = "Inter"
+    mood: str = Field(default="", description="One-word feel, e.g. 'artisan', 'clinical'")
+    rationale: str = Field(default="", description="Why these tokens suit this domain")
+
+    @model_validator(mode="after")
+    def _contrast(self) -> ThemeSpec:
+        body = contrast_ratio(self.foreground, self.background)
+        if body < BODY_CONTRAST_MIN:
+            raise ValueError(
+                f"theme body contrast {body:.2f}:1 is below WCAG AA {BODY_CONTRAST_MIN}:1 "
+                f"(foreground {self.foreground.hex()} on background {self.background.hex()})"
+            )
+        large = contrast_ratio(self.primary, self.background)
+        if large < LARGE_CONTRAST_MIN:
+            raise ValueError(
+                f"theme primary contrast {large:.2f}:1 is below WCAG AA "
+                f"{LARGE_CONTRAST_MIN}:1 for large text and UI borders "
+                f"(primary {self.primary.hex()} on background {self.background.hex()})"
+            )
+        return self
+
+    def tokens(self) -> dict[str, ColourModel]:
+        """The full token map, with sensible derivations for the optional roles."""
+        out: dict[str, ColourModel] = {
+            "primary": self.primary,
+            "background": self.background,
+            "foreground": self.foreground,
+        }
+        if self.accent is not None:
+            out["accent"] = self.accent
+        if self.muted is not None:
+            out["muted"] = self.muted
+        if self.ring is not None:
+            out["ring"] = self.ring
+        return out
+
+
+class AnalyticsModule(BaseModel):
+    """Opt-in business analytics.
+
+    Defaults to *off*. v1 shipped the analytics router unconditionally, so an
+    ice-cream landing page with three items got a revenue dashboard off the
+    back of a `quantity` column. See docs/adr/0004.
+    """
+
+    enabled: bool = False
+    entity: str | None = Field(
+        default=None, description="Entity to aggregate; must exist and carry the metric"
+    )
+    primary_metric_field: str | None = Field(
+        default=None, description="Numeric field to sum; must be int/float on `entity`"
+    )
+    views: list[Literal["kpi", "trend", "breakdown"]] = Field(default_factory=lambda: ["kpi"])
+    rationale: str = Field(default="", description="Why analytics is (not) warranted here")
+
+
+class SeedRecord(BaseModel):
+    """Concrete starting data the generated app ships with.
+
+    This is where "three items and their prices" lands — the prompt's open
+    questions resolved into verbatim values rather than invented placeholders.
+    """
+
+    entity: str = Field(description="Entity name this record belongs to")
+    values: dict[str, Any] = Field(default_factory=dict)
+    label: str = Field(default="", description="Short human label, e.g. 'Vanilla scoop'")
+
+
 class AppSpec(BaseModel):
     app_name: str
     one_liner: str
@@ -218,6 +422,62 @@ class AppSpec(BaseModel):
     architecture: Literal["next_fullstack", "unified_container"] = "next_fullstack"
     has_ml_model: bool = False
     ml_frameworks: list[str] = Field(default_factory=list)
+
+    # ── v2 growth curve ──
+    app_kind: AppKind = Field(
+        default="internal",
+        description="What the app IS — drives page shape and which surface `/` gets",
+    )
+    lifecycle_stage: LifecycleStage = Field(
+        default="operate",
+        description="How far it goes: showcase (browse) → transact (buy/book) → operate (admin)",
+    )
+    # Defaults to "api" precisely so v1 → v2 stays additive: a showcase build
+    # already has the real backend that the later transact stage reuses.
+    data_layer: DataLayer = "api"
+
+    # ── v2 theming / modules / data ──
+    theme: ThemeSpec | None = None
+    analytics: AnalyticsModule = Field(default_factory=AnalyticsModule)
+    seed_data: list[SeedRecord] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _growth_curve(self) -> AppSpec:
+        names = {e.name for e in self.entities}
+        errors: list[str] = []
+
+        # A landing page with an operating console is a contradiction: there is
+        # no admin surface to build against a one-page app.
+        if self.app_kind == "landing" and STAGE_ORDER[self.lifecycle_stage] > STAGE_ORDER["transact"]:
+            errors.append(
+                f"app_kind 'landing' cannot use lifecycle_stage '{self.lifecycle_stage}' "
+                "(max 'transact')"
+            )
+
+        for record in self.seed_data:
+            if record.entity not in names:
+                errors.append(f"seed_data references unknown entity '{record.entity}'")
+
+        for record in self.seed_data:
+            entity = next((e for e in self.entities if e.name == record.entity), None)
+            if entity is None:
+                continue
+            field_names = {f.name for f in entity.fields}
+            unknown = set(record.values) - field_names
+            if unknown:
+                errors.append(
+                    f"seed_data for '{record.entity}' sets unknown field(s): "
+                    + ", ".join(sorted(unknown))
+                )
+
+        if self.analytics.enabled and self.analytics.entity and self.analytics.entity not in names:
+            errors.append(
+                f"analytics.entity '{self.analytics.entity}' is not a spec entity"
+            )
+
+        if errors:
+            raise ValueError("; ".join(errors))
+        return self
 
     @model_validator(mode="after")
     def _cross_refs(self) -> AppSpec:
@@ -288,29 +548,70 @@ SPEC_SYSTEM = """You design rich, production-grade working apps. Output ONLY JSO
 
 Hard rules:
 - Model the user's ACTUAL domain. Never default to a generic 'items/status' CRUD or todo app, and never substitute a different industry's entities (an employee/HR request must not become products/orders).
-- Aim for a genuinely useful surface area: 3-6 entities with 3+ meaningful fields each, and a screen per entity. Do not pad with placeholder fields like "name"/"title"/"status" when a real attribute is obvious.
-- If the user asks for a landing page, portfolio, or showcase website, model realistic entities (e.g. leads, inquiries, contact_messages, subscribers, testimonials) and action (e.g. /actions/submit_inquiry, /actions/subscribe_newsletter) with appropriate screens (e.g. Landing Page at "/", Admin/Inquiries at "/inquiries").
+
+Growth curve — decide these FIRST, they shape everything else:
+- `app_kind` (what the app IS): landing | catalog | dashboard | booking | marketplace | tool | portfolio | social | internal
+- `lifecycle_stage` (how far it goes):
+    * "showcase" — browse only. Names, photos, prices, categories. No cart, no checkout, no admin.
+    * "transact" — the user commits. Cart + order, booking + slot, checkout + payment.
+    * "operate" — the business runs on it. Admin, staff views, reporting.
+  The backend is ALWAYS generated: a "showcase" build still gets real entities, typed CRUD,
+  seed data and acceptance tests — the landing page simply reads them. Adding a cart later is
+  purely additive, so scope the FIRST version honestly rather than padding it. A one-page
+  ice-cream vendor is app_kind="landing", lifecycle_stage="showcase", exactly ONE entity, and
+  3 seed_data records. "landing" may not use lifecycle_stage="operate".
+- `analytics.enabled` is FALSE by default. Turn it on ONLY for a real business with something
+  to measure, and then you MUST name a real numeric metric on a real entity
+  (`analytics.entity` + `analytics.primary_metric_field`). Never enable it just because some
+  column happens to be numeric.
+- `seed_data` is where the user's concrete content goes — the actual item names, the actual
+  prices. If the user named specific things, use those verbatim; never invent placeholders
+  like "Item 1" or "Product A".
+
+Entities and surface area:
+- As many entities as the stage genuinely needs (1 for a landing page, up to 6 for an
+  operating app), with real attributes each. Do not pad with placeholder fields like
+  "name"/"title"/"status" when a real attribute is obvious.
+- If the user asks for a landing page, portfolio, or showcase website, model realistic
+  entities (e.g. leads, inquiries, contact_messages, subscribers, testimonials) and actions
+  (e.g. /actions/submit_inquiry, /actions/subscribe_newsletter) with appropriate screens
+  (e.g. Landing Page at "/", Admin/Inquiries at "/inquiries").
 - Put the real logic in `actions` (calculations, state transitions, validation, conflict
   checks, aggregation). Each action has precise `rules` a developer can implement
   without guessing (formulas, edge cases, error codes: 400 invalid, 404 missing, 409 conflict).
 - If the app is genuinely pure CRUD, actions may be empty, but core_value must say so.
-- Entities: 3–6. Fields snake_case; refs are `<entity>_id` with type "ref".
+- Entities: 1-6, sized to the lifecycle stage. Fields snake_case; refs are `<entity>_id` with type "ref".
 - REST conventions that ALREADY exist for every entity (do not list them as actions):
   GET/POST /{plural}, GET/PATCH/DELETE /{plural}/{id}, GET /{plural}?<ref_field>=<id>.
   IDs are integers. Responses of CRUD = the object JSON (with "id").
-- acceptance_tests: 3–10 scenarios that PROVE the core value end-to-end via HTTP.
+- acceptance_tests: 3-10 scenarios that PROVE the core value end-to-end via HTTP.
   Use `save` to capture ids, e.g. {"group_id": "id"}, then use "{group_id}" in later paths/bodies.
   Every action must be exercised by at least one test with a concrete numeric/string `expect`.
   Include at least one negative test (400/404/409).
-- Build the FULL app the user described. A high-end result has real entities with real attributes, a screen per entity, and domain actions wired to acceptance tests - do not deliberately under-build to keep the response small.
+- Build the FULL app the user described, at the stage you declared. A high-end result has real
+  entities with real attributes, a screen per entity, and domain actions wired to acceptance tests.
+
+Theme (`theme`) — required, and it is what stops every app looking identical:
+- Propose a `theme` in HSL: `primary`, `background`, `foreground` (and optionally `accent`,
+  `muted`, `ring`) as objects {"h": 0-360, "s": 0-100, "l": 0-100}.
+- These tokens REPLACE the template's stock blue in globals.css, so pick colours that actually
+  suit the industry. Ice cream is warm cream/coral, not SaaS blue; a clinic is calm teal; a
+  fintech is deep indigo. Two apps in different industries must not share a primary hue.
+- Constraints are enforced and your spec is REJECTED if you break them: foreground on background
+  must reach 4.5:1 contrast (body text) and primary on background at least 3:1 (large text and
+  borders). Aim comfortably above: light neutral backgrounds (l 94-99) with dark foregrounds
+  (l 8-20) and a saturated primary (s 55-90, l 35-50) all pass easily.
+- Also set `radius` (e.g. "0.25rem" for clinical precision, "1rem" for friendly), `font_sans`,
+  `font_display`, a one-word `mood`, and a `rationale` sentence.
 
 UI quality (the generated frontend is judged on this):
-- A shadcn/ui component library is PREINSTALLED and ready to import from "@/components/ui/<name>": alert, badge, button, card (Card/CardHeader/CardTitle/CardDescription/CardContent/CardFooter), checkbox, dialog, dropdown-menu, input, label, select, separator, skeleton, sonner (toasts), switch, table (Table/TableHeader/TableBody/TableRow/TableHead/TableCell), tabs, textarea. Also available: "@/components/ui/skiper-ui" animated primitives, recharts for charts, lucide-react icons, framer-motion, react-hook-form, zod, and Tailwind design tokens (bg-background, bg-card, bg-muted, text-muted-foreground, bg-primary, bg-destructive, border-border, rounded-lg/md/sm).
+- A shadcn/ui component library is PREINSTALLED and ready to import from "@/components/ui/<name>": alert, badge, button, card (Card/CardHeader/CardTitle/CardDescription/CardContent/CardFooter), checkbox, dialog, dropdown-menu, input, label, select, separator, skeleton, sonner (toasts), switch, table (Table/TableHeader/TableBody/TableRow/TableHead/TableCell), tabs, textarea. Also available: "@/components/ui/skiper-ui" animated primitives, lucide-react icons, framer-motion, react-hook-form, zod, and Tailwind design tokens (bg-background, bg-card, bg-muted, text-muted-foreground, bg-primary, bg-destructive, border-border, rounded-lg/md/sm). `recharts` is only installed when `analytics.enabled` is true.
 - Build screens by COMPOSING those premade components. A page assembled from Card + Table + Button + Badge + Input reads as a finished product; the same page hand-rolled from raw <div> elements reads as a wireframe. Do not re-implement a button, card, table, badge, input, modal or toast that already exists.
 - If you genuinely need a component that is NOT preinstalled, install it rather than hand-rolling it: run `npx shadcn@latest add <name> --yes` from the `frontend` directory (e.g. `npx shadcn@latest add accordion --yes`). The project is already configured for shadcn (components.json, "@/components/ui" alias, design tokens), so the CLI drops the component in with correct imports and theme support. Common useful additions: accordion, avatar, calendar, chart, command, drawer, form, hover-card, popover, progress, radio-group, scroll-area, slider, tooltip, carousel, pagination, breadcrumb, collapsible, aspect-ratio, alert-dialog. Never invent an import path under "@/components/ui" for a component you did not install. If installing is not possible in your environment, fall back to composing the preinstalled set plus a small local component - never block the build and never leave a dangling import.
 - The premade components are yours to PERSONALISE. Tweak them for the app's look - pass className, adjust variants, restyle via the Tailwind tokens - so the UI feels designed for this product rather than default-library. Prefer composing and passing className over forking a component file; only edit a component in "@/components/ui" when the app genuinely needs a new variant that composition cannot express, and keep every existing export intact so other screens keep working.
 - Every screen must be responsive, mobile-first, correct at 375px: stack cards, or use an overflow-x-auto table wrapper and hide secondary columns on small screens. Never ship a desktop-only grid that overflows horizontally.
 - Give every list screen real affordances: a search/filter input, a proper empty state, loading skeletons while fetching, and a create/edit form with validation - not a bare JSON dump.
+- Reference images that already exist at `/assets/...` (real photo files land there before you write code). NEVER hotlink an external image URL.
 - Use lucide-react icons for navigation and primary actions, keep the type scale and spacing consistent, and do not hardcode one-off hex colours - use the design tokens so light and dark mode both work.
 - core_value must be a concrete sentence about what the app does beyond CRUD - never leave it empty."""
 
@@ -449,6 +750,108 @@ def _prompt_title(prompt: str) -> str:
     from app.services.domain_lexicon import _title_from_prompt
 
     return _title_from_prompt(prompt)
+
+
+# Keyword evidence for the growth curve. This only feeds the *offline* fallback
+# path — the LLM is told to declare `app_kind`/`lifecycle_stage` explicitly. Its
+# job is to keep a no-LLM build from defaulting to a six-entity dashboard when
+# the user plainly asked for a single page.
+_KIND_HINTS: tuple[tuple[AppKind, tuple[str, ...]], ...] = (
+    ("landing", ("landing page", "one page", "single page", "homepage", "brochure")),
+    ("portfolio", ("portfolio", "resume", "cv site")),
+    ("marketplace", ("marketplace", "multi-vendor", "multi seller", "two-sided")),
+    ("booking", ("book", "booking", "appointment", "reservation", "schedule", "slot")),
+    ("catalog", ("catalog", "catalogue", "storefront", "shop", "menu", "products")),
+    ("social", ("community", "forum", "feed", "social network")),
+    ("dashboard", ("dashboard", "admin panel", "analytics", "reporting", "kpi")),
+    ("internal", ("crm", "erp", "inventory", "inventory management", "back office")),
+)
+_STAGE_HINTS: tuple[tuple[LifecycleStage, tuple[str, ...]], ...] = (
+    (
+        "operate",
+        ("dashboard", "admin", "reporting", "analytics", "manage staff", "back office", "kpi"),
+    ),
+    (
+        "transact",
+        ("checkout", "cart", "payment", "order", "buy", "sell", "booking", "book a", "pay"),
+    ),
+)
+
+
+def infer_growth_curve(text: str) -> tuple[AppKind, LifecycleStage]:
+    """Keyword-scored ``(app_kind, lifecycle_stage)`` for the offline fallback path."""
+    lowered = f" {text.lower()} "
+
+    kind: AppKind = "internal"
+    best = 0
+    for candidate, keywords in _KIND_HINTS:
+        hits = sum(len(k) for k in keywords if k in lowered)
+        if hits > best:
+            best, kind = hits, candidate
+
+    stage: LifecycleStage = "showcase"
+    for candidate, keywords in _STAGE_HINTS:
+        if any(k in lowered for k in keywords):
+            stage = candidate
+            break
+
+    # The landing cap is a validation rule, not a preference.
+    if kind == "landing" and STAGE_ORDER[stage] > STAGE_ORDER["transact"]:
+        stage = "transact"
+    return kind, stage
+
+
+def resolve_analytics_module(
+    module: AnalyticsModule, spec_entities: list[Entity]
+) -> AnalyticsModule:
+    """Auto-disable analytics that has no real entity + numeric metric behind it.
+
+    Enabling a revenue dashboard off the back of a stray `quantity` column is the
+    exact failure this exists to prevent, so an unsupported request is downgraded
+    with a recorded reason rather than silently building the wrong thing.
+    """
+    if not module.enabled:
+        return module
+
+    reasons: list[str] = []
+    if not module.entity:
+        reasons.append("analytics.enabled without naming a target entity")
+        return AnalyticsModule(
+            enabled=False,
+            rationale=(module.rationale + "; " if module.rationale else "")
+            + "auto-disabled: " + "; ".join(reasons),
+        )
+
+    entity = next((e for e in spec_entities if e.name == module.entity), None)
+    if entity is None:
+        reasons.append(f"analytics.entity '{module.entity}' is not a spec entity")
+    elif not module.primary_metric_field:
+        reasons.append(
+            f"analytics.enabled on '{entity.name}' without naming a numeric metric"
+        )
+    else:
+        field = next(
+            (f for f in entity.fields if f.name == module.primary_metric_field), None
+        )
+        if field is None:
+            reasons.append(
+                f"analytics.primary_metric_field '{module.primary_metric_field}' "
+                f"does not exist on '{entity.name}'"
+            )
+        elif field.type not in ("int", "float"):
+            reasons.append(
+                f"analytics.primary_metric_field '{field.name}' is '{field.type}', "
+                "not a number"
+            )
+
+    if reasons:
+        logger.info("Disabling analytics for '%s': %s", module.entity, "; ".join(reasons))
+        return AnalyticsModule(
+            enabled=False,
+            rationale=(module.rationale + "; " if module.rationale else "")
+            + "auto-disabled: " + "; ".join(reasons),
+        )
+    return module
 
 
 def fallback_app_spec(
@@ -603,6 +1006,16 @@ def fallback_app_spec(
         ),
     ]
 
+    # ── v2: growth curve, theme, seed data ──
+    growth_text = " ".join(
+        str(x) for x in (user_prompt, ai_state.get("business_description", "")) if x
+    )
+    app_kind, lifecycle_stage = infer_growth_curve(growth_text)
+
+    # Imported lazily: theme_engine builds on the AppSpec types defined above,
+    # so a module-level import here would be circular.
+    from app.services.theme_engine import theme_for_spec
+
     return AppSpec(
         app_name=clean_name,
         one_liner=f"Full-stack {clean_name} application",
@@ -610,6 +1023,54 @@ def fallback_app_spec(
         entities=spec_entities,
         screens=screens,
         acceptance_tests=tests,
+        app_kind=app_kind,
+        lifecycle_stage=lifecycle_stage,
+        # No user-supplied content is available offline, so leave seed_data
+        # empty rather than fabricate placeholder rows.
+        seed_data=[],
+        analytics=resolve_analytics_module(AnalyticsModule(), spec_entities),
+        theme=theme_for_spec(growth_text, app_name=clean_name),
+    )
+
+
+def normalize_spec(spec: AppSpec) -> AppSpec:
+    """Enforce the v2 invariants that are repairable rather than fatal.
+
+    Three things can be fixed without asking the model again: an unsupported
+    analytics target (downgrade with a reason), a missing/invalid theme (fall
+    back to the industry palette), and a `landing` kind that over-claims an
+    operating stage (clamp it). Everything else stays a validation error so the
+    repair loop can see it.
+    """
+    analytics = resolve_analytics_module(spec.analytics, spec.entities)
+    app_kind = spec.app_kind
+    stage = spec.lifecycle_stage
+    if app_kind == "landing" and STAGE_ORDER[stage] > STAGE_ORDER["transact"]:
+        stage = "transact"
+
+    theme = spec.theme
+    if theme is None:
+        from app.services.theme_engine import theme_for_spec
+
+        text = " ".join(
+            [spec.app_name, spec.one_liner, spec.core_value, *spec.assumptions]
+        )
+        theme = theme_for_spec(text, app_name=spec.app_name)
+
+    if (
+        analytics is spec.analytics
+        and app_kind == spec.app_kind
+        and stage == spec.lifecycle_stage
+        and theme is spec.theme
+    ):
+        return spec
+    return spec.model_copy(
+        update={
+            "analytics": analytics,
+            "app_kind": app_kind,
+            "lifecycle_stage": stage,
+            "theme": theme,
+        }
     )
 
 
@@ -650,7 +1111,7 @@ async def generate_app_spec(
     last_err = ""
     for attempt in range(1, max_attempts + 1):
         try:
-            resp = await llm.ainvoke(messages)
+            resp = await asyncio.wait_for(llm.ainvoke(messages), timeout=12.0)
         except Exception as exc:
             logger.warning(
                 "generate_app_spec LLM error on attempt %d (%s); using smart fallback AppSpec",
@@ -666,7 +1127,7 @@ async def generate_app_spec(
 
         raw = str(getattr(resp, "content", resp))
         try:
-            spec = AppSpec.model_validate(_extract_json(raw))
+            spec = normalize_spec(AppSpec.model_validate(_extract_json(raw)))
             logger.info("AppSpec valid on attempt %d: %s", attempt, spec.app_name)
             return spec
         except (ValidationError, ValueError, json.JSONDecodeError) as err:
