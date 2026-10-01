@@ -10,7 +10,7 @@ import {
   Settings,
   LogOut,
   Rocket,
-  Wrench,
+  Sparkles,
 } from 'lucide-react';
 import { authApi } from '@/lib/api';
 import { User } from '@/types';
@@ -26,18 +26,42 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { name: 'Dashboard', key: 'dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Custom Builder', key: 'customBuilder', href: '/chat', icon: Wrench, badge: 'AI' },
+  { name: 'Custom Builder', key: 'customBuilder', href: '/chat', icon: Sparkles, badge: 'AI' },
   { name: 'Solutions', key: 'solutions', href: '/dashboard#blueprints', icon: Layers },
   { name: 'Billing', key: 'billing', href: '/billing', icon: CreditCard },
   { name: 'Deploy Keys', key: 'deployKeys', href: '/settings', icon: Rocket },
   { name: 'Admin', key: 'admin', href: '/admin', icon: Settings },
 ];
 
+function isNavActive(pathname: string, currentHash: string, targetHref: string): boolean {
+  if (targetHref === '/dashboard') {
+    return (pathname === '/dashboard' || pathname === '/') && currentHash !== '#blueprints';
+  }
+  if (targetHref === '/dashboard#blueprints') {
+    return pathname === '/dashboard' && currentHash === '#blueprints';
+  }
+  if (targetHref.includes('#')) {
+    const [path, hash] = targetHref.split('#');
+    return pathname === path && currentHash === `#${hash}`;
+  }
+  return pathname === targetHref || pathname.startsWith(`${targetHref}/`);
+}
+
 export default function Sidebar() {
   const pathname = usePathname();
+  const [currentHash, setCurrentHash] = useState('');
   const router = useRouter();
   const { t } = useI18n();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setCurrentHash(window.location.hash);
+      const onHashChange = () => setCurrentHash(window.location.hash);
+      window.addEventListener('hashchange', onHashChange);
+      return () => window.removeEventListener('hashchange', onHashChange);
+    }
+  }, [pathname]);
 
   useEffect(() => {
     authApi.me().then(setCurrentUser).catch(() => undefined);
@@ -69,12 +93,13 @@ export default function Sidebar() {
         <nav className="space-y-2 flex-1 w-full px-2">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive =
-              pathname === item.href ||
-              (item.href !== '/dashboard' && pathname.startsWith(item.href.split('#')[0]));
+            const isActive = isNavActive(pathname, currentHash, item.href);
 
             return (
               <div key={item.key} className="relative group/nav flex items-center justify-center w-full">
+                {isActive && (
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-[var(--sutra-muted-gold)] rounded-r" />
+                )}
                 <Link
                   href={item.href}
                   className={`flex items-center justify-center w-10 h-10 rounded-sm transition-all duration-200 ${

@@ -76,6 +76,7 @@ function ChatContent() {
   const [uploadedContext, setUploadedContext] = useState('');
   const [uploadedFilename, setUploadedFilename] = useState('');
   const [showUploader, setShowUploader] = useState(true);
+  const [mobileTab, setMobileTab] = useState<'chat' | 'artifacts' | 'context'>('chat');
   const [isStreaming, setIsStreaming] = useState(false);
   const [buildRequested, setBuildRequested] = useState(false);
   const [buildProgress, setBuildProgress] = useState<BuildProgressState | null>(null);
@@ -145,6 +146,7 @@ function ChatContent() {
     setIsStreaming(true);
 
     if (finalize) {
+      setMobileTab('artifacts');
       setBuildProgress({
         phase: 'analyzing',
         step: 1,
@@ -266,23 +268,23 @@ function ChatContent() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-6rem)] animate-fade-up">
+    <div className="flex flex-col flex-1 h-[calc(100dvh-7.5rem)] lg:h-[calc(100vh-6.5rem)] min-h-0 animate-fade-up">
 
       {/* Header */}
-      <div className="mb-4 flex items-center justify-between gap-4 px-2">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 flex items-center justify-center border border-[var(--sutra-muted-gold)] bg-[var(--bg)] text-[var(--sutra-muted-gold)]">
-            <Layout className="w-4 h-4" />
+      <div className="mb-2.5 sm:mb-4 flex items-center justify-between gap-2 px-1 sm:px-2">
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+          <div className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center border border-[var(--sutra-muted-gold)] bg-[var(--bg)] text-[var(--sutra-muted-gold)] shrink-0">
+            <Layout className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </div>
-          <div>
-            <h1 className="text-xl font-serif text-[var(--sutra-charcoal)]">{t('chat.aiArchitectWorkspace')}</h1>
-            <p className="text-[11px] uppercase tracking-widest font-semibold text-[var(--text-2)] mt-0.5">{t('chat.synthesisEngine')}</p>
+          <div className="min-w-0">
+            <h1 className="text-base sm:text-xl font-serif text-[var(--sutra-charcoal)] truncate">{t('chat.aiArchitectWorkspace')}</h1>
+            <p className="text-[10px] sm:text-[11px] uppercase tracking-widest font-semibold text-[var(--text-2)] mt-0.5 truncate">{t('chat.synthesisEngine')}</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold">
-          <span className="text-[var(--text-3)]">{t('chat.intelligenceLayer')}</span>
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-sm border shadow-sm ${
+        <div className="flex items-center gap-1.5 sm:gap-2 text-[10px] uppercase tracking-widest font-bold shrink-0">
+          <span className="hidden sm:inline text-[var(--text-3)]">{t('chat.intelligenceLayer')}</span>
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-sm border shadow-xs text-[10px] sm:text-xs ${
               engineOnline === null ? 'bg-[var(--bg-2)] border-[var(--border)] text-[var(--text-2)]'
               : engineOnline ? 'bg-[var(--bg-2)] border-[var(--border)] text-[var(--green)]'
               : 'bg-[var(--bg-2)] border-[var(--border)] text-[var(--red)]'
@@ -298,8 +300,66 @@ function ChatContent() {
         </div>
       </div>
 
+      {/* Mobile Segmented Switcher for Phone/Tablet */}
+      <div className="lg:hidden flex items-center p-1 bg-[var(--bg-2)] border border-[var(--border)] rounded-md mb-2.5 gap-1 shrink-0">
+        <button
+          type="button"
+          onClick={() => setMobileTab('chat')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 text-[11px] font-bold uppercase tracking-wider rounded transition-all ${
+            mobileTab === 'chat'
+              ? 'bg-[var(--bg)] text-[var(--sutra-charcoal)] shadow-xs border border-[var(--border)]'
+              : 'text-[var(--text-3)] hover:text-[var(--sutra-charcoal)]'
+          }`}
+        >
+          <Layout className="w-3.5 h-3.5" />
+          <span>Chat</span>
+          {isStreaming && (
+            <span className="w-2 h-2 rounded-full bg-[var(--sutra-muted-gold)] animate-pulse" />
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMobileTab('artifacts')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 text-[11px] font-bold uppercase tracking-wider rounded transition-all ${
+            mobileTab === 'artifacts'
+              ? 'bg-[var(--bg)] text-[var(--sutra-charcoal)] shadow-xs border border-[var(--border)]'
+              : 'text-[var(--text-3)] hover:text-[var(--sutra-charcoal)]'
+          }`}
+        >
+          <Layers className="w-3.5 h-3.5" />
+          <span>Artifacts</span>
+          {builds.length > 0 && (
+            <span className="px-1.5 py-0.2 bg-[var(--sutra-muted-gold)]/20 text-[var(--sutra-charcoal)] text-[9px] rounded-full font-mono">
+              {builds.length}
+            </span>
+          )}
+          {isStreaming && buildProgress && (
+            <span className="text-[9px] font-mono text-[var(--sutra-muted-gold)]">
+              {buildProgress.percentage}%
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMobileTab('context')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 text-[11px] font-bold uppercase tracking-wider rounded transition-all ${
+            mobileTab === 'context'
+              ? 'bg-[var(--bg)] text-[var(--sutra-charcoal)] shadow-xs border border-[var(--border)]'
+              : 'text-[var(--text-3)] hover:text-[var(--sutra-charcoal)]'
+          }`}
+        >
+          <FileText className="w-3.5 h-3.5" />
+          <span>Context</span>
+          {uploadedContext && (
+            <span className="w-2 h-2 rounded-full bg-[var(--green)]" />
+          )}
+        </button>
+      </div>
+
       {capability?.simulation && (
-        <div className="mx-2 mb-4 flex items-start gap-2.5 rounded-sm border border-[var(--sutra-gold)] bg-[var(--bg)] px-4 py-3 shadow-sm">
+        <div className="mx-1 sm:mx-2 mb-3 sm:mb-4 flex items-start gap-2.5 rounded-sm border border-[var(--sutra-gold)] bg-[var(--bg)] px-3 sm:px-4 py-2.5 sm:py-3 shadow-sm">
           <AlertTriangle className="w-4 h-4 text-[var(--sutra-gold)] shrink-0 mt-0.5" />
           <div className="text-[11px] leading-relaxed">
             <p className="font-bold uppercase tracking-widest text-[var(--sutra-charcoal)] text-[10px]">
@@ -307,24 +367,30 @@ function ChatContent() {
             </p>
             <p className="text-[var(--text-2)] mt-1">
               No LLM API key configured (<code className="font-mono bg-[var(--bg-2)] px-1">LLM_PROVIDER={capability.llm_provider}</code>) and the OpenCode
-              code engine sidecar is offline. Builds are orchestrating a deterministic template scaffold from your request — this is <strong className="text-[var(--sutra-charcoal)]">not</strong> bespoke AI-generated code.
-              To get real AI generation, set <code className="font-mono bg-[var(--bg-2)] px-1">GROQ_API_KEY</code> or <code className="font-mono bg-[var(--bg-2)] px-1">OPENAI_API_KEY</code> plus <code className="font-mono bg-[var(--bg-2)] px-1">LLM_PROVIDER</code>, and start the OpenCode sidecar
-              (<code className="font-mono bg-[var(--bg-2)] px-1">docker compose up opencode</code> or <code className="font-mono bg-[var(--bg-2)] px-1">opencode serve --port 4096</code>). The generated scaffold is still fully working FastAPI + Next.js code, verified and packaged for download.
+              code engine sidecar is offline. Builds are orchestrating a deterministic template scaffold from your request.
             </p>
           </div>
         </div>
       )}
 
       {/* 3-Zone Workspace */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 min-h-0">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3 lg:gap-6 min-h-0">
         
         {/* ZONE 1: CONTEXT (3 cols) */}
-        <div className="hidden lg:flex flex-col lg:col-span-3 h-full sutra-card bg-[var(--bg-2)] border-[var(--border)] min-w-0">
-          <div className="p-4 border-b border-[var(--border)] flex items-center gap-2 bg-[var(--bg)]">
-            <FileText className="w-4 h-4 text-[var(--text-3)]" />
-            <h2 className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">{t('chat.contextualData')}</h2>
+        <div className={`${mobileTab === 'context' ? 'flex col-span-1' : 'hidden'} lg:flex flex-col lg:col-span-3 h-full sutra-card bg-[var(--bg-2)] border-[var(--border)] min-w-0 overflow-hidden`}>
+          <div className="p-3 sm:p-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--bg)]">
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-[var(--text-3)]" />
+              <h2 className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">{t('chat.contextualData')}</h2>
+            </div>
+            <button
+              onClick={() => setMobileTab('chat')}
+              className="lg:hidden text-[10px] uppercase font-bold text-[var(--sutra-muted-gold)] tracking-wider"
+            >
+              Back to Chat
+            </button>
           </div>
-          <div className="flex-1 p-4 overflow-y-auto overflow-x-hidden">
+          <div className="flex-1 p-3 sm:p-4 overflow-y-auto overflow-x-hidden">
             {uploadedContext ? (
               <div className="space-y-4">
                 <div className="p-3 bg-[var(--bg)] border border-[var(--sutra-muted-gold)] text-[12px]">
@@ -337,6 +403,12 @@ function ChatContent() {
                 >
                   {t('chat.clearContext')}
                 </button>
+                <button
+                  onClick={() => setMobileTab('chat')}
+                  className="lg:hidden btn btn-primary w-full text-[10px] uppercase tracking-widest font-semibold mt-2"
+                >
+                  Return to Chat →
+                </button>
               </div>
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-center space-y-4">
@@ -345,6 +417,7 @@ function ChatContent() {
                     setUploadedContext(text);
                     setUploadedFilename(filename);
                     push(`Context established from **${filename}**. I am ready to process instructions.`);
+                    setMobileTab('chat');
                   }}
                   onClear={() => { setUploadedContext(''); setUploadedFilename(''); }}
                 />
@@ -357,9 +430,9 @@ function ChatContent() {
         </div>
 
         {/* ZONE 2: WORKSPACE / CHAT (6 cols) */}
-        <div className="flex flex-col lg:col-span-6 h-[52vh] lg:h-full sutra-card border-[var(--sutra-muted-gold)] shadow-md overflow-hidden bg-[var(--bg)] relative min-w-0">
+        <div className={`${mobileTab === 'chat' ? 'flex col-span-1' : 'hidden'} lg:flex flex-col lg:col-span-6 h-full sutra-card border-[var(--sutra-muted-gold)] shadow-md overflow-hidden bg-[var(--bg)] relative min-w-0`}>
           {/* Thread */}
-          <div className="flex-1 overflow-y-auto p-6 pb-4">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-6 pb-4">
             {messages.map((m, i) => <ChatMessage key={i} role={m.role} content={m.content} agent={m.agent} />)}
 
             {isStreaming && (
@@ -378,14 +451,14 @@ function ChatContent() {
           </div>
 
           {/* Input area */}
-          <div className="p-4 bg-[var(--bg-2)] border-t border-[var(--border)]">
+          <div className="p-2.5 sm:p-4 bg-[var(--bg-2)] border-t border-[var(--border)]">
             {error && (
-              <p className="text-[11px] font-semibold text-[var(--red)] bg-[var(--bg)] border border-[var(--red)] px-4 py-2 mb-3 shadow-sm">{error}</p>
+              <p className="text-[11px] font-semibold text-[var(--red)] bg-[var(--bg)] border border-[var(--red)] px-3 py-1.5 mb-2 shadow-xs">{error}</p>
             )}
 
             {buildRequested && (
-              <div className="mb-2.5 flex items-center gap-2 animate-fade-in">
-                <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)] shrink-0">{t('chat.appNameOptional')}</span>
+              <div className="mb-2 flex items-center gap-2 animate-fade-in">
+                <span className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-[var(--text-3)] shrink-0">{t('chat.appNameOptional')}</span>
                 <input
                   type="text"
                   value={appName}
@@ -399,13 +472,13 @@ function ChatContent() {
 
             <form
               onSubmit={(e) => { e.preventDefault(); handleSend(buildRequested); }}
-              className="flex items-center gap-3"
+              className="flex items-center gap-2 sm:gap-3"
             >
               {/* Context Toggle for mobile */}
               <button
                 type="button"
-                onClick={() => setShowUploader(!showUploader)}
-                className={`lg:hidden p-3 border transition-colors shrink-0 rounded-sm ${uploadedContext
+                onClick={() => setMobileTab('context')}
+                className={`lg:hidden p-2.5 sm:p-3 border transition-colors shrink-0 rounded-sm ${uploadedContext
                     ? 'bg-[var(--bg)] border-[var(--sutra-muted-gold)] text-[var(--sutra-muted-gold)] shadow-sm'
                     : 'bg-[var(--bg)] border-[var(--border)] text-[var(--text-3)]'
                   }`}
@@ -433,21 +506,21 @@ function ChatContent() {
                       : t('chat.describeApp')
                   }
                   disabled={isStreaming}
-                  className="w-full py-3.5 pl-4 pr-24 bg-[var(--bg)] border border-[var(--border)] text-[13px] text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-sm min-w-0"
+                  className="w-full py-2.5 sm:py-3.5 pl-3 sm:pl-4 pr-20 sm:pr-24 bg-[var(--bg)] border border-[var(--border)] text-[14px] sm:text-[13px] text-[var(--sutra-charcoal)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--sutra-muted-gold)] transition-colors rounded-sm shadow-xs min-w-0"
                 />
                 
                 {/* Build toggle inside input */}
-                <label className={`absolute right-2 flex items-center gap-2 px-3 py-1.5 rounded-sm text-[10px] uppercase tracking-widest font-bold cursor-pointer select-none transition-colors ${buildRequested ? 'bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)]' : 'bg-[var(--bg-2)] border border-[var(--border)] text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] hover:border-[var(--text-3)]'
+                <label className={`absolute right-1.5 sm:right-2 flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-sm text-[9px] sm:text-[10px] uppercase tracking-widest font-bold cursor-pointer select-none transition-colors ${buildRequested ? 'bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)]' : 'bg-[var(--bg-2)] border border-[var(--border)] text-[var(--text-3)] hover:text-[var(--sutra-charcoal)] hover:border-[var(--text-3)]'
                   }`}>
                   <input type="checkbox" checked={buildRequested} onChange={(e) => setBuildRequested(e.target.checked)} className="sr-only" />
-                  <Settings2 className="w-3 h-3" /> {t('chat.buildTab')}
+                  <Settings2 className="w-3 h-3" /> <span className="hidden xs:inline">{t('chat.buildTab')}</span>
                 </label>
               </div>
 
               <button
                 type="submit"
                 disabled={!input.trim() || isStreaming}
-                className="p-3.5 rounded-sm bg-[var(--sutra-charcoal)] hover:bg-black text-[var(--sutra-warm-ivory)] transition-colors disabled:opacity-50 shrink-0 shadow-md"
+                className="p-2.5 sm:p-3.5 rounded-sm bg-[var(--sutra-charcoal)] hover:bg-black text-[var(--sutra-warm-ivory)] transition-colors disabled:opacity-50 shrink-0 shadow-md"
               >
                 <Send className="w-4 h-4" />
               </button>
@@ -455,9 +528,9 @@ function ChatContent() {
           </div>
         </div>
 
-        {/* ZONE 3: ARTIFACT (3 cols, stacked below chat on mobile) */}
-        <div className="flex flex-col lg:col-span-3 h-[46vh] lg:h-full sutra-card bg-[var(--bg-2)] border-[var(--border)] min-w-0 overflow-hidden">
-          <div className="p-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--bg)]">
+        {/* ZONE 3: ARTIFACT (3 cols) */}
+        <div className={`${mobileTab === 'artifacts' ? 'flex col-span-1' : 'hidden'} lg:flex flex-col lg:col-span-3 h-full sutra-card bg-[var(--bg-2)] border-[var(--border)] min-w-0 overflow-hidden`}>
+          <div className="p-3 sm:p-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--bg)]">
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-[var(--text-3)]" />
               <h2 className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">{t('chat.buildArtifacts')}</h2>

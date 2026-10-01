@@ -185,8 +185,8 @@ export default function BillingPage() {
       </div>
 
       {/* Top Banner: Credit Meter */}
-      <div className="sutra-card p-8 flex flex-wrap items-center justify-between gap-8 bg-[var(--bg-2)]">
-        <div className="space-y-4 flex-1 min-w-[280px]">
+      <div className="sutra-card p-4 sm:p-8 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-6 sm:gap-8 bg-[var(--bg-2)]">
+        <div className="space-y-4 flex-1 min-w-0">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] text-[10px] uppercase tracking-widest font-bold">
             <Zap className="w-3.5 h-3.5" />
             <span>Plan: {usage?.plan_name || 'Professional'}</span>
@@ -212,7 +212,7 @@ export default function BillingPage() {
         </div>
 
         {/* Quick Top-Up Action */}
-        <div className="p-5 border border-[var(--border)] bg-[var(--bg)] space-y-4 min-w-[260px] shadow-sm">
+        <div className="p-4 sm:p-5 border border-[var(--border)] bg-[var(--bg)] space-y-4 w-full md:w-auto md:min-w-[260px] shadow-sm">
           <span className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] block border-b border-[var(--border)] pb-2">Top Up Credits</span>
           <div className="flex flex-col gap-2">
             <button

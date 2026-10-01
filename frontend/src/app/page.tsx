@@ -342,12 +342,7 @@ const MockWorkspace = () => {
 };
 
 export default function LandingPage() {
-  const pageRef = useRef<HTMLDivElement>(null);
-
-  const { scrollYProgress } = useScroll({
-    target: pageRef,
-    offset: ['start start', 'end end']
-  });
+  const { scrollYProgress } = useScroll();
 
   const smoothProgress = useSpring(scrollYProgress, {
     stiffness: 100,
@@ -359,12 +354,12 @@ export default function LandingPage() {
   const pathLength = useTransform(smoothProgress, [0, 1], [0.05, 1]);
 
   return (
-    <div ref={pageRef} className="relative bg-[#0A0C0E] text-[#FAF8F3] min-h-screen selection:bg-[var(--sutra-muted-gold)] selection:text-[#0A0C0E] font-sans overflow-x-hidden">
+    <div className="relative bg-[#0A0C0E] text-[#FAF8F3] min-h-screen selection:bg-[var(--sutra-muted-gold)] selection:text-[#0A0C0E] font-sans overflow-x-hidden">
       
       {/* GLOBAL 3D BACKGROUND SCROLL EFFECT (THE LOGO) */}
       <div className="fixed inset-0 w-full h-full flex items-center justify-center pointer-events-none z-0 perspective-[1000px]">
         {/* Ambient Glow */}
-        <div className="absolute inset-0 bg-radial-gradient from-[#B08A4A]/5 via-[#0A0C0E]/90 to-[#0A0C0E]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(176,138,74,0.08)_0%,rgba(10,12,14,0.85)_60%,rgba(10,12,14,1)_100%)]" />
         
         <motion.div 
           initial={{ rotateX: 20, rotateY: -15, scale: 0.85 }}
@@ -440,71 +435,63 @@ export default function LandingPage() {
       {/* FOREGROUND CONTENT */}
       <div className="relative z-10">
         {/* HEADER */}
-        <header className="absolute top-0 left-0 w-full h-20 flex items-center justify-between px-8 z-50">
+        <header className="absolute top-0 left-0 w-full h-16 sm:h-20 flex items-center justify-between px-4 sm:px-8 z-50">
           <div className="flex items-center">
-            <span className="text-[var(--sutra-muted-gold)] font-sanskrit font-bold text-4xl leading-none drop-shadow-sm">सूत्र</span>
+            <span className="text-[var(--sutra-muted-gold)] font-sanskrit font-bold text-3xl sm:text-4xl leading-none drop-shadow-sm">सूत्र</span>
           </div>
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2 sm:gap-6">
             <LanguageSelector compact />
-            <Link href="/login" className="text-[12px] uppercase tracking-widest text-[#8E959A] hover:text-white transition-colors">
+            <Link href="/login" className="hidden sm:inline text-[12px] uppercase tracking-widest text-[#8E959A] hover:text-white transition-colors">
               Sign in
             </Link>
-            <Link href="/dashboard" className="btn btn-primary bg-[var(--sutra-muted-gold)] text-[#0A0C0E] hover:bg-[#C29B5A] border-none text-[11px] uppercase tracking-widest px-5 py-2">
-              Workspace <ArrowRight className="w-3.5 h-3.5 ml-1" />
+            <Link href="/dashboard" className="btn btn-primary bg-[var(--sutra-muted-gold)] text-[#0A0C0E] hover:bg-[#C29B5A] border-none text-[10px] sm:text-[11px] uppercase tracking-widest px-3.5 sm:px-5 py-2">
+              Workspace <ArrowRight className="w-3 h-3 sm:w-3.5 sm:h-3.5 ml-1" />
             </Link>
           </div>
         </header>
 
         {/* HERO SECTION */}
-        <section className="min-h-[95vh] w-full flex flex-col items-center justify-center pt-20">
-          <motion.div 
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 1, delay: 0.2 }}
-            className="flex flex-col items-center text-center px-4 max-w-4xl mx-auto"
-          >
-            <div className="inline-flex items-center gap-3 text-[10px] md:text-xs uppercase tracking-[0.3em] text-[var(--sutra-muted-gold)] font-bold mb-8">
-              <span className="w-8 h-[1px] bg-[var(--sutra-muted-gold)] opacity-50" />
+        <section className="relative min-h-[90vh] sm:min-h-[95vh] w-full flex flex-col items-center justify-center pt-24 sm:pt-20 pb-16 sm:pb-0 px-4">
+          <div className="flex flex-col items-center text-center px-2 sm:px-4 max-w-4xl mx-auto animate-fade-up">
+            <div className="inline-flex items-center gap-2 sm:gap-3 text-[9px] sm:text-xs uppercase tracking-[0.2em] sm:tracking-[0.3em] text-[var(--sutra-muted-gold)] font-bold mb-6 sm:mb-8">
+              <span className="w-5 sm:w-8 h-[1px] bg-[var(--sutra-muted-gold)] opacity-50" />
               Ancient precision. Modern intelligence.
-              <span className="w-8 h-[1px] bg-[var(--sutra-muted-gold)] opacity-50" />
+              <span className="w-5 sm:w-8 h-[1px] bg-[var(--sutra-muted-gold)] opacity-50" />
             </div>
 
-            <h1 className="text-5xl md:text-7xl lg:text-[90px] font-serif text-[#FAF8F3] tracking-tight leading-[0.9] mb-8">
+            <h1 className="text-4xl sm:text-6xl md:text-7xl lg:text-[90px] font-serif text-[#FAF8F3] tracking-tight leading-[1.05] sm:leading-[0.9] mb-6 sm:mb-8">
               Structure your <br />
               <span className="italic text-transparent bg-clip-text bg-gradient-to-r from-[var(--sutra-muted-gold)] to-[#FAF8F3]">
                 intelligence.
               </span>
             </h1>
             
-            <p className="text-[#8E959A] text-lg md:text-xl font-light leading-relaxed max-w-2xl text-balance mb-12">
+            <p className="text-[#8E959A] text-sm sm:text-lg md:text-xl font-light leading-relaxed max-w-2xl text-balance mb-8 sm:mb-12">
               The autonomous pipeline that dissects business requirements, performs rigorous architectural reasoning, and synthesizes production-ready software systems in minutes.
             </p>
 
-            <div className="flex flex-col sm:flex-row items-center gap-4">
-              <Link href="/chat" className="btn btn-primary bg-[var(--sutra-muted-gold)] text-[#0A0C0E] hover:bg-[#C29B5A] border-none text-sm uppercase tracking-widest px-8 py-4 shadow-[0_0_40px_rgba(176,138,74,0.3)] transition-shadow hover:shadow-[0_0_60px_rgba(176,138,74,0.5)]">
+            <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-4 w-full sm:w-auto px-2 sm:px-0">
+              <Link
+                href="/chat"
+                className="w-full sm:w-auto inline-flex items-center justify-center font-bold text-xs sm:text-sm uppercase tracking-widest px-8 py-3.5 sm:py-4 rounded-sm bg-[#B08A4A] hover:bg-[#C29B5A] text-[#0A0C0E] shadow-[0_0_35px_rgba(176,138,74,0.4)] transition-all active:scale-95"
+              >
                 Build with SUTRA 
               </Link>
-              <Link href="/dashboard" className="btn btn-ghost text-sm uppercase tracking-widest px-8 py-4 border border-white/10 hover:border-[var(--sutra-muted-gold)] hover:bg-white/5 transition-colors text-white backdrop-blur-md">
+              <Link
+                href="/dashboard"
+                className="w-full sm:w-auto inline-flex items-center justify-center font-semibold text-xs sm:text-sm uppercase tracking-widest px-8 py-3.5 sm:py-4 rounded-sm border border-white/20 hover:border-[#B08A4A] bg-white/5 hover:bg-white/10 text-white backdrop-blur-md transition-all active:scale-95"
+              >
                 Explore Workspaces
               </Link>
             </div>
-          </motion.div>
+          </div>
 
           {/* Scroll Indicator */}
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 2, duration: 1 }}
-            className="absolute bottom-12 left-0 w-full flex flex-col items-center justify-center text-center z-20 pointer-events-none"
-          >
-            <div className="w-[1px] h-16 bg-gradient-to-b from-[#8E959A] to-transparent overflow-hidden relative">
-              <motion.div 
-                animate={{ y: [0, 64] }}
-                transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
-                className="w-full h-1/2 bg-[var(--sutra-muted-gold)]"
-              />
+          <div className="hidden sm:flex absolute bottom-8 left-0 w-full flex-col items-center justify-center text-center z-20 pointer-events-none">
+            <div className="w-[1px] h-14 bg-gradient-to-b from-[#8E959A] to-transparent overflow-hidden relative">
+              <div className="w-full h-1/2 bg-[var(--sutra-muted-gold)] animate-pulse" />
             </div>
-          </motion.div>
+          </div>
         </section>
 
         {/* REST OF THE PAGE */}

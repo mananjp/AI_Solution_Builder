@@ -84,7 +84,7 @@ export default function SettingsPage() {
         <p className="text-[13px] text-[var(--text-2)] mt-1 font-light">Securely manage your deployment tokens for one-click MVP provisioning.</p>
       </div>
 
-      <div className="sutra-card p-8 bg-[var(--bg-2)] flex items-start justify-between gap-6 flex-wrap relative overflow-hidden">
+      <div className="sutra-card p-4 sm:p-8 bg-[var(--bg-2)] flex items-start justify-between gap-6 flex-wrap relative overflow-hidden">
         <div className="space-y-4 max-w-xl relative z-10">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] text-[10px] uppercase tracking-widest font-bold">
             <ShieldCheck className="w-3.5 h-3.5" />
@@ -100,7 +100,7 @@ export default function SettingsPage() {
       {/* Credentials Form */}
       <form
         onSubmit={handleSave}
-        className="sutra-card p-8 space-y-6 bg-[var(--bg)]"
+        className="sutra-card p-4 sm:p-8 space-y-5 sm:space-y-6 bg-[var(--bg)]"
       >
         <div className="space-y-2">
           <label className="flex items-center gap-2 text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">
@@ -176,7 +176,7 @@ export default function SettingsPage() {
           <button
             type="submit"
             disabled={saving}
-            className="btn btn-primary min-w-[160px] justify-center shadow-md"
+            className="btn btn-primary w-full sm:w-auto min-w-[160px] justify-center shadow-md"
           >
             {saving ? <span>Encrypting...</span> : <span>Save Credentials</span>}
           </button>
@@ -184,8 +184,8 @@ export default function SettingsPage() {
       </form>
 
       {/* Mobile App & API Backend Network Configuration */}
-      <div className="sutra-card p-8 space-y-6 bg-[var(--bg)] border border-[var(--border)]">
-        <div className="flex items-center justify-between">
+      <div className="sutra-card p-4 sm:p-8 space-y-5 sm:space-y-6 bg-[var(--bg)] border border-[var(--border)]">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-sm bg-[var(--sutra-muted-gold)]/15 text-[var(--sutra-muted-gold)] border border-[var(--sutra-muted-gold)]/30">
               <Smartphone className="w-4 h-4" />
@@ -199,7 +199,7 @@ export default function SettingsPage() {
               </p>
             </div>
           </div>
-          <span className={`px-2.5 py-1 text-[10px] font-mono uppercase font-bold rounded-sm border ${
+          <span className={`self-start sm:self-auto px-2.5 py-1 text-[10px] font-mono uppercase font-bold rounded-sm border ${
             isMobileApp
               ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
               : 'bg-[var(--bg-2)] text-[var(--text-2)] border-[var(--border)]'
@@ -214,7 +214,7 @@ export default function SettingsPage() {
               <Server className="w-3.5 h-3.5 text-[var(--sutra-muted-gold)]" />
               Active Backend Base URL
             </label>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="text"
                 value={customApiUrl}
@@ -224,7 +224,7 @@ export default function SettingsPage() {
               />
               <button
                 type="submit"
-                className="btn btn-primary px-5 text-xs whitespace-nowrap"
+                className="btn btn-primary px-5 text-xs whitespace-nowrap justify-center"
               >
                 Apply URL
               </button>
@@ -238,10 +238,10 @@ export default function SettingsPage() {
                     setApiSaveStatus('Reset to default backend.');
                     setTimeout(() => setApiSaveStatus(null), 3000);
                   }}
-                  className="btn btn-secondary px-3 text-xs"
-                  title="Reset to default"
+                  className="btn btn-secondary px-4 text-xs whitespace-nowrap justify-center"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
+                  <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                  Reset Default
                 </button>
               )}
             </div>
