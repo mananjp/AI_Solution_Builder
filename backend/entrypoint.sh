@@ -108,7 +108,7 @@ start_app() {
     (
       while true; do
         cd /workspace 2>/dev/null || cd /app
-        NODE_OPTIONS="--max-old-space-size=256" opencode serve --port 4096 --hostname 0.0.0.0 2>&1 | sed 's/^/[opencode] /' || true
+        NODE_OPTIONS="--max-old-space-size=${OPENCODE_NODE_HEAP_MB:-160}" opencode serve --port 4096 --hostname 0.0.0.0 2>&1 | sed 's/^/[opencode] /' || true
         log "OpenCode sidecar exited; auto-restarting in 2s..."
         sleep 2
       done
@@ -158,7 +158,7 @@ start_api() {
     (
       while true; do
         cd /workspace 2>/dev/null || cd /app
-        NODE_OPTIONS="--max-old-space-size=256" opencode serve --port 4096 --hostname 0.0.0.0 2>&1 | sed 's/^/[opencode] /' || true
+        NODE_OPTIONS="--max-old-space-size=${OPENCODE_NODE_HEAP_MB:-160}" opencode serve --port 4096 --hostname 0.0.0.0 2>&1 | sed 's/^/[opencode] /' || true
         log "OpenCode sidecar exited; auto-restarting in 2s..."
         sleep 2
       done

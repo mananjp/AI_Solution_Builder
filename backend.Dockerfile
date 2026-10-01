@@ -1,4 +1,4 @@
-# AI Solution Builder — FastAPI API service (OpenCode/build worker run separately).
+# AI Solution Builder — single Render API + OpenCode + worker service.
 
 FROM python:3.12-slim AS runtime
 
@@ -7,21 +7,37 @@ ENV PYTHONUNBUFFERED=1 \
     APP_ENV=production \
     APP_ROLE=api \
     PORT=8000 \
+    HOME=/home/app \
+    XDG_CONFIG_HOME=/home/app/.config \
+    OPENCODE_SERVER_URL=http://127.0.0.1:4096 \
     MVP_BUILD_DIR=/tmp/mvp-build-cache \
     MALLOC_ARENA_MAX=2 \
-    ENABLE_OPENCODE_SIDECAR=false
+    ENABLE_OPENCODE_SIDECAR=true
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl bash \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        bash \
+        git \
+        nodejs \
+        npm \
     && rm -rf /var/lib/apt/lists/* \
+    && NODE_OPTIONS="" npm install -g opencode-ai@1.18.32 \
+    && command -v opencode \
+    && opencode --version \
     && groupadd --system app && useradd --system --gid app --create-home --home-dir /home/app app
 
 # Workspace + runtime dirs
 RUN mkdir -p /tmp/mvp-build-cache \
+             /workspace \
              /app/.data/uploads \
              /app/.data/exports \
-    && chmod -R 777 /tmp/mvp-build-cache
+             /home/app/.config/opencode/agents \
+    && chmod -R 777 /tmp/mvp-build-cache /workspace
+
+COPY backend/opencode/config.json /home/app/.config/opencode/opencode.json
+COPY backend/opencode/agents/ /home/app/.config/opencode/agents/
 
 # Python backend
 COPY backend/requirements.txt .
@@ -35,7 +51,7 @@ COPY backend/scripts/run_migrations.py scripts/
 COPY backend/entrypoint.sh /app/entrypoint.sh
 
 RUN chmod +x /app/entrypoint.sh && \
-    chown -R app:app /tmp/mvp-build-cache /app
+    chown -R app:app /home/app /tmp/mvp-build-cache /workspace /app
 
 USER app
 
