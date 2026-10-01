@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.mvp_build import MVPBuild
 
-_solution_locks: dict[UUID, asyncio.Lock] = {}
+_solution_locks: dict[tuple[asyncio.AbstractEventLoop | None, UUID], asyncio.Lock] = {}
 
 
 async def _next_build_number(db: AsyncSession, solution_id: UUID) -> int:
@@ -42,7 +42,14 @@ async def allocate_build_number(db: AsyncSession, solution_id: UUID) -> tuple[as
     early would let a concurrent build reuse it. Always release the lock in a
     ``finally`` block.
     """
-    lock = _solution_locks.setdefault(solution_id, asyncio.Lock())
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    for k in list(_solution_locks.keys()):
+        if k[0] is not None and k[0].is_closed():
+            _solution_locks.pop(k, None)
+    lock = _solution_locks.setdefault((loop, solution_id), asyncio.Lock())
     await lock.acquire()
     try:
         return lock, await _next_build_number(db, solution_id)

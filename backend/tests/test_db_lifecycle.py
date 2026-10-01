@@ -46,16 +46,22 @@ def _ownership_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
 
 def _park_one_connection(engine: object) -> None:
     """Open then release a connection so the pool holds it, on a throwaway loop."""
+    import concurrent.futures
 
     async def run() -> None:
         async with engine.connect():  # type: ignore[attr-defined]
             pass
 
-    loop = asyncio.new_event_loop()
-    try:
-        loop.run_until_complete(run())
-    finally:
-        loop.close()
+    def thread_runner() -> None:
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(run())
+        finally:
+            loop.close()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(thread_runner)
+        future.result()
 
 
 async def test_pooled_engine_disposes_cleanly_on_owning_loop(caplog):
@@ -90,7 +96,7 @@ async def test_dispose_engine_warns_and_drops_pool_from_dead_owner_loop(monkeypa
     owner.close()
 
     try:
-        with caplog.at_level(logging.ERROR, logger=POOL_LOGGER):
+        with caplog.at_level(logging.WARNING):
             await database.dispose_engine()
     finally:
         monkeypatch.undo()
@@ -142,7 +148,10 @@ def test_guard_rejects_non_test_databases(url, monkeypatch):
         _resolve_test_database_url()
 
     monkeypatch.setenv("ALLOW_NON_TEST_DB", "1")
-    assert _resolve_test_database_url().endswith("mydb")
+    resolved = _resolve_test_database_url()
+    db_name = resolved.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+    expected_name = url.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+    assert db_name == expected_name
 
 
 def test_guard_accepts_test_database(monkeypatch):

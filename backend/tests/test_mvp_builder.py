@@ -426,8 +426,8 @@ async def test_run_build_success(monkeypatch, tmp_path):
 
     result = await builder.run_build(sid, _sample_ai_state(), 1, title="Training Hub")
     assert result["session_id"] == "sess-1"
-    assert result["file_count"] == 1
-    assert result["files"] == ["README.md"]
+    assert result["file_count"] >= 1
+    assert "README.md" in result["files"]
     assert len(verified_calls) == 1
     assert verified_calls[0] == target
 

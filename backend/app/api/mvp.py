@@ -119,7 +119,20 @@ router = APIRouter(prefix="/mvp", tags=["OpenCode MVP Builder"])
 _STATUS_END_STATES = {"complete", "failed", "cancelled"}
 
 _build_tasks: set[asyncio.Task[None]] = set()
-_inline_build_semaphore = asyncio.Semaphore(1)
+_inline_build_semaphores: dict[asyncio.AbstractEventLoop, asyncio.Semaphore] = {}
+
+
+def _get_inline_build_semaphore() -> asyncio.Semaphore:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.Semaphore(1)
+    for lp in list(_inline_build_semaphores.keys()):
+        if lp.is_closed():
+            _inline_build_semaphores.pop(lp, None)
+    if loop not in _inline_build_semaphores:
+        _inline_build_semaphores[loop] = asyncio.Semaphore(1)
+    return _inline_build_semaphores[loop]
 
 
 def _is_retryable_build_error(exc: Exception) -> bool:
@@ -182,7 +195,7 @@ def _spawn_build_job(build_id: UUID) -> None:
 
     async def run_inline() -> None:
         while True:
-            async with _inline_build_semaphore:
+            async with _get_inline_build_semaphore():
                 await execute_build_job(build_id)
                 async with async_session_factory() as db:
                     result = await db.execute(select(BuildJob).where(BuildJob.build_id == build_id))

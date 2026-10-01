@@ -35,7 +35,7 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     pydantic==2.10.4 \
     pydantic-settings==2.7.1 \
     "python-jose[cryptography]" \
-    "passlib[bcrypt]" \
+    bcrypt \
     email-validator \
     httpx \
     pytest \

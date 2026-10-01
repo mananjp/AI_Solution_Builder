@@ -272,6 +272,8 @@ def run_acceptance_tests(backend_dir: Path) -> dict[str, Any]:
     if proc.returncode != 0:
         # Keep the most useful tail: assertion lines + short traceback, capped for the prompt.
         errors.append("Acceptance tests failed:\n" + out[-3500:])
+        if failed == 0:
+            failed = 1
     return {"ran": True, "passed": passed, "failed": failed, "errors": errors}
 
 

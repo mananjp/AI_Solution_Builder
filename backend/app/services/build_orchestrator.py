@@ -178,12 +178,14 @@ async def run_build_pipeline(ctx: BuildContext) -> dict[str, Any]:
                 with contextlib.suppress(asyncio.CancelledError):
                     await monitor_task
         except Exception as exc:
-            logger.warning(
-                "Sidecar synthesis error (%s); falling back to deterministic synthesis", exc
-            )
             if session_id and session_id != "auto-synthesized":
                 with contextlib.suppress(Exception):
                     await builder.abort_session(session_id, seed=str(ctx.solution_id))
+            if isinstance(exc, builder.MVPBuilderError) or not ctx.allow_offline:
+                raise
+            logger.warning(
+                "Sidecar synthesis error (%s); falling back to deterministic synthesis", exc
+            )
 
     # ── Phase 4: Verification & Quality Gate ──
     await _notify("verifying", 4, 86, "Verifying code integrity, type checks & acceptance tests...")
