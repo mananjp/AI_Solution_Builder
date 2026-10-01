@@ -276,8 +276,21 @@ async def execute_build_job(build_id: UUID) -> None:
                     progress_cb=save_progress,
                 )
             else:
+                # Prefer the user's actual chat requirements over the fixed
+                # description attached when the solution row was first made.
+                user_prompts = [
+                    str(item.get("content", "")).strip()
+                    for item in (solution.conversation_history or [])
+                    if isinstance(item, dict)
+                    and item.get("role") == "user"
+                    and item.get("content")
+                ]
                 user_msg = (
-                    (solution.ai_state or {}).get("user_message", "") or solution.description or ""
+                    "\n\n".join(user_prompts[-5:])
+                    or (solution.ai_state or {}).get("user_message", "")
+                    or (solution.ai_state or {}).get("business_description", "")
+                    or solution.description
+                    or ""
                 )
                 uploaded_ctx = (solution.ai_state or {}).get("uploaded_context", "") or ""
                 conv_history = solution.conversation_history or []
@@ -294,12 +307,15 @@ async def execute_build_job(build_id: UUID) -> None:
                     progress_cb=save_progress,
                 )
                 # Persist any generated spec back to the solution
-                if ai_state.get("app_spec") and (solution.ai_state or {}).get(
-                    "app_spec"
-                ) != ai_state.get("app_spec"):
+                if ai_state.get("app_spec") and (
+                    (solution.ai_state or {}).get("app_spec") != ai_state.get("app_spec")
+                    or (solution.ai_state or {}).get("app_spec_input_hash")
+                    != ai_state.get("app_spec_input_hash")
+                ):
                     solution.ai_state = {
                         **(solution.ai_state or {}),
                         "app_spec": ai_state["app_spec"],
+                        "app_spec_input_hash": ai_state.get("app_spec_input_hash"),
                     }
                     await db.commit()
 

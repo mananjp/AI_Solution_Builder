@@ -387,7 +387,7 @@ export default function MvpPage() {
         <h1 className="text-xl font-semibold text-white">
           {solution?.title || 'Solution MVP Builder'}
         </h1>
-        <p className="text-xs text-[#777] leading-relaxed max-w-3xl">
+        <p className="max-w-3xl break-words text-xs leading-relaxed text-[#999] [overflow-wrap:anywhere]">
           Chat with the AI Architect to inspect technicalities, database schemas, and endpoints, or synthesize your domain-specific FastAPI backend + Next.js frontend with live customer storefront, cart, and admin kitchen display.
         </p>
       </div>
@@ -518,31 +518,31 @@ export default function MvpPage() {
           </div>
 
           {/* Direct Synthesis & Build Action Box */}
-          <div className="p-5 rounded-xl bg-gradient-to-r from-[#121217] to-[#0f1118] border border-[var(--sutra-strong)]/30 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 shadow-xl">
-            <div className="space-y-1">
+          <div className="flex flex-col items-stretch justify-between gap-4 rounded-xl border border-[var(--sutra-strong)]/30 bg-gradient-to-r from-[#121217] to-[#0f1118] p-5 shadow-xl md:flex-row md:items-center">
+            <div className="min-w-0 flex-1 space-y-1">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Code className="w-4 h-4 text-[var(--sutra-strong)]" />
                 <span>Ready to Generate This Solution?</span>
               </h3>
-              <p className="text-xs text-[#888] max-w-xl">
+              <p className="max-w-xl break-words text-xs leading-relaxed text-[#999] [overflow-wrap:anywhere]">
                 {selectedTemplate
                   ? `Build using the selected starter template (${selectedTemplate}).`
                   : 'Synthesize custom domain models, interactive storefront, cart drawer, and admin kitchen board directly from your solution blueprint.'}
               </p>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex shrink-0 items-center gap-3">
               <button
                 onClick={handleStartBuild}
                 disabled={starting}
-                className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 transition-all disabled:opacity-50"
+                className="flex max-w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-xs font-bold text-white shadow-lg shadow-emerald-600/30 transition-all disabled:opacity-50"
               >
                 {starting ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <Rocket className="w-4 h-4" />
                 )}
-                <span>
+                <span className="text-center leading-snug">
                   {selectedTemplate ? 'Build Selected Template' : 'Synthesize & Build Custom Solution'}
                 </span>
               </button>

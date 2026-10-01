@@ -3068,23 +3068,43 @@ async def run_build(
 
     from app.services.app_spec import AppSpec, generate_app_spec
 
+    # AppSpecs used to be treated as permanent once stored. That meant a later
+    # prompt or feature request could silently build from the previous design.
+    # Bind the cached spec to the exact requirements that produced it.
+    effective_prompt = (
+        user_prompt
+        or ai_state.get("user_message", "")
+        or ai_state.get("business_description", "")
+        or title
+        or "Custom Application"
+    )
+    effective_uploaded = uploaded_context or ai_state.get("uploaded_context", "") or ""
+    effective_history = conversation_history or ai_state.get("conversation_history") or None
+    source_payload = {
+        "prompt": effective_prompt,
+        "business_description": ai_state.get("business_description", ""),
+        "uploaded_context": effective_uploaded,
+        "user_messages": [
+            str(item.get("content", ""))
+            for item in (effective_history or [])
+            if isinstance(item, dict) and item.get("role") == "user"
+        ],
+    }
+    source_hash = hashlib.sha256(
+        json.dumps(source_payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
     spec_data = ai_state.get("app_spec")
     spec: AppSpec | None = None
-    if isinstance(spec_data, dict):
+    if (
+        isinstance(spec_data, dict)
+        and ai_state.get("app_spec_input_hash") == source_hash
+    ):
         try:
             spec = AppSpec.model_validate(spec_data)
         except Exception:
             spec = None
     if spec is None:
-        effective_prompt = (
-            user_prompt
-            or ai_state.get("user_message", "")
-            or ai_state.get("business_description", "")
-            or title
-            or "Custom Application"
-        )
-        effective_uploaded = uploaded_context or ai_state.get("uploaded_context", "") or ""
-        effective_history = conversation_history or ai_state.get("conversation_history") or None
         try:
             spec = await generate_app_spec(
                 ai_state,
@@ -3093,6 +3113,7 @@ async def run_build(
                 conversation_history=effective_history,
             )
             ai_state["app_spec"] = spec.model_dump()
+            ai_state["app_spec_input_hash"] = source_hash
             logger.info(
                 "Generated AppSpec '%s' for run_build (solution=%s)", spec.app_name, solution_id
             )
@@ -3107,6 +3128,7 @@ async def run_build(
                 conversation_history=effective_history,
             )
             ai_state["app_spec"] = spec.model_dump()
+            ai_state["app_spec_input_hash"] = source_hash
 
     if spec is None:
         from app.services.app_spec import fallback_app_spec
@@ -3118,6 +3140,7 @@ async def run_build(
             conversation_history=conversation_history,
         )
         ai_state["app_spec"] = spec.model_dump()
+        ai_state["app_spec_input_hash"] = source_hash
 
     target_dir = _container_target(solution_id, build_number)
     local_dir = build_workspace_dir(solution_id, build_number)

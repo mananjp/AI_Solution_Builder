@@ -28,7 +28,6 @@ import { MVPBuild } from '@/types';
 import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/cn';
 import { CodeViewer } from '@/components/CodeViewer';
 import { TreeView, type TreeNode } from '@/components/lab/tree-view';
@@ -326,10 +325,10 @@ function SandboxContent() {
   const previewUrl = build?.frontend_url || build?.render_service_url || (buildId ? mvpApi.getPreviewUrl(buildId) : null);
 
   return (
-    <div className="-mx-2 -mt-3 flex h-[calc(100dvh-5.25rem)] min-h-[36rem] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)] shadow-sm sm:-mx-3 lg:-mx-4">
+    <div className="-mx-2 -mt-3 flex h-[calc(100dvh-5rem)] min-h-[32rem] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)] shadow-sm sm:-mx-3 lg:-mx-4">
       {/* Sandbox Header */}
       <div className="z-20 flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--surface)] px-3 py-2 sm:px-4">
-        <div className="flex min-w-0 flex-wrap items-center gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
             <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[var(--foreground)] text-[var(--background)] shadow-sm">
               <Code2 className="size-4" />
@@ -337,7 +336,7 @@ function SandboxContent() {
             <div>
               <span className="font-semibold text-sm tracking-tight text-[var(--sutra-ink)]">SUTRA Live Sandbox</span>
               {Boolean(build?.app_config?.app_name) && (
-                <span className="hidden sm:inline-block text-[11px] text-[var(--text-3)] font-mono ml-2">
+                <span className="ml-2 hidden max-w-56 truncate align-bottom font-mono text-[11px] text-[var(--text-3)] sm:inline-block">
                   — {String(build?.app_config?.app_name)}
                 </span>
               )}
@@ -395,19 +394,21 @@ function SandboxContent() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
-          <Badge variant={isApplyingEdit ? 'warning' : build?.status === 'complete' ? 'success' : 'info'}>
-            {isApplyingEdit ? <><Loader2 className="animate-spin" />Applying edits</> : build?.status === 'complete' ? 'Environment ready' : 'Building'}
-          </Badge>
-          {false && isApplyingEdit ? (
-            <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--amber)] bg-[#B08A4A1A] px-2.5 py-1 rounded-sm border border-[#B08A4A33] animate-pulse">
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--sutra-strong)]" />
-              <span>Applying Edits...</span>
+        <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2.5">
+          {isApplyingEdit ? (
+            <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--amber)]">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span>Applying edits</span>
             </span>
           ) : build?.status === 'complete' ? (
             <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--green)] bg-[#2F8A4B1A] px-2.5 py-1 rounded-sm border border-[#2F8A4B33]">
               <span className="w-1.5 h-1.5 rounded-full bg-[var(--green)]"></span>
               Environment Ready
+            </span>
+          ) : build?.status === 'failed' ? (
+            <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--red)]">
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--red)]"></span>
+              Build failed
             </span>
           ) : (
             <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--amber)] bg-[#B08A4A1A] px-2.5 py-1 rounded-sm border border-[#B08A4A33]">
@@ -442,7 +443,13 @@ function SandboxContent() {
       </div>
 
       {/* Main Sandbox Area */}
-      <div className={cn('relative grid min-h-0 flex-1 overflow-hidden bg-[var(--bg-3)]', isChatOpen ? 'grid-cols-1 lg:grid-cols-[minmax(15rem,20rem)_minmax(0,1fr)]' : 'grid-cols-1', viewMode === 'split' && 'xl:grid-cols-2')}>
+      <div className={cn(
+        'relative grid min-h-0 flex-1 overflow-hidden bg-[var(--bg-3)] grid-cols-1',
+        isChatOpen && 'xl:grid-cols-[minmax(15rem,20rem)_minmax(0,1fr)]',
+        viewMode === 'split' && (isChatOpen
+          ? 'lg:grid-cols-2 xl:grid-cols-[minmax(15rem,20rem)_minmax(0,1fr)_minmax(0,1fr)]'
+          : 'lg:grid-cols-2'),
+      )}>
         
         {/* PANE 1: AI CHAT ASSISTANT (LOVABLE EDIT MODE) */}
         <AnimatePresence initial={false}>
@@ -452,7 +459,7 @@ function SandboxContent() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.25, ease: 'easeInOut' }}
-              className="absolute inset-y-0 left-0 z-30 flex w-[min(22rem,calc(100vw-2rem))] min-h-0 min-w-0 flex-col overflow-hidden rounded-r-xl border-r border-[var(--border)] bg-[var(--background)] shadow-xl lg:static lg:z-auto lg:w-auto lg:rounded-none lg:shadow-sm"
+              className="absolute inset-y-0 left-0 z-30 flex w-[min(22rem,calc(100vw-2rem))] min-h-0 min-w-0 flex-col overflow-hidden rounded-r-xl border-r border-[var(--border)] bg-[var(--background)] shadow-xl xl:static xl:z-auto xl:w-auto xl:rounded-none xl:shadow-sm"
             >
               {/* Chat Header */}
               <div className="h-10 px-4 flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-2)] shrink-0">
@@ -602,7 +609,7 @@ function SandboxContent() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.25, ease: 'easeInOut' }}
-              className={cn('col-start-1 row-start-1 flex min-h-0 min-w-0 overflow-hidden border-b border-[var(--border)] bg-[#1e1e1e] lg:col-auto lg:row-auto lg:border-b-0 lg:border-r', isChatOpen && 'lg:col-start-2', viewMode === 'split' && 'xl:col-start-auto')}
+              className="col-start-1 row-start-1 flex min-h-0 min-w-0 overflow-hidden border-b border-[var(--border)] bg-[#1e1e1e] lg:col-auto lg:row-auto lg:border-b-0 lg:border-r"
             >
               {isLoading && !build ? (
                 <div className="flex-1 flex flex-col items-center justify-center gap-3">
@@ -724,7 +731,11 @@ function SandboxContent() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.25, ease: 'easeInOut' }}
-              className={cn('col-start-1 row-start-1 flex min-h-0 min-w-0 flex-col overflow-hidden bg-[var(--bg-3)]', viewMode === 'split' && 'xl:col-start-2')}
+              className={cn(
+                'col-start-1 row-start-1 flex min-h-0 min-w-0 flex-col overflow-hidden bg-[var(--bg-3)] lg:col-auto lg:row-auto',
+                viewMode === 'split' && (isChatOpen ? 'lg:col-start-2 xl:col-start-3' : 'lg:col-start-2'),
+                viewMode !== 'split' && isChatOpen && 'xl:col-start-2',
+              )}
             >
               {/* Browser Header Bar */}
               <div className="h-12 border-b border-[var(--border)] bg-[var(--bg-2)] flex items-center justify-between px-4 shrink-0 shadow-sm relative z-10">

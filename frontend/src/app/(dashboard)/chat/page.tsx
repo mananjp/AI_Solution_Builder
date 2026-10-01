@@ -370,7 +370,7 @@ function ChatContent() {
   const showThreadSkeleton = state.conversation === 'loading' && state.messages.length <= 1;
 
   return (
-    <div className="flex min-h-[calc(100dvh-5rem)] flex-col animate-fade-up">
+    <div className="flex min-h-[calc(100dvh-5rem)] flex-col animate-fade-up xl:h-[calc(100dvh-5rem)] xl:min-h-0">
       {/* ── Header ── */}
       <header className="mb-3 flex items-center justify-between gap-3 px-1 shrink-0">
         <div className="flex items-center gap-3 min-w-0">
@@ -445,13 +445,13 @@ function ChatContent() {
           its width has to come from the panel itself. Sizing it in the grid left
           the rail fighting the column and the two panes drifted apart. No `gap`
           either — they are two zones of one surface, not two separate cards. */}
-      <div className="flex min-h-[32rem] flex-1 flex-col gap-3 xl:min-h-0 xl:flex-row">
+      <div className="flex min-h-[32rem] flex-1 flex-col gap-3 xl:min-h-0 xl:flex-row xl:overflow-hidden">
         {/* Zone 1 — sessions / context, resizable */}
         <ResizableSidecar
           open={state.sidecarOpen}
           onOpenChange={(v: boolean) => dispatch({ type: 'set-sidecar-open', value: v })}
           label={t('chat.sessions')}
-          className="hidden min-h-[24rem] rounded-xl border border-[var(--border)] bg-[var(--bg-2)] xl:flex"
+          className="hidden min-h-[24rem] rounded-xl border border-[var(--border)] bg-[var(--bg-2)] xl:flex xl:h-full"
         >
           <ChatSidecar
             state={state}
@@ -619,7 +619,7 @@ function ChatContent() {
         </section>
 
         {/* Zone 3 — artifacts */}
-        <aside className="flex min-h-[16rem] flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-2)] shadow-sm xl:h-full xl:min-h-0 xl:w-[min(28vw,22rem)] xl:shrink-0">
+        <aside className="flex min-h-[16rem] flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-2)] shadow-sm xl:h-full xl:min-h-0 xl:w-[min(28vw,22rem)] xl:shrink-0 xl:sticky xl:top-0">
           <ArtifactsPanel
             state={state}
             t={t}

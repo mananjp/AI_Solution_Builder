@@ -1183,10 +1183,10 @@ export function BuildCard({
 
       {showStepper && (
         <div className="p-3 bg-[var(--bg-2)] border border-[var(--border)] rounded-sm space-y-3">
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="font-semibold text-[var(--sutra-ink)] flex items-center gap-2">
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--sutra-strong)]" />
-              <span>
+          <div className="flex min-w-0 items-start justify-between gap-2 text-[11px]">
+            <span className="flex min-w-0 flex-1 items-start gap-2 font-semibold text-[var(--sutra-ink)]">
+              <Loader2 className="mt-0.5 w-3.5 h-3.5 shrink-0 animate-spin text-[var(--sutra-strong)]" />
+              <span className="min-w-0 break-words whitespace-normal [overflow-wrap:anywhere]">
                 {build.progress?.message ||
                   (build.status === 'queued'
                     ? 'Build queued in worker pipeline...'
@@ -1194,7 +1194,7 @@ export function BuildCard({
               </span>
             </span>
             {build.progress?.percentage !== undefined && (
-              <span className="font-mono font-bold text-[var(--sutra-strong)]">
+              <span className="shrink-0 font-mono font-bold text-[var(--sutra-strong)]">
                 {build.progress.percentage}%
               </span>
             )}
