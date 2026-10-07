@@ -48,15 +48,24 @@ def test_spec_rejects_unknown_entity_ref():
 def test_stub_fails_then_real_logic_passes(workspace: Path):
     report = verify_workspace_report(workspace, run_tests=True)
     assert report["tests"]["failed"] >= 1
-    assert any("balances.1.balance" in e for e in report["tests"]["errors"])
+    assert any("501" in e or "balances" in e for e in report["tests"]["errors"])
 
     actions = workspace / "backend" / "actions.py"
     src = actions.read_text()
     stub_target = (
-        "    # Default synthesized action implementation\n"
-        "    return {'total': 90, 'balances': [{'member_id': 1, 'balance': 60}]}"
+        '    raise HTTPException(\n'
+        '        status_code=501,\n'
+        '        detail="This part of the app has not been built yet.",\n'
+        '    )'
     )
-    actions.write_text(src.replace(stub_target, BALANCES_IMPL))
+    if stub_target in src:
+        actions.write_text(src.replace(stub_target, BALANCES_IMPL))
+    else:
+        old_stub = (
+            "    # Default synthesized action implementation\n"
+            "    return {'total': 90, 'balances': [{'member_id': 1, 'balance': 60}]}"
+        )
+        actions.write_text(src.replace(old_stub, BALANCES_IMPL))
     report = verify_workspace_report(workspace, run_tests=True)
     assert report["tests"]["passed"] == 3 and report["tests"]["failed"] == 0
 

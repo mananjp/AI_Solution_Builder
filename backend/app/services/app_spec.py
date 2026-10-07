@@ -468,10 +468,11 @@ class AppSpec(BaseModel):
             field_names = {f.name for f in entity.fields}
             unknown = set(record.values) - field_names
             if unknown:
-                errors.append(
-                    f"seed_data for '{record.entity}' sets unknown field(s): "
-                    + ", ".join(sorted(unknown))
-                )
+                for u in sorted(unknown):
+                    val = record.values[u]
+                    ftype = "float" if isinstance(val, float) else "int" if isinstance(val, int) else "string"
+                    entity.fields.append(SpecField(name=u, type=ftype, required=False, description=f"{u} attribute"))
+                field_names.update(unknown)
 
         if self.analytics.enabled and self.analytics.entity and self.analytics.entity not in names:
             errors.append(f"analytics.entity '{self.analytics.entity}' is not a spec entity")

@@ -678,9 +678,8 @@ _DASHBOARD_TSX = """\
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
 import { api } from "@/lib/api";
-import { Layers, Database, Sparkles, Activity, Search } from "lucide-react";
+import { Layers, Database, Sparkles, Activity, Search, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -691,14 +690,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-} from "recharts";
 
 const ENTITY_ROUTES: [string, string][] = @@ENTITY_ROUTES@@;
 
@@ -771,11 +762,7 @@ export default function Dashboard() {
     <main className="min-h-screen bg-background px-4 py-8 text-foreground sm:px-6 md:py-12">
       <div className="mx-auto max-w-6xl">
         {/* Animated Hero Header */}
-        <motion.div
-          initial={{ opacity: 0, y: 14 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-        >
+        <div className="animate-in fade-in duration-300">
           <Card className="gap-6 overflow-hidden p-6 md:p-8">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
@@ -816,26 +803,30 @@ export default function Dashboard() {
                 </div>
                 {analytics.trend && analytics.trend.length > 0 && (
                   <Card>
-                    <CardHeader>
-                      <CardTitle className="text-xs font-medium text-muted-foreground">
-                        Activity &amp; Volume Trend
-                      </CardTitle>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-xs font-medium text-muted-foreground">
+                          Activity &amp; Volume Distribution
+                        </CardTitle>
+                        <TrendingUp className="h-4 w-4 text-primary" />
+                      </div>
                     </CardHeader>
                     <CardContent>
-                      <ResponsiveContainer width="100%" height={220}>
-                        <LineChart data={analytics.trend}>
-                          <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                          <YAxis tick={{ fontSize: 11 }} />
-                          <Tooltip />
-                          <Line
-                            type="monotone"
-                            dataKey="total"
-                            stroke="hsl(var(--primary))"
-                            strokeWidth={2}
-                            dot={false}
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
+                      <div className="flex items-end gap-2 h-28 pt-4">
+                        {analytics.trend.slice(-12).map((point, pIdx) => (
+                          <div key={pIdx} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end group">
+                            <div
+                              className="w-full bg-primary/20 group-hover:bg-primary transition-colors rounded-t"
+                              style={{
+                                height: `${Math.max(15, Math.min(100, (point.total / (analytics.total || 1)) * 100))}%`,
+                              }}
+                            />
+                            <span className="text-[10px] text-muted-foreground truncate w-full text-center">
+                              {point.date.slice(5)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </CardContent>
                   </Card>
                 )}
@@ -860,7 +851,7 @@ export default function Dashboard() {
               </div>
             )}
           </Card>
-        </motion.div>
+        </div>
 
         {/* Search & Header */}
         <div className="mt-10 flex flex-wrap items-center justify-between gap-4">
@@ -897,15 +888,13 @@ export default function Dashboard() {
           </Card>
         ) : (
         <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {visibleRoutes.map(([name, path], idx) => (
-            <motion.div
+          {visibleRoutes.map(([name, path]) => (
+            <div
               key={name}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.05, duration: 0.3 }}
+              className="animate-in fade-in duration-300 transition-all hover:-translate-y-1"
             >
               <Link href={`/${path}`} className="group block h-full">
-                <Card className="h-full gap-4 transition-colors group-hover:border-primary/50">
+                <Card className="h-full gap-4 transition-colors group-hover:border-primary/50 shadow-sm hover:shadow-md">
                   <CardHeader>
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary">
@@ -927,7 +916,7 @@ export default function Dashboard() {
                   </CardContent>
                 </Card>
               </Link>
-            </motion.div>
+            </div>
           ))}
         </div>
         )}
@@ -942,7 +931,6 @@ _LANDING_PAGE_TSX = """\
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
 import { api } from "@/lib/api";
 import {
   Sparkles,
@@ -1105,56 +1093,44 @@ export default function LandingPage() {
       </header>
 
       {/* ── Admin / Modules Quick Access Drawer ── */}
-      <AnimatePresence>
-        {adminOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="border-b border-border bg-muted/40 px-4 py-4"
-          >
-            <div className="mx-auto max-w-6xl">
-              <div className="flex items-center justify-between pb-3">
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary">API &amp; Backend Modules</Badge>
-                  <span className="text-xs text-muted-foreground">Live endpoints serving this storefront</span>
-                </div>
-                <Button asChild variant="outline" size="sm" className="h-7 text-xs">
-                  <Link href="/api/docs" target="_blank">
-                    API Docs <ExternalLink className="ml-1 h-3 w-3" />
-                  </Link>
-                </Button>
+      {adminOpen && (
+        <div className="border-b border-border bg-muted/40 px-4 py-4 animate-in fade-in duration-200">
+          <div className="mx-auto max-w-6xl">
+            <div className="flex items-center justify-between pb-3">
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary">API &amp; Backend Modules</Badge>
+                <span className="text-xs text-muted-foreground">Live endpoints serving this storefront</span>
               </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                {ENTITY_ROUTES.map(([name, path]) => (
-                  <Link key={name} href={`/${path}`} className="group block">
-                    <Card className="p-3 transition-colors hover:border-primary/50">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold capitalize group-hover:text-primary">
-                          {name.replaceAll("_", " ")}
-                        </span>
-                        <Badge variant="outline" className="text-[10px]">
-                          {counts[name] ?? "2"} records
-                        </Badge>
-                      </div>
-                    </Card>
-                  </Link>
-                ))}
-              </div>
+              <Button asChild variant="outline" size="sm" className="h-7 text-xs">
+                <Link href="/api/docs" target="_blank">
+                  API Docs <ExternalLink className="ml-1 h-3 w-3" />
+                </Link>
+              </Button>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {ENTITY_ROUTES.map(([name, path]) => (
+                <Link key={name} href={`/${path}`} className="group block">
+                  <Card className="p-3 transition-colors hover:border-primary/50">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold capitalize group-hover:text-primary">
+                        {name.replaceAll("_", " ")}
+                      </span>
+                      <Badge variant="outline" className="text-[10px]">
+                        {counts[name] ?? "2"} records
+                      </Badge>
+                    </div>
+                  </Card>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Hero Section ── */}
       <section className="relative overflow-hidden px-4 py-16 sm:px-6 sm:py-24">
         <div className="mx-auto max-w-4xl text-center">
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="space-y-4"
-          >
+          <div className="space-y-4 animate-in fade-in duration-500">
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-semibold text-primary">
               <Sparkles className="h-3.5 w-3.5" />
               <span>@@HERO_BADGE@@</span>
@@ -1174,8 +1150,8 @@ export default function LandingPage() {
                 }}
                 className="gap-2 shadow-lg"
               >
-                <ShoppingBag className="h-4 w-4" />
-                <span>Explore Catalog</span>
+                <Sparkles className="h-4 w-4" />
+                <span>@@EXPLORE_BTN_TEXT@@</span>
               </Button>
               <Button
                 size="lg"
@@ -1183,11 +1159,11 @@ export default function LandingPage() {
                 onClick={() => openOrderDrawer(products[0])}
                 className="gap-2"
               >
-                <span>Quick Action</span>
+                <span>@@QUICK_ACTION_BTN_TEXT@@</span>
                 <ArrowRight className="h-4 w-4" />
               </Button>
             </div>
-          </motion.div>
+          </div>
         </div>
       </section>
 
@@ -1195,20 +1171,15 @@ export default function LandingPage() {
       <section id="catalog-section" className="border-t border-border/60 bg-muted/20 px-4 py-16 sm:px-6">
         <div className="mx-auto max-w-6xl">
           <div className="mb-10 text-center">
-            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl text-foreground">Featured {PRIMARY_LABEL}</h2>
+            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl text-foreground">@@SECTION_TITLE@@</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Curated selections and core capabilities ready for immediate interaction
+              @@SECTION_SUBTITLE@@
             </p>
           </div>
 
           <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:gap-12">
-            {products.map((item, idx) => (
-              <motion.div
-                key={item.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.1, duration: 0.4 }}
-              >
+            {products.map((item) => (
+              <div key={item.id} className="animate-in fade-in duration-500">
                 <Card className="group flex h-full flex-col overflow-hidden border border-border/80 shadow-md transition-all hover:shadow-xl hover:border-primary/50">
                   <div className="relative h-64 w-full overflow-hidden bg-muted sm:h-72">
                     <img
@@ -1222,8 +1193,14 @@ export default function LandingPage() {
                       </Badge>
                     </div>
                     <div className="absolute bottom-3 left-3 rounded-lg bg-background/95 px-3 py-1.5 font-bold shadow-md backdrop-blur-sm">
-                      <span className="text-2xl font-extrabold text-foreground">${item.price}</span>
-                      <span className="text-xs text-muted-foreground ml-1 font-normal">USD</span>
+                      {item.price > 1000 ? (
+                        <span className="text-xs uppercase font-extrabold tracking-wider text-primary">{item.flavor || "Project"}</span>
+                      ) : (
+                        <>
+                          <span className="text-2xl font-extrabold text-foreground">${item.price}</span>
+                          <span className="text-xs text-muted-foreground ml-1 font-normal">USD</span>
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -1251,13 +1228,22 @@ export default function LandingPage() {
                         </span>
                       </div>
                       <Button onClick={() => openOrderDrawer(item)} className="gap-1.5 font-semibold">
-                        <ShoppingBag className="h-4 w-4" />
-                        <span>Select · ${item.price}</span>
+                        {item.price > 1000 ? (
+                          <>
+                            <ArrowRight className="h-4 w-4" />
+                            <span>Inquire / Consult</span>
+                          </>
+                        ) : (
+                          <>
+                            <ShoppingBag className="h-4 w-4" />
+                            <span>Select · ${item.price}</span>
+                          </>
+                        )}
                       </Button>
                     </div>
                   </CardContent>
                 </Card>
-              </motion.div>
+              </div>
             ))}
           </div>
         </div>
@@ -1291,20 +1277,20 @@ export default function LandingPage() {
       </section>
 
       {/* ── Interactive Order Drawer / Modal ── */}
-      <AnimatePresence>
-        {orderModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-foreground/50 backdrop-blur-sm">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="relative w-full max-w-md overflow-hidden rounded-2xl border border-border bg-background p-6 shadow-2xl space-y-4"
-            >
-              <div className="flex items-start justify-between">
+      {orderModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-foreground/50 backdrop-blur-sm">
+          <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-border bg-background p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-start justify-between">
                 <div>
-                  <Badge variant="secondary" className="mb-1">Quick Action</Badge>
+                  <Badge variant="secondary" className="mb-1">
+                    {selectedProduct && selectedProduct.price > 1000 ? "Consultation" : "Quick Action"}
+                  </Badge>
                   <h3 className="text-lg font-bold text-foreground">
-                    {orderPlaced ? "Confirmed!" : `Select ${selectedProduct?.name || PRIMARY_LABEL}`}
+                    {orderPlaced
+                      ? "Inquiry Confirmed!"
+                      : selectedProduct && selectedProduct.price > 1000
+                      ? `Inquire: ${selectedProduct.name}`
+                      : `Select ${selectedProduct?.name || PRIMARY_LABEL}`}
                   </h3>
                 </div>
                 <Button
@@ -1324,8 +1310,9 @@ export default function LandingPage() {
                   </div>
                   <h4 className="text-base font-bold text-foreground">Thank you, {customerName}!</h4>
                   <p className="text-xs text-muted-foreground">
-                    Your request for {orderQuantity}x {selectedProduct?.name} ($
-                    {(selectedProduct ? selectedProduct.price * orderQuantity : 0)}) has been confirmed and logged.
+                    {selectedProduct && selectedProduct.price > 1000
+                      ? `Your architectural inquiry for ${selectedProduct.name} has been received. Our studio will review your site specifications and contact you.`
+                      : `Your request for ${orderQuantity}x ${selectedProduct?.name} ($${(selectedProduct ? selectedProduct.price * orderQuantity : 0)}) has been confirmed and logged.`}
                   </p>
                   <div className="pt-3">
                     <Button onClick={() => setOrderModalOpen(false)} className="w-full">
@@ -1344,10 +1331,12 @@ export default function LandingPage() {
                       />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold truncate text-foreground">{selectedProduct.name}</p>
-                        <p className="text-[11px] text-muted-foreground">${selectedProduct.price} USD</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {selectedProduct.price > 1000 ? (selectedProduct.flavor || "Signature Project") : `$${selectedProduct.price} USD`}
+                        </p>
                       </div>
-                      <span className="font-bold text-sm text-foreground">
-                        ${selectedProduct.price * orderQuantity}
+                      <span className="font-bold text-xs uppercase tracking-wider text-primary">
+                        {selectedProduct.price > 1000 ? "Inquiry" : `$${selectedProduct.price * orderQuantity}`}
                       </span>
                     </div>
                   ) : (
@@ -1365,38 +1354,40 @@ export default function LandingPage() {
                                 : "border-border hover:bg-muted"
                             }`}
                           >
-                            {p.flavor} (${p.price})
+                            {p.flavor} ({p.price > 1000 ? "Featured" : `$${p.price}`})
                           </button>
                         ))}
                       </div>
                     </div>
                   )}
 
-                  <div className="flex items-center justify-between border-y border-border py-3">
-                    <span className="text-xs font-medium text-foreground">Quantity</span>
-                    <div className="flex items-center gap-3">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        className="h-7 w-7"
-                        disabled={orderQuantity <= 1}
-                        onClick={() => setOrderQuantity((q) => Math.max(1, q - 1))}
-                      >
-                        <Minus className="h-3 w-3" />
-                      </Button>
-                      <span className="text-sm font-bold w-4 text-center">{orderQuantity}</span>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={() => setOrderQuantity((q) => q + 1)}
-                      >
-                        <Plus className="h-3 w-3" />
-                      </Button>
+                  {selectedProduct && selectedProduct.price > 1000 ? null : (
+                    <div className="flex items-center justify-between border-y border-border py-3">
+                      <span className="text-xs font-medium text-foreground">Quantity</span>
+                      <div className="flex items-center gap-3">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-7 w-7"
+                          disabled={orderQuantity <= 1}
+                          onClick={() => setOrderQuantity((q) => Math.max(1, q - 1))}
+                        >
+                          <Minus className="h-3 w-3" />
+                        </Button>
+                        <span className="text-sm font-bold w-4 text-center">{orderQuantity}</span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => setOrderQuantity((q) => q + 1)}
+                        >
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   <div className="space-y-2">
                     <Label htmlFor="custName">Your Name</Label>
@@ -1410,24 +1401,29 @@ export default function LandingPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="custPhone">Phone or Reference (Optional)</Label>
+                    <Label htmlFor="custPhone">
+                      {selectedProduct && selectedProduct.price > 1000 ? "Contact Email or Phone" : "Phone or Reference (Optional)"}
+                    </Label>
                     <Input
                       id="custPhone"
-                      placeholder="e.g. +1 555-0199 or Ref #102"
+                      placeholder={selectedProduct && selectedProduct.price > 1000 ? "e.g. client@example.com or +1 555-0199" : "e.g. +1 555-0199 or Ref #102"}
                       value={customerPhone}
                       onChange={(e) => setCustomerPhone(e.target.value)}
                     />
                   </div>
 
                   <Button type="submit" disabled={orderLoading || !selectedProduct} className="w-full">
-                    {orderLoading ? "Processing..." : `Confirm · $${(selectedProduct?.price || 0) * orderQuantity}`}
+                    {orderLoading
+                      ? "Processing..."
+                      : selectedProduct && selectedProduct.price > 1000
+                      ? "Submit Architectural Inquiry"
+                      : `Confirm · $${(selectedProduct?.price || 0) * orderQuantity}`}
                   </Button>
                 </form>
               )}
-            </motion.div>
+            </div>
           </div>
         )}
-      </AnimatePresence>
 
       {/* ── Footer ── */}
       <footer className="border-t border-border bg-muted/40 py-10 px-4 text-center text-xs text-muted-foreground">
@@ -1447,7 +1443,6 @@ _ENTITY_PAGE_TSX = """\
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
 import type { @@TYPE@@ as @@TYPE@@Type } from "@/lib/types";
 import { api } from "@/lib/api";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -1559,11 +1554,7 @@ export default function @@PAGE_NAME@@() {
         </div>
 
         {/* Header Hero */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-4"
-        >
+        <div className="mt-4 animate-in fade-in duration-300">
           <Card>
             <CardHeader>
               <div className="flex flex-wrap items-center justify-between gap-4">
@@ -1590,45 +1581,28 @@ export default function @@PAGE_NAME@@() {
               </div>
             </CardHeader>
           </Card>
-        </motion.div>
+        </div>
 
         {/* Notices and Alerts */}
-        <AnimatePresence>
-          {notice && (
-            <motion.div
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              className="mt-4"
-            >
-              <Alert>
-                <CheckCircle2 className="h-4 w-4" />
-                <AlertDescription>{notice}</AlertDescription>
-              </Alert>
-            </motion.div>
-          )}
-          {error && (
-            <motion.div
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              className="mt-4"
-            >
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {notice && (
+          <div className="mt-4 animate-in fade-in duration-200">
+            <Alert>
+              <CheckCircle2 className="h-4 w-4" />
+              <AlertDescription>{notice}</AlertDescription>
+            </Alert>
+          </div>
+        )}
+        {error && (
+          <div className="mt-4 animate-in fade-in duration-200">
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          </div>
+        )}
 
         {/* Data Management Section */}
-        <motion.section
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="mt-8"
-        >
+        <section className="mt-8 animate-in fade-in duration-300">
           <Card>
             <CardHeader>
               <div className="flex flex-wrap items-center justify-between gap-4">
@@ -1715,71 +1689,62 @@ export default function @@PAGE_NAME@@() {
               )}
             </CardContent>
           </Card>
-        </motion.section>
+        </section>
 
         {/* Slide-over Create Record Drawer */}
-        <AnimatePresence>
-          {showDrawer && (
-            <div className="fixed inset-0 z-50 flex justify-end">
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setShowDrawer(false)}
-                className="fixed inset-0 bg-foreground/40 backdrop-blur-sm"
-              />
+        {showDrawer && (
+          <div className="fixed inset-0 z-50 flex justify-end">
+            <div
+              onClick={() => setShowDrawer(false)}
+              className="fixed inset-0 bg-foreground/40 backdrop-blur-sm animate-in fade-in duration-200"
+            />
 
-              <motion.div
-                initial={{ x: "100%" }}
-                animate={{ x: 0 }}
-                exit={{ x: "100%" }}
-                transition={{ type: "spring", damping: 28, stiffness: 300 }}
-                className="relative z-10 w-full max-w-md overflow-y-auto border-l border-border bg-background p-6 shadow-2xl"
-                role="dialog"
-                aria-modal="true"
-                aria-label="New @@SINGULAR@@"
-              >
-                <div className="flex items-start justify-between gap-2 border-b border-border pb-4">
-                  <div>
-                    <h3 className="text-lg font-bold text-foreground">New @@SINGULAR@@</h3>
-                    <p className="text-xs text-muted-foreground">
-                      Fill in the fields to create a record
-                    </p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setShowDrawer(false)}
-                    aria-label="Close"
-                  >
-                    <ArrowLeft className="h-4 w-4 rotate-90" />
-                  </Button>
+            <div
+              className="relative z-10 w-full max-w-md overflow-y-auto border-l border-border bg-background p-6 shadow-2xl animate-in slide-in-from-right duration-300"
+              role="dialog"
+              aria-modal="true"
+              aria-label="New @@SINGULAR@@"
+            >
+              <div className="flex items-start justify-between gap-2 border-b border-border pb-4">
+                <div>
+                  <h3 className="text-lg font-bold text-foreground">New @@SINGULAR@@</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Fill in the fields to create a record
+                  </p>
                 </div>
-
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void create();
-                  }}
-                  className="mt-6 space-y-4"
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowDrawer(false)}
+                  aria-label="Close"
                 >
-                  @@FORM_FIELDS@@
+                  <ArrowLeft className="h-4 w-4 rotate-90" />
+                </Button>
+              </div>
 
-                  <div className="flex items-center justify-end gap-2 border-t border-border pt-6">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => setShowDrawer(false)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button type="submit">Save Record</Button>
-                  </div>
-                </form>
-              </motion.div>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void create();
+                }}
+                className="mt-6 space-y-4"
+              >
+                @@FORM_FIELDS@@
+
+                <div className="flex items-center justify-end gap-2 border-t border-border pt-6">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setShowDrawer(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit">Save Record</Button>
+                </div>
+              </form>
             </div>
-          )}
-        </AnimatePresence>
+          </div>
+        )}
       </div>
     </main>
   );
@@ -1916,6 +1881,10 @@ def _is_landing_or_storefront(spec: AppSpec) -> bool:
             "menu",
             "vendor",
             "catalog",
+            "architect",
+            "architecture",
+            "portfolio",
+            "showcase",
         )
     )
 
@@ -2011,39 +1980,84 @@ def _gen_landing_page(spec: AppSpec) -> str:
             },
         ]
 
-    testimonials = [
-        {
-            "name": "Alex Morgan",
-            "role": "Verified Customer",
-            "rating": 5,
-            "text": f"Outstanding experience with {_label(spec.app_name)}. The quality and seamless interaction exceeded all expectations!",
-        },
-        {
-            "name": "Jordan Lee",
-            "role": "Frequent Patron",
-            "rating": 5,
-            "text": f"{getattr(spec, 'core_value', 'High quality execution')} is evident in every single detail. Fast and exceptionally reliable.",
-        },
-        {
-            "name": "Taylor Kim",
-            "role": "Verified Order",
-            "rating": 5,
-            "text": "Super easy to place an order and track updates. Truly a delightful modern application.",
-        },
-    ]
+    is_portfolio = any(
+        k in f"{spec.app_name} {spec.one_liner} {spec.core_value}".lower()
+        for k in ("architect", "architecture", "portfolio", "studio", "atelier", "design")
+    )
+    explore_btn = "Explore Projects" if is_portfolio else "Explore Catalog"
+    quick_action_btn = "Consultation" if is_portfolio else "Quick Action"
+    section_title = "Featured Architectural Works" if is_portfolio else f"Featured {primary_label}"
+    section_subtitle = (
+        "Signature built residences and sustainable pavilions designed with uncompromising material integrity."
+        if is_portfolio
+        else "Curated selections and core capabilities ready for immediate interaction"
+    )
+
+    if is_portfolio:
+        testimonials = [
+            {
+                "name": "Marcus Vance",
+                "role": "Private Residential Client",
+                "rating": 5,
+                "text": f"Working with {_label(spec.app_name)} transformed our hillside site into a living architectural sculpture. The precision of materials and light is unparalleled.",
+            },
+            {
+                "name": "Sora Takahashi",
+                "role": "Cultural Foundation Director",
+                "rating": 5,
+                "text": f"The mass-timber pavilion created by {_label(spec.app_name)} exceeded all environmental sustainability benchmarks while maintaining monumental grace.",
+            },
+            {
+                "name": "Julian Sterling",
+                "role": "Design Review Commission",
+                "rating": 5,
+                "text": "Every detail reflects uncompromising architectural integrity and bespoke craftsmanship. A masterwork of contemporary spatial design.",
+            },
+        ]
+    else:
+        testimonials = [
+            {
+                "name": "Alex Morgan",
+                "role": "Verified Customer",
+                "rating": 5,
+                "text": f"Outstanding experience with {_label(spec.app_name)}. The quality and seamless interaction exceeded all expectations!",
+            },
+            {
+                "name": "Jordan Lee",
+                "role": "Frequent Patron",
+                "rating": 5,
+                "text": f"{getattr(spec, 'core_value', 'High quality execution')} is evident in every single detail. Fast and exceptionally reliable.",
+            },
+            {
+                "name": "Taylor Kim",
+                "role": "Verified Order",
+                "rating": 5,
+                "text": "Super easy to place an order and track updates. Truly a delightful modern application.",
+            },
+        ]
 
     app_title = _label(spec.app_name)
-    purpose = (
-        getattr(spec, "one_liner", "")
-        or getattr(spec, "core_value", "")
-        or f"Welcome to {app_title}"
-    )
-    core_value = (
-        getattr(spec, "core_value", "")
-        or "Experience uncompromised quality and dedicated service."
-    )
-    hero_title = getattr(spec, "one_liner", "") or f"Modern {app_title} Platform"
-    hero_badge = getattr(spec, "core_value", "") or "Verified Prototype · Real-Time Updates · Live Platform"
+    if is_portfolio:
+        hero_badge = "Architectural Studio Portfolio & Direct Commissions"
+        hero_title = "Masterful Spaces Engineered for Harmony & Light"
+        hero_desc = (
+            "Explore our portfolio of private hillside residences, sustainable mass-timber cultural studios, and contemporary commissions."
+        )
+        purpose = hero_desc
+        core_value = "Uncompromising architectural craftsmanship, material precision, and site-specific vision."
+    else:
+        hero_badge = getattr(spec, "core_value", "") or f"Verified {app_title} Prototype · Live Platform"
+        one_liner = getattr(spec, "one_liner", "")
+        if one_liner and not any(bad in one_liner.lower() for bad in ("full-stack", "fullstack", "application")):
+            hero_title = one_liner
+        else:
+            hero_title = f"Modern {app_title} Experience"
+        hero_desc = (
+            getattr(spec, "core_value", "")
+            or f"Streamlined workflows, curated capabilities, and immediate engagement for {app_title}."
+        )
+        purpose = hero_desc
+        core_value = getattr(spec, "core_value", "") or "Experience uncompromised quality and dedicated service."
 
     return (
         _LANDING_PAGE_TSX.replace("@@ENTITY_ROUTES@@", routes)
@@ -2056,6 +2070,10 @@ def _gen_landing_page(spec: AppSpec) -> str:
         .replace("@@CORE_VALUE@@", core_value)
         .replace("@@PRIMARY_PLURAL@@", json.dumps(primary_plural))
         .replace("@@PRIMARY_LABEL@@", json.dumps(primary_label))
+        .replace("@@EXPLORE_BTN_TEXT@@", explore_btn)
+        .replace("@@QUICK_ACTION_BTN_TEXT@@", quick_action_btn)
+        .replace("@@SECTION_TITLE@@", section_title)
+        .replace("@@SECTION_SUBTITLE@@", section_subtitle)
         .replace("@@INITIAL_PRODUCTS_JSON@@", json.dumps(items, indent=2))
         .replace("@@TESTIMONIALS_JSON@@", json.dumps(testimonials, indent=2))
     )

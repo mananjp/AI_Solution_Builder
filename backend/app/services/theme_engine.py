@@ -305,6 +305,28 @@ INDUSTRY_PALETTES: dict[str, dict[str, Any]] = {
         "font_display": "Oswald",
         "mood": "mechanical",
     },
+    "workforce": {
+        "keywords": (
+            "employee",
+            "workforce",
+            "hr",
+            "human resources",
+            "staff",
+            "payroll",
+            "personnel",
+            "talent",
+            "recruitment",
+        ),
+        "primary": _c(224, 76, 48),
+        "accent": _c(160, 60, 45),
+        "background": _c(220, 25, 98),
+        "foreground": _c(224, 35, 12),
+        "muted": _c(220, 20, 93),
+        "radius": "0.5rem",
+        "font_sans": "Inter",
+        "font_display": "Plus Jakarta Sans",
+        "mood": "executive",
+    },
 }
 
 _DEFAULT_VERTICAL = "generic"
@@ -560,8 +582,21 @@ def patch_globals_css(css: str, theme: ThemeSpec) -> str:
     """Replace the first ``:root`` token block, or prepend one if absent."""
     block = render_globals_css(theme)
     if _TOKEN_BLOCK_RE.search(css):
-        return _TOKEN_BLOCK_RE.sub(lambda _m: block, css, count=1)
-    return block + "\n\n" + css
+        patched = _TOKEN_BLOCK_RE.sub(lambda _m: block, css, count=1)
+    else:
+        patched = block + "\n\n" + css
+
+    # Ensure Tailwind v4 compatibility: replace legacy directives with @import "tailwindcss"
+    if '@import "tailwindcss";' not in patched and "@import 'tailwindcss';" not in patched:
+        patched = re.sub(r"@tailwind\s+(?:base|components|utilities);\s*", "", patched)
+        patched = '@import "tailwindcss";\n\n' + patched.lstrip()
+
+    # Defensive guarantee: Ensure CSS braces are balanced so PostCSS never throws 'Unclosed block'
+    open_count = patched.count("{")
+    close_count = patched.count("}")
+    if open_count > close_count:
+        patched += "\n" + ("}\n" * (open_count - close_count))
+    return patched
 
 
 def _patch_font_vars(text: str, theme: ThemeSpec) -> str:

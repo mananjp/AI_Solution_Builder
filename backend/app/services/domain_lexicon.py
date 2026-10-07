@@ -50,10 +50,33 @@ _FIELD_HINTS: dict[str, list[tuple[str, str]]] = {
     "employee": [
         ("full_name", "string"),
         ("email", "string"),
-        ("job_title", "string"),
+        ("role", "string"),
+        ("department_name", "string"),
+        ("salary", "float"),
+        ("status", "string"),
+        ("hire_date", "date"),
+    ],
+    "department": [
+        ("name", "string"),
+        ("code", "string"),
+        ("manager_name", "string"),
+        ("budget", "float"),
+        ("location", "string"),
+    ],
+    "leave_request": [
+        ("employee_name", "string"),
+        ("leave_type", "string"),
+        ("start_date", "date"),
+        ("end_date", "date"),
         ("status", "string"),
     ],
-    "department": [("name", "string"), ("code", "string"), ("location", "string")],
+    "performance_review": [
+        ("employee_name", "string"),
+        ("reviewer", "string"),
+        ("review_period", "string"),
+        ("rating", "int"),
+        ("feedback", "string"),
+    ],
     "course": [("title", "string"), ("credits", "int"), ("instructor", "string")],
     "student": [("full_name", "string"), ("email", "string"), ("enrolled_on", "date")],
     "property": [("title", "string"), ("address", "string"), ("rent", "float")],
@@ -198,24 +221,45 @@ _LEXICON: list[tuple[tuple[str, ...], list[tuple[str, str, list[tuple[str, str]]
                 [
                     ("full_name", "string"),
                     ("email", "string"),
-                    ("job_title", "string"),
+                    ("role", "string"),
+                    ("department_name", "string"),
+                    ("salary", "float"),
                     ("status", "string"),
+                    ("hire_date", "date"),
                 ],
             ),
             (
                 "department",
                 "departments",
-                [("name", "string"), ("code", "string"), ("location", "string")],
+                [
+                    ("name", "string"),
+                    ("code", "string"),
+                    ("manager_name", "string"),
+                    ("budget", "float"),
+                    ("location", "string"),
+                ],
             ),
             (
                 "leave_request",
                 "leave_requests",
-                [("start_date", "date"), ("end_date", "date"), ("status", "string")],
+                [
+                    ("employee_name", "string"),
+                    ("leave_type", "string"),
+                    ("start_date", "date"),
+                    ("end_date", "date"),
+                    ("status", "string"),
+                ],
             ),
             (
-                "payroll_record",
-                "payroll_records",
-                [("pay_period", "string"), ("amount", "float"), ("status", "string")],
+                "performance_review",
+                "performance_reviews",
+                [
+                    ("employee_name", "string"),
+                    ("reviewer", "string"),
+                    ("review_period", "string"),
+                    ("rating", "int"),
+                    ("feedback", "string"),
+                ],
             ),
         ],
     ),
@@ -433,6 +477,41 @@ _LEXICON: list[tuple[tuple[str, ...], list[tuple[str, str, list[tuple[str, str]]
         ],
     ),
     (
+        (
+            "architect",
+            "architecture",
+            "architectural",
+            "atelier",
+            "interior design",
+            "landscape design",
+            "urban design",
+        ),
+        [
+            (
+                "project",
+                "projects",
+                [
+                    ("name", "string"),
+                    ("category", "string"),
+                    ("location", "string"),
+                    ("year", "int"),
+                    ("description", "text"),
+                    ("image_url", "string"),
+                ],
+            ),
+            (
+                "inquiry",
+                "inquiries",
+                [
+                    ("client_name", "string"),
+                    ("email", "string"),
+                    ("project_type", "string"),
+                    ("message", "text"),
+                ],
+            ),
+        ],
+    ),
+    (
         ("task", "project", "todo", "kanban", "sprint", "backlog"),
         [
             (
@@ -508,7 +587,24 @@ _STOP_NOUNS = {
     "we",
     "i",
     "you",
+    "your",
+    "yours",
     "it",
+    "its",
+    "his",
+    "her",
+    "hers",
+    "him",
+    "they",
+    "them",
+    "their",
+    "theirs",
+    "who",
+    "whom",
+    "whose",
+    "showcase",
+    "showcases",
+    "showcasing",
     "can",
     "should",
     "would",
@@ -704,19 +800,39 @@ def _title_from_prompt(prompt: str) -> str:
                 return f"{clean_persona} Storefront"
             return clean_persona
 
+    # Target beneficiary detection: "landing page for an architect showcasing..."
+    target_match = re.search(
+        r"\b(?:landing\s+page|portfolio|website|storefront|app)\s+for\s+(?:an?\s+)?(?P<target>[a-zA-Z\s]{3,30}?)(?:\s+(?:showcasing|with|to|that|who|\.|\,)|$)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if target_match:
+        target = target_match.group("target").strip()
+        t_words = [
+            w for w in _TOKEN_RE.findall(target)
+            if w.lower() not in ("a", "an", "the", "this", "my", "our")
+        ]
+        if t_words:
+            clean_target = " ".join(t_words[:3]).title()
+            if clean_target.lower() in ("architect", "architecture", "designer", "artist"):
+                return f"{clean_target} Studio Portfolio"
+            return f"{clean_target} Platform"
+
     # Drop the leading request frame so the name is the subject, not the verb.
     text = re.sub(
         r"^\s*(please\s+)?(can you\s+|could you\s+|i\s+(want|need|would like)\s+(to\s+)?|"
-        r"(build|create|make|generate|design|develop|produce)\s+(me\s+)?(a|an|the)?\s*)+",
+        r"(build|create|make|generate|design|develop|produce)\s+(me\s+)?(?:an\b|a\b|the\b)?\s*)+",
         "",
         text,
         flags=re.IGNORECASE,
     )
 
     # Cut at the first clause boundary — the product name rarely spans one.
-    text = re.split(r"[.;!?]|\bthat\b|\bwhich\b|\bwhere\b|\bwith\b", text, maxsplit=1)[0]
+    text = re.split(r"[.;!?]|\bthat\b|\bwhich\b|\bwhere\b|\bwith\b|\bcovering\b", text, maxsplit=1)[0]
 
     words = [w for w in _TOKEN_RE.findall(text) if w]
+    while words and words[0].lower() in {"a", "an", "the", "n"}:
+        words.pop(0)
     if not words:
         return "Custom App"
 
