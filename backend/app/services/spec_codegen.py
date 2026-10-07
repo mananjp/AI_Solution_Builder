@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -1069,7 +1070,7 @@ export default function LandingPage() {
             </div>
             <div>
               <span className="font-bold tracking-tight text-foreground sm:text-lg">@@TITLE@@</span>
-              <span className="block text-[11px] text-muted-foreground">Artisanal Creamery &amp; Scoops</span>
+              <span className="block text-[11px] text-muted-foreground">@@SUBTITLE@@</span>
             </div>
           </div>
 
@@ -1156,28 +1157,25 @@ export default function LandingPage() {
           >
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-semibold text-primary">
               <Sparkles className="h-3.5 w-3.5" />
-              <span>Small-Batch · Fresh Daily · 100% Organic Cream</span>
+              <span>@@HERO_BADGE@@</span>
             </div>
             <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl md:text-6xl text-foreground">
-              Pure Ingredients. <br />
-              <span className="bg-gradient-to-r from-amber-500 via-primary to-rose-500 bg-clip-text text-transparent">
-                Unforgettable Scoops.
-              </span>
+              @@HERO_TITLE@@
             </h1>
             <p className="mx-auto max-w-2xl text-base text-muted-foreground sm:text-lg">
-              Indulge in artisanal ice cream hand-crafted to velvety perfection. Order our signature Vanilla and decadent Dark Chocolate for fresh pickup or delivery.
+              @@HERO_DESC@@
             </p>
             <div className="flex flex-wrap items-center justify-center gap-3 pt-4">
               <Button
                 size="lg"
                 onClick={() => {
-                  const el = document.getElementById("flavors");
+                  const el = document.getElementById("catalog-section");
                   el?.scrollIntoView({ behavior: "smooth" });
                 }}
                 className="gap-2 shadow-lg"
               >
                 <ShoppingBag className="h-4 w-4" />
-                <span>Explore Flavors</span>
+                <span>Explore Catalog</span>
               </Button>
               <Button
                 size="lg"
@@ -1185,7 +1183,7 @@ export default function LandingPage() {
                 onClick={() => openOrderDrawer(products[0])}
                 className="gap-2"
               >
-                <span>Quick Order</span>
+                <span>Quick Action</span>
                 <ArrowRight className="h-4 w-4" />
               </Button>
             </div>
@@ -1193,13 +1191,13 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Featured Flavors Grid ── */}
-      <section id="flavors" className="border-t border-border/60 bg-muted/20 px-4 py-16 sm:px-6">
+      {/* ── Featured Catalog Grid ── */}
+      <section id="catalog-section" className="border-t border-border/60 bg-muted/20 px-4 py-16 sm:px-6">
         <div className="mx-auto max-w-6xl">
           <div className="mb-10 text-center">
-            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl text-foreground">Signature Scoops</h2>
+            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl text-foreground">Featured {PRIMARY_LABEL}</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Our iconic signature selections, crafted daily with all-natural organic cream
+              Curated selections and core capabilities ready for immediate interaction
             </p>
           </div>
 
@@ -1225,14 +1223,14 @@ export default function LandingPage() {
                     </div>
                     <div className="absolute bottom-3 left-3 rounded-lg bg-background/95 px-3 py-1.5 font-bold shadow-md backdrop-blur-sm">
                       <span className="text-2xl font-extrabold text-foreground">${item.price}</span>
-                      <span className="text-xs text-muted-foreground ml-1 font-normal">/ scoop</span>
+                      <span className="text-xs text-muted-foreground ml-1 font-normal">USD</span>
                     </div>
                   </div>
 
                   <CardHeader className="space-y-1 pb-2">
                     <div className="flex items-center justify-between">
                       <span className="text-xs uppercase tracking-wider font-semibold text-primary">
-                        {item.flavor || "Artisanal Flavor"}
+                        {item.flavor || "Standard"}
                       </span>
                       <div className="flex items-center text-amber-500">
                         <Star className="h-3.5 w-3.5 fill-current" />
@@ -1249,12 +1247,12 @@ export default function LandingPage() {
                     <div className="flex items-center justify-between gap-4">
                       <div className="text-xs text-muted-foreground">
                         <span className="inline-flex items-center gap-1 font-medium text-emerald-600">
-                          <Check className="h-3.5 w-3.5" /> Fresh in stock
+                          <Check className="h-3.5 w-3.5" /> Active &amp; Ready
                         </span>
                       </div>
                       <Button onClick={() => openOrderDrawer(item)} className="gap-1.5 font-semibold">
                         <ShoppingBag className="h-4 w-4" />
-                        <span>Order Now · ${item.price}</span>
+                        <span>Select · ${item.price}</span>
                       </Button>
                     </div>
                   </CardContent>
@@ -1269,8 +1267,8 @@ export default function LandingPage() {
       <section className="border-t border-border px-4 py-16 sm:px-6">
         <div className="mx-auto max-w-6xl">
           <div className="mb-10 text-center">
-            <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Lover Reviews</h2>
-            <p className="mt-2 text-sm text-muted-foreground">What our ice cream lovers are saying</p>
+            <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">User Reviews</h2>
+            <p className="mt-2 text-sm text-muted-foreground">What our verified community members say</p>
           </div>
 
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
@@ -1304,9 +1302,9 @@ export default function LandingPage() {
             >
               <div className="flex items-start justify-between">
                 <div>
-                  <Badge variant="secondary" className="mb-1">Quick Checkout</Badge>
+                  <Badge variant="secondary" className="mb-1">Quick Action</Badge>
                   <h3 className="text-lg font-bold text-foreground">
-                    {orderPlaced ? "Order Confirmed!" : "Order Artisanal Scoop"}
+                    {orderPlaced ? "Confirmed!" : `Select ${selectedProduct?.name || PRIMARY_LABEL}`}
                   </h3>
                 </div>
                 <Button
@@ -1326,8 +1324,8 @@ export default function LandingPage() {
                   </div>
                   <h4 className="text-base font-bold text-foreground">Thank you, {customerName}!</h4>
                   <p className="text-xs text-muted-foreground">
-                    Your order for {orderQuantity}x {selectedProduct?.name} ($
-                    {(selectedProduct ? selectedProduct.price * orderQuantity : 0)}) has been sent to our parlor kitchen.
+                    Your request for {orderQuantity}x {selectedProduct?.name} ($
+                    {(selectedProduct ? selectedProduct.price * orderQuantity : 0)}) has been confirmed and logged.
                   </p>
                   <div className="pt-3">
                     <Button onClick={() => setOrderModalOpen(false)} className="w-full">
@@ -1346,7 +1344,7 @@ export default function LandingPage() {
                       />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold truncate text-foreground">{selectedProduct.name}</p>
-                        <p className="text-[11px] text-muted-foreground">${selectedProduct.price} per scoop</p>
+                        <p className="text-[11px] text-muted-foreground">${selectedProduct.price} USD</p>
                       </div>
                       <span className="font-bold text-sm text-foreground">
                         ${selectedProduct.price * orderQuantity}
@@ -1354,7 +1352,7 @@ export default function LandingPage() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      <Label>Select Flavor</Label>
+                      <Label>Select Item</Label>
                       <div className="grid grid-cols-2 gap-2">
                         {products.map((p) => (
                           <button
@@ -1404,7 +1402,7 @@ export default function LandingPage() {
                     <Label htmlFor="custName">Your Name</Label>
                     <Input
                       id="custName"
-                      placeholder="e.g. Sarah Jenkins"
+                      placeholder="e.g. Alex Morgan"
                       required
                       value={customerName}
                       onChange={(e) => setCustomerName(e.target.value)}
@@ -1412,17 +1410,17 @@ export default function LandingPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="custPhone">Phone or Address (Optional)</Label>
+                    <Label htmlFor="custPhone">Phone or Reference (Optional)</Label>
                     <Input
                       id="custPhone"
-                      placeholder="e.g. +1 555-0199 or Table #4"
+                      placeholder="e.g. +1 555-0199 or Ref #102"
                       value={customerPhone}
                       onChange={(e) => setCustomerPhone(e.target.value)}
                     />
                   </div>
 
                   <Button type="submit" disabled={orderLoading || !selectedProduct} className="w-full">
-                    {orderLoading ? "Processing..." : `Confirm Order · $${(selectedProduct?.price || 0) * orderQuantity}`}
+                    {orderLoading ? "Processing..." : `Confirm · $${(selectedProduct?.price || 0) * orderQuantity}`}
                   </Button>
                 </form>
               )}
@@ -1992,85 +1990,70 @@ def _gen_landing_page(spec: AppSpec) -> str:
             )
 
     if not items:
-        domain_text = f"{spec.app_name} {getattr(spec, 'one_liner', '')}".lower()
-        if any(k in domain_text for k in ("ice cream", "icecream", "gelato", "sorbet", "dessert")):
-            items = [
-                {
-                    "id": 1,
-                    "name": "Classic Madagascar Vanilla",
-                    "flavor": "Vanilla",
-                    "price": 10,
-                    "description": "Slow-churned pure bourbon vanilla bean infused into velvety sweet organic cream.",
-                    "image_url": "https://images.unsplash.com/photo-1570197788417-0e82375c9371?auto=format&fit=crop&w=800&q=80",
-                    "badge": "Most Popular",
-                },
-                {
-                    "id": 2,
-                    "name": "Decadent Belgian Dark Chocolate",
-                    "flavor": "Chocolate",
-                    "price": 20,
-                    "description": "Intense 70% dark Belgian cocoa blended into luxurious, decadent dark chocolate perfection.",
-                    "image_url": "https://images.unsplash.com/photo-1563805042-7684c019e1cb?auto=format&fit=crop&w=800&q=80",
-                    "badge": "Artisanal Reserve",
-                },
-            ]
-        else:
-            items = [
-                {
-                    "id": 1,
-                    "name": f"Essential {primary_label}",
-                    "flavor": "Standard",
-                    "price": 19,
-                    "description": f"Standard tier {primary_label} configured with all core capabilities and immediate support.",
-                    "image_url": "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=800&q=80",
-                    "badge": "Popular",
-                },
-                {
-                    "id": 2,
-                    "name": f"Premium {primary_label}",
-                    "flavor": "Enterprise",
-                    "price": 49,
-                    "description": f"High-performance {primary_label} with advanced features, enhanced limits, and dedicated priority.",
-                    "image_url": "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=800&q=80",
-                    "badge": "Best Value",
-                },
-            ]
+        items = [
+            {
+                "id": 1,
+                "name": f"Essential {primary_label}",
+                "flavor": "Standard",
+                "price": 19,
+                "description": f"Standard tier {primary_label} configured with all core capabilities and immediate support.",
+                "image_url": "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=800&q=80",
+                "badge": "Popular",
+            },
+            {
+                "id": 2,
+                "name": f"Premium {primary_label}",
+                "flavor": "Enterprise",
+                "price": 49,
+                "description": f"High-performance {primary_label} with advanced features, enhanced limits, and dedicated priority.",
+                "image_url": "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=800&q=80",
+                "badge": "Best Value",
+            },
+        ]
 
     testimonials = [
         {
-            "name": "Sarah Jenkins",
+            "name": "Alex Morgan",
             "role": "Verified Customer",
             "rating": 5,
             "text": f"Outstanding experience with {_label(spec.app_name)}. The quality and seamless interaction exceeded all expectations!",
         },
         {
-            "name": "Marcus Vance",
+            "name": "Jordan Lee",
             "role": "Frequent Patron",
             "rating": 5,
             "text": f"{getattr(spec, 'core_value', 'High quality execution')} is evident in every single detail. Fast and exceptionally reliable.",
         },
         {
-            "name": "Aisha Patel",
+            "name": "Taylor Kim",
             "role": "Verified Order",
             "rating": 5,
             "text": "Super easy to place an order and track updates. Truly a delightful modern application.",
         },
     ]
 
+    app_title = _label(spec.app_name)
+    purpose = (
+        getattr(spec, "one_liner", "")
+        or getattr(spec, "core_value", "")
+        or f"Welcome to {app_title}"
+    )
+    core_value = (
+        getattr(spec, "core_value", "")
+        or "Experience uncompromised quality and dedicated service."
+    )
+    hero_title = getattr(spec, "one_liner", "") or f"Modern {app_title} Platform"
+    hero_badge = getattr(spec, "core_value", "") or "Verified Prototype · Real-Time Updates · Live Platform"
+
     return (
         _LANDING_PAGE_TSX.replace("@@ENTITY_ROUTES@@", routes)
-        .replace("@@TITLE@@", _label(spec.app_name))
-        .replace(
-            "@@PURPOSE@@",
-            getattr(spec, "one_liner", "")
-            or getattr(spec, "core_value", "")
-            or f"Welcome to {_label(spec.app_name)}",
-        )
-        .replace(
-            "@@CORE_VALUE@@",
-            getattr(spec, "core_value", "")
-            or "Experience uncompromised quality and dedicated service.",
-        )
+        .replace("@@TITLE@@", app_title)
+        .replace("@@SUBTITLE@@", f"Official {app_title} Platform")
+        .replace("@@HERO_BADGE@@", hero_badge)
+        .replace("@@HERO_TITLE@@", hero_title)
+        .replace("@@HERO_DESC@@", purpose)
+        .replace("@@PURPOSE@@", purpose)
+        .replace("@@CORE_VALUE@@", core_value)
         .replace("@@PRIMARY_PLURAL@@", json.dumps(primary_plural))
         .replace("@@PRIMARY_LABEL@@", json.dumps(primary_label))
         .replace("@@INITIAL_PRODUCTS_JSON@@", json.dumps(items, indent=2))
@@ -2096,12 +2079,24 @@ def gen_frontend_pages(spec: AppSpec, fe: Path) -> None:
         target_path = page_path
         if page_path.exists():
             existing = page_path.read_text(encoding="utf-8", errors="replace")
-            # If the user edited this page manually without our generated-by stamp, preserve it!
-            if (
-                "// @generated by AI Solution Builder" not in existing
-                and "generated-by" not in existing
-            ):
+            # If the file is the starter scaffold template (or previously generated by AI Solution Builder),
+            # overwrite page.tsx directly so Next.js serves the actual custom app, not the generic template.
+            is_scaffold_or_generated = (
+                "__APP_TITLE__" in existing
+                or "Autonomous MVP" in existing
+                or "Active Prototype" in existing
+                or "// @generated by AI Solution Builder" in existing
+                or "generated-by" in existing
+            )
+            if not is_scaffold_or_generated:
                 target_path = page_path.with_name("page.generated.tsx")
+            else:
+                stale_gen = page_path.with_name("page.generated.tsx")
+                if stale_gen.exists():
+                    try:
+                        stale_gen.unlink()
+                    except OSError:
+                        pass
 
         stamp = "// @generated by AI Solution Builder (non-destructive)\n"
         if not route:
@@ -2117,6 +2112,66 @@ def gen_frontend_pages(spec: AppSpec, fe: Path) -> None:
             assert entity is not None
             target_path.write_text(stamp + _gen_entity_page(spec, entity, route), encoding="utf-8")
         written.add(route)
+
+    # Always ensure the root home page (/) is generated for the application
+    if "" not in written:
+        home_path = app_dir / "page.tsx"
+        target_path = home_path
+        if home_path.exists():
+            existing = home_path.read_text(encoding="utf-8", errors="replace")
+            is_scaffold_or_generated = (
+                "__APP_TITLE__" in existing
+                or "Autonomous MVP" in existing
+                or "Active Prototype" in existing
+                or "// @generated by AI Solution Builder" in existing
+                or "generated-by" in existing
+            )
+            if not is_scaffold_or_generated:
+                target_path = home_path.with_name("page.generated.tsx")
+            else:
+                stale_gen = home_path.with_name("page.generated.tsx")
+                if stale_gen.exists():
+                    try:
+                        stale_gen.unlink()
+                    except OSError:
+                        pass
+        else:
+            stale_gen = home_path.with_name("page.generated.tsx")
+            if stale_gen.exists():
+                try:
+                    stale_gen.unlink()
+                except OSError:
+                    pass
+
+        stamp = "// @generated by AI Solution Builder (non-destructive)\n"
+        if _is_landing_or_storefront(spec):
+            target_path.write_text(stamp + _gen_landing_page(spec), encoding="utf-8")
+        else:
+            target_path.write_text(stamp + _gen_dashboard(spec), encoding="utf-8")
+        written.add("")
+
+    # Also clean up any lingering root page.generated.tsx if page.tsx exists
+    root_stale_gen = app_dir / "page.generated.tsx"
+    if root_stale_gen.exists():
+        try:
+            root_stale_gen.unlink()
+        except OSError:
+            pass
+
+    # Clean up stale/orphaned route directories generated by previous builds of different specs
+    valid_dirs = {str(screen.route or "").strip("/").split("/")[0] for screen in spec.screens if screen.route}
+    valid_dirs.update({e.plural for e in spec.entities})
+    valid_dirs.add("api")
+    for child in list(app_dir.iterdir()):
+        if child.is_dir() and child.name not in valid_dirs:
+            child_page = child / "page.tsx"
+            if child_page.exists():
+                page_text = child_page.read_text(encoding="utf-8", errors="replace")
+                if "// @generated by AI Solution Builder" in page_text:
+                    try:
+                        shutil.rmtree(child)
+                    except OSError:
+                        pass
 
 
 # ── Next.js Fullstack Route Handlers & Data Store ────────────────────────
@@ -2135,26 +2190,26 @@ class DataStore {
   }
 
   private seedDefaults() {
-    const icecreams = [
+    const catalogItems = [
       {
         id: 1,
-        name: "Classic Madagascar Vanilla",
-        flavor: "Vanilla",
-        price: 10,
-        description: "Slow-churned pure bourbon vanilla bean infused into velvety sweet organic cream. Silky, aromatic, and timelessly delightful.",
-        image_url: "https://images.unsplash.com/photo-1570197788417-0e82375c9371?auto=format&fit=crop&w=800&q=80",
+        name: "Standard Catalog Item",
+        flavor: "Standard",
+        price: 19,
+        description: "Standard capability package configured with core functionality and verified stability.",
+        image_url: "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=800&q=80",
         is_available: true,
-        category: "Classic",
+        category: "Standard",
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       },
       {
         id: 2,
-        name: "Decadent Belgian Dark Chocolate",
-        flavor: "Chocolate",
-        price: 20,
-        description: "Intense 70% dark Belgian cocoa blended into luxurious, decadent dark chocolate perfection. Rich, velvety, and deeply satisfying.",
-        image_url: "https://images.unsplash.com/photo-1563805042-7684c019e1cb?auto=format&fit=crop&w=800&q=80",
+        name: "Premium Catalog Item",
+        flavor: "Enterprise",
+        price: 49,
+        description: "High-tier capability package with advanced configuration, scale capacity, and priority support.",
+        image_url: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=800&q=80",
         is_available: true,
         category: "Signature",
         created_at: new Date().toISOString(),
@@ -2162,30 +2217,28 @@ class DataStore {
       },
     ];
 
-    this.tables.set("menu_items", [...icecreams]);
-    this.tables.set("icecreams", [...icecreams]);
-    this.tables.set("products", [...icecreams]);
+    this.tables.set("menu_items", [...catalogItems]);
+    this.tables.set("products", [...catalogItems]);
     this.nextIds.set("menu_items", 3);
-    this.nextIds.set("icecreams", 3);
     this.nextIds.set("products", 3);
 
     const orders = [
       {
         id: 1,
-        customer_name: "Sarah Jenkins",
-        item_name: "Classic Madagascar Vanilla",
+        customer_name: "Alex Morgan",
+        item_name: "Standard Catalog Item",
         quantity: 2,
-        total_price: 20,
+        total_price: 38,
         status: "completed",
         created_at: new Date(Date.now() - 3600000).toISOString(),
         updated_at: new Date().toISOString(),
       },
       {
         id: 2,
-        customer_name: "David Chen",
-        item_name: "Decadent Belgian Dark Chocolate",
+        customer_name: "Jordan Lee",
+        item_name: "Premium Catalog Item",
         quantity: 1,
-        total_price: 20,
+        total_price: 49,
         status: "preparing",
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -2197,17 +2250,17 @@ class DataStore {
     const reviews = [
       {
         id: 1,
-        customer_name: "Elena Rostova",
+        customer_name: "Taylor Kim",
         rating: 5,
-        comment: "The Madagascar Vanilla is out of this world! You can taste the real vanilla bean in every bite.",
+        comment: "Excellent experience. The platform is responsive, well designed, and very reliable.",
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       },
       {
         id: 2,
-        customer_name: "Marcus Vance",
+        customer_name: "Morgan Bailey",
         rating: 5,
-        comment: "The Belgian Dark Chocolate is rich, velvety, and pure indulgence. Worth every penny of $20.",
+        comment: "Outstanding quality and execution. Everything worked seamlessly right out of the box.",
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       },
@@ -2507,6 +2560,18 @@ def _hash(p: Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else ""
 
 
+def _strict_actions_stub(spec: AppSpec) -> str:
+    """Action stubs that return 501 rather than the expected example value.
+
+    The old gen_actions_stub() returned output_example, which is exactly what
+    the generated acceptance test asserted — so the suite passed against an app
+    that computed nothing. Stubs must fail until really implemented.
+    """
+    from app.services.real_backend_codegen import gen_actions_stub_strict
+
+    return gen_actions_stub_strict(spec)
+
+
 def write_generated(root: Path | str, spec: AppSpec) -> dict[str, str]:
     """Write all deterministic files into a scaffolded workspace. Returns locked hashes."""
     root = Path(root)
@@ -2517,7 +2582,8 @@ def write_generated(root: Path | str, spec: AppSpec) -> dict[str, str]:
         be / "models.py": "# @generated by AI Solution Builder\n" + gen_models(spec),
         be / "schemas.py": "# @generated by AI Solution Builder\n" + gen_schemas(spec),
         be / "routers.py": "# @generated by AI Solution Builder\n" + gen_routers(spec),
-        be / "actions.py": "# @generated by AI Solution Builder\n" + gen_actions_stub(spec),
+        be / "actions.py": "# @generated by AI Solution Builder\n"
+        + _strict_actions_stub(spec),
         be / "tests" / "conftest.py": CONFTEST,
         be / "tests" / "test_acceptance.py": "# @generated by AI Solution Builder\n"
         + gen_acceptance_tests(spec),
@@ -2536,7 +2602,12 @@ def write_generated(root: Path | str, spec: AppSpec) -> dict[str, str]:
         path.write_text(content, encoding="utf-8")
     if fe.exists():
         gen_frontend_pages(spec, fe)
-        gen_next_route_handlers(spec, fe)
+        # The old gen_next_route_handlers() faked the whole data layer: an
+        # in-memory store seeded with another app's sample rows, and action
+        # handlers that returned output_example verbatim. Real server now.
+        from app.services.real_backend_codegen import wire_real_data_layer
+
+        wire_real_data_layer(spec, root)
         pkg_file = fe / "package.json"
         if pkg_file.exists():
             try:

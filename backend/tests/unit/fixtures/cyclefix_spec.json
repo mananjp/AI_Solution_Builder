@@ -1,0 +1,173 @@
+{
+  "app_name": "CycleFix",
+  "one_liner": "Track bike repair jobs for a small workshop",
+  "core_value": "Works out the total bill from parts plus labour hours",
+  "entities": [
+    {
+      "name": "customer",
+      "plural": "customers",
+      "fields": [
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "phone",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "repair",
+      "plural": "repairs",
+      "fields": [
+        {
+          "name": "customer_id",
+          "type": "ref",
+          "ref": "customer"
+        },
+        {
+          "name": "bike_model",
+          "type": "string"
+        },
+        {
+          "name": "labour_hours",
+          "type": "float"
+        },
+        {
+          "name": "parts_cost",
+          "type": "float"
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "enum_values": [
+            "booked",
+            "in_progress",
+            "done"
+          ],
+          "required": false,
+          "default": "booked"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "name": "quote",
+      "method": "GET",
+      "path": "/actions/repairs/{repair_id}/quote",
+      "summary": "Work out the final bill for a repair",
+      "rules": [
+        "labour is charged at 400 per hour",
+        "total = parts cost + labour hours * 400",
+        "404 if the repair does not exist"
+      ],
+      "output_example": {
+        "total": 1200,
+        "labour": 800,
+        "parts": 400
+      }
+    }
+  ],
+  "screens": [
+    {
+      "name": "Repairs",
+      "route": "/repairs",
+      "purpose": "see and update repair jobs",
+      "uses_entities": [
+        "repair"
+      ],
+      "uses_actions": [
+        "quote"
+      ],
+      "key_interactions": [
+        "add a repair",
+        "see the bill"
+      ]
+    }
+  ],
+  "acceptance_tests": [
+    {
+      "name": "add customer",
+      "description": "A customer can be saved and read back",
+      "steps": [
+        {
+          "method": "POST",
+          "path": "/customers",
+          "body": {
+            "name": "Ravi",
+            "phone": "99"
+          },
+          "expect_status": 201,
+          "expect": {
+            "name": "Ravi"
+          },
+          "save": {
+            "c": "id"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/customers/{c}",
+          "expect": {
+            "name": "Ravi"
+          }
+        }
+      ]
+    },
+    {
+      "name": "missing_repair",
+      "description": "Asking for a bill on a repair that is not there fails",
+      "steps": [
+        {
+          "method": "GET",
+          "path": "/actions/repairs/999/quote",
+          "expect_status": 404
+        }
+      ]
+    },
+    {
+      "name": "bill maths",
+      "description": "The bill adds parts to labour correctly",
+      "steps": [
+        {
+          "method": "POST",
+          "path": "/customers",
+          "body": {
+            "name": "Ravi",
+            "phone": "99"
+          },
+          "expect_status": 201,
+          "save": {
+            "c": "id"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/repairs",
+          "body": {
+            "customer_id": "{c}",
+            "bike_model": "Hero",
+            "labour_hours": 2,
+            "parts_cost": 400,
+            "status": "booked"
+          },
+          "expect_status": 201,
+          "save": {
+            "r": "id"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/actions/repairs/{r}/quote",
+          "expect": {
+            "total": 1200,
+            "labour": 800,
+            "parts": 400
+          }
+        }
+      ]
+    }
+  ]
+}

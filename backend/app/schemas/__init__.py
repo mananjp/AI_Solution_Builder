@@ -250,12 +250,13 @@ class MVPQuickBuildRequest(BaseModel):
 class OpenCodeChatRequest(BaseModel):
     """Payload to chat directly with OpenCode."""
 
-    message: str = Field(..., min_length=1)
+    message: str = Field(default="")
     session_id: str | None = None
     solution_id: UUID | None = None
     app_name: str | None = None
     uploaded_context: str | None = None
     build_requested: bool = False  # Finalize + verify the workspace into an MVPBuild
+    answers: dict[str, str] = Field(default_factory=dict)
 
 
 class MVPTemplateResponse(BaseModel):

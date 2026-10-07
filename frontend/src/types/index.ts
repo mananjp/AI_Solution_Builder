@@ -436,6 +436,36 @@ export interface MVPQuickBuildPayload {
   config?: Record<string, unknown>;
 }
 
+export interface ConversationalQuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface ConversationalQuestion {
+  id: string;
+  question: string;
+  why: string;
+  options?: ConversationalQuestionOption[];
+  allow_custom?: boolean;
+  answer?: string | null;
+}
+
+export interface ConversationalQuestionsEvent {
+  kind: 'ask';
+  message: string;
+  questions: ConversationalQuestion[];
+  stage?: string;
+}
+
+export interface ConversationalPlanEvent {
+  kind: 'plan' | 'change';
+  message: string;
+  plain_plan: string;
+  changes?: string[];
+  warnings?: string[];
+  stage?: string;
+}
+
 export interface OpenCodeChatPayload {
   message: string;
   session_id?: string | null;
@@ -443,6 +473,7 @@ export interface OpenCodeChatPayload {
   app_name?: string | null;
   uploaded_context?: string | null;
   build_requested?: boolean;
+  answers?: Record<string, string>;
 }
 
 export interface OpenCodeChatComplete {

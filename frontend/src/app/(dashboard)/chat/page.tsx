@@ -30,7 +30,17 @@ import {
   upsertCachedSolution,
   useChatSession,
 } from '@/hooks/useChatSession';
-import type { MVPBuild, MVPDeployResult, OpenCodeChatComplete, Solution } from '@/types';
+import { SmartQuestionsCard } from '@/components/chat/SmartQuestionsCard';
+import { PlanReviewCard } from '@/components/chat/PlanReviewCard';
+import type {
+  ConversationalPlanEvent,
+  ConversationalQuestion,
+  ConversationalQuestionsEvent,
+  MVPBuild,
+  MVPDeployResult,
+  OpenCodeChatComplete,
+  Solution,
+} from '@/types';
 
 const ACTIVE_SOLUTION_KEY = 'sutra_active_solution_id';
 
@@ -140,27 +150,30 @@ function ChatContent() {
     }
   }, [dispatch]);
 
-  // ── Send ──
-  const send = useCallback(
-    async (finalize: boolean) => {
-      const text = state.input.trim();
-      if (!text || state.streaming) return;
+  // ── Conversational Builder State ──
+  const [pendingQuestions, setPendingQuestions] = React.useState<ConversationalQuestion[] | null>(null);
+  const [pendingPlan, setPendingPlan] = React.useState<ConversationalPlanEvent | null>(null);
 
-      dispatch({ type: 'set-input', value: '' });
-      dispatch({ type: 'user/message', message: text });
-      dispatch({ type: 'stream/start', build: finalize, now: Date.now() });
+  const executeChatStream = useCallback(
+    async (params: {
+      message: string;
+      answers?: Record<string, string>;
+      build_requested?: boolean;
+    }) => {
+      dispatch({ type: 'stream/start', build: Boolean(params.build_requested), now: Date.now() });
 
       const hadContext = state.context;
 
       try {
         await sendOpenCodeChatStream(
           {
-            message: text,
+            message: params.message,
+            answers: params.answers,
             app_name: state.appName.trim() || undefined,
             solution_id: solutionIdRef.current || undefined,
             session_id: state.sessionId,
             uploaded_context: hadContext?.text,
-            build_requested: finalize,
+            build_requested: params.build_requested,
           },
           {
             onEvent: (event, data) => {
@@ -187,6 +200,22 @@ function ChatContent() {
                   dispatch({ type: 'stream/progress', progress: data as never });
                   if (data.solution_id) void syncHistoryEntry(data.solution_id as string);
                   break;
+                case 'questions': {
+                  const qData = data as unknown as ConversationalQuestionsEvent;
+                  if (qData.questions && qData.questions.length > 0) {
+                    setPendingQuestions(qData.questions);
+                    setPendingPlan(null);
+                  }
+                  break;
+                }
+                case 'plan': {
+                  const pData = data as unknown as ConversationalPlanEvent;
+                  if (pData.plain_plan) {
+                    setPendingPlan(pData);
+                    setPendingQuestions(null);
+                  }
+                  break;
+                }
                 case 'message':
                   if (data.message) {
                     dispatch({
@@ -251,7 +280,60 @@ function ChatContent() {
         }
       }
     },
-    [state.input, state.streaming, state.appName, state.sessionId, state.context, agent, dispatch, selectSolution, syncHistoryEntry, t]
+    [state.appName, state.sessionId, state.context, agent, dispatch, selectSolution, syncHistoryEntry, t]
+  );
+
+  // ── Send ──
+  const send = useCallback(
+    async (finalize: boolean) => {
+      const text = state.input.trim();
+      if (!text || state.streaming) return;
+
+      setPendingQuestions(null);
+      setPendingPlan(null);
+      dispatch({ type: 'set-input', value: '' });
+      dispatch({ type: 'user/message', message: text });
+      await executeChatStream({ message: text, build_requested: finalize });
+    },
+    [state.input, state.streaming, dispatch, executeChatStream]
+  );
+
+  const handleAnswerQuestions = useCallback(
+    async (answers: Record<string, string>) => {
+      setPendingQuestions(null);
+      const answerSummary = Object.entries(answers)
+        .map(([_, a]) => a)
+        .filter(Boolean)
+        .join(', ');
+      const userText = answerSummary || 'I have submitted my answers to your questions.';
+      dispatch({ type: 'user/message', message: userText });
+      await executeChatStream({
+        message: userText,
+        answers,
+        build_requested: false,
+      });
+    },
+    [dispatch, executeChatStream]
+  );
+
+  const handleApprovePlan = useCallback(
+    async () => {
+      setPendingPlan(null);
+      dispatch({ type: 'user/message', message: 'Looks good — build it!' });
+      await executeChatStream({
+        message: 'Looks good — build it!',
+        build_requested: true,
+      });
+    },
+    [dispatch, executeChatStream]
+  );
+
+  const handleRefinePlan = useCallback(
+    () => {
+      setPendingPlan(null);
+      dispatch({ type: 'set-input', value: 'Please adjust ' });
+    },
+    [dispatch]
   );
 
   // ── Build actions ──
@@ -307,6 +389,8 @@ function ChatContent() {
 
   // ── Sidecar actions ──
   const startNewChat = useCallback(() => {
+    setPendingQuestions(null);
+    setPendingPlan(null);
     selectSolution(null);
     dispatch({ type: 'set-app-name', value: '' });
     dispatch({ type: 'set-input', value: '' });
@@ -315,6 +399,8 @@ function ChatContent() {
 
   const handleSelectSolution = useCallback(
     (sol: Solution) => {
+      setPendingQuestions(null);
+      setPendingPlan(null);
       if (sol.id === state.solutionId) {
         dispatch({ type: 'set-sidecar-open', value: false });
         return;
@@ -465,6 +551,28 @@ function ChatContent() {
               state.messages.map((m, i) => (
                 <ChatMessage key={i} role={m.role} content={m.content} agent={m.agent} />
               ))
+            )}
+
+            {/* Smart questions card */}
+            {pendingQuestions && pendingQuestions.length > 0 && !state.streaming && (
+              <SmartQuestionsCard
+                questions={pendingQuestions}
+                onSubmit={handleAnswerQuestions}
+                disabled={state.streaming}
+              />
+            )}
+
+            {/* Plan review card */}
+            {pendingPlan && !state.streaming && (
+              <PlanReviewCard
+                plainPlan={pendingPlan.plain_plan}
+                message={pendingPlan.message}
+                changes={pendingPlan.changes}
+                warnings={pendingPlan.warnings}
+                onApprove={handleApprovePlan}
+                onRefine={handleRefinePlan}
+                disabled={state.streaming}
+              />
             )}
 
             {state.streaming && state.stage === 'thinking' && <div className="mt-3"><ThinkingBubble /></div>}

@@ -1453,6 +1453,45 @@ def _build_mock_content(messages: list[Any], state: dict[str, Any]) -> str:
         payload = _mock_code()
     elif "Blueprint Generator Agent" in system_text:
         payload = _mock_blueprint()
+    elif "You help someone build a working web app by talking to them" in system_text:
+        has_answers = any("Already answered" in str(getattr(m, "content", "")) for m in messages)
+        last_user = ""
+        for m in reversed(messages):
+            if isinstance(m, HumanMessage) or getattr(m, "type", "") == "human":
+                last_user = str(getattr(m, "content", "")).lower()
+                break
+        if "change" in last_user:
+            payload = {
+                "tool": "change",
+                "input": {
+                    "spec": _mock_app_spec(messages),
+                    "note": "I have adjusted the design based on your feedback.",
+                },
+            }
+        elif has_answers or "plan" in last_user or "build" in last_user or "ready" in last_user:
+            payload = {
+                "tool": "plan",
+                "input": {
+                    "spec": _mock_app_spec(messages),
+                    "note": "Here is what I am going to build for you.",
+                },
+            }
+        else:
+            payload = {
+                "tool": "ask",
+                "input": {
+                    "questions": [
+                        {
+                            "question": "Who will use this app?",
+                            "why": "This helps me set up the right screens for each person",
+                            "options": [
+                                {"label": "Just me", "description": "Single person running the business"},
+                                {"label": "Me and my customers", "description": "Storefront for customers and admin dashboard for you"},
+                            ],
+                        }
+                    ]
+                },
+            }
     else:
         payload = {"content": "Mock response"}
 

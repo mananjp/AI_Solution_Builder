@@ -1211,7 +1211,7 @@ async def chat_edit_build(
                 '            <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-100">\n'
                 '              <div className="text-amber-500 mb-2">★★★★★</div>\n'
                 '              <p className="text-sm text-slate-600 mb-3">"Exceptional quality and seamless service! Highly recommended."</p>\n'
-                '              <span className="text-xs font-semibold text-slate-900">— Sarah Jenkins</span>\n'
+                '              <span className="text-xs font-semibold text-slate-900">— Alex Morgan</span>\n'
                 "            </div>\n"
                 '            <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-100">\n'
                 '              <div className="text-amber-500 mb-2">★★★★★</div>\n'
@@ -1221,7 +1221,7 @@ async def chat_edit_build(
                 '            <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-100">\n'
                 '              <div className="text-amber-500 mb-2">★★★★★</div>\n'
                 '              <p className="text-sm text-slate-600 mb-3">"Game changer for our daily workflow. Outstanding product."</p>\n'
-                '              <span className="text-xs font-semibold text-slate-900">— Elena Rostova</span>\n'
+                '              <span className="text-xs font-semibold text-slate-900">— Taylor Vance</span>\n'
                 "            </div>\n"
                 "          </div>\n"
                 "        </div>\n"

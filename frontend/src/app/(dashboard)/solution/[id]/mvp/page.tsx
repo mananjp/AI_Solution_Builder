@@ -234,6 +234,13 @@ export default function MvpPage() {
                   m.id === assistantMsgId ? { ...m, content: accumulatedContent } : m
                 )
               );
+            } else if (event === 'message' && data?.message) {
+              accumulatedContent = String(data.message);
+              setChatMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsgId ? { ...m, content: accumulatedContent } : m
+                )
+              );
             }
           },
           onComplete: (data) => {

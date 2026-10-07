@@ -1190,7 +1190,132 @@ async def chat(
                 )
                 lang_name = LANGUAGE_NAMES.get(content_language, content_language)
 
-                # ── Generate the conversational reply ────────────────
+                # ── Conversational Build Flow ─────────────────────────
+                from app.services.build_conversation import ConversationState, Stage, handle_turn
+                from app.services.plain_language import (
+                    describe_progress,
+                    describe_test_results,
+                )
+
+                conv_state_dict = (solution.ai_state or {}).get("build_conversation")
+                conv_state = ConversationState.from_dict(conv_state_dict)
+
+                turn_result = None
+                user_msg = payload.message or ("I have submitted my answers." if payload.answers else "")
+                try:
+                    turn_result = await handle_turn(
+                        conv_state,
+                        user_msg,
+                        ai_state=solution.ai_state or {},
+                        answers=payload.answers or {},
+                    )
+                except Exception as conv_err:
+                    logger.warning("Conversational turn handler failed (%s); using fallback", conv_err)
+
+                if turn_result is not None:
+                    solution.ai_state = {
+                        **(solution.ai_state or {}),
+                        "build_conversation": turn_result.state.to_dict(),
+                    }
+                    if turn_result.spec:
+                        solution.ai_state["app_spec"] = (
+                            turn_result.spec.model_dump()
+                            if hasattr(turn_result.spec, "model_dump")
+                            else turn_result.spec
+                        )
+                        spec_title = getattr(turn_result.spec, "app_name", None)
+                        if spec_title and solution.title in ("Custom App Build", "Custom App"):
+                            solution.title = spec_title
+                    flag_modified(solution, "ai_state")
+                    await stream_db.commit()
+
+                    if turn_result.kind == "ask":
+                        yield {"event": "questions", "data": json.dumps(turn_result.to_dict())}
+                        rep = turn_result.message
+                        if content_language not in ("", settings.DEFAULT_LANGUAGE):
+                            rep = await translate_text(rep, content_language)
+                        yield {
+                            "event": "message",
+                            "data": json.dumps({
+                                "role": "assistant",
+                                "message": rep,
+                                "session_id": session_id,
+                            }),
+                        }
+                        yield {
+                            "event": "complete",
+                            "data": json.dumps({
+                                "status": "message",
+                                "message": rep,
+                                "session_id": session_id,
+                                "solution_id": str(solution.id),
+                            }),
+                        }
+                        return
+
+                    if turn_result.kind == "plan":
+                        yield {"event": "plan", "data": json.dumps(turn_result.to_dict())}
+                        rep = turn_result.plain_plan or turn_result.message
+                        if content_language not in ("", settings.DEFAULT_LANGUAGE):
+                            rep = await translate_text(rep, content_language)
+                        yield {
+                            "event": "message",
+                            "data": json.dumps({
+                                "role": "assistant",
+                                "message": rep,
+                                "session_id": session_id,
+                            }),
+                        }
+                        yield {
+                            "event": "complete",
+                            "data": json.dumps({
+                                "status": "message",
+                                "message": rep,
+                                "session_id": session_id,
+                                "solution_id": str(solution.id),
+                            }),
+                        }
+                        return
+
+                    if turn_result.kind == "answer":
+                        rep = turn_result.message
+                        if content_language not in ("", settings.DEFAULT_LANGUAGE):
+                            rep = await translate_text(rep, content_language)
+                        yield {
+                            "event": "message",
+                            "data": json.dumps({
+                                "role": "assistant",
+                                "message": rep,
+                                "session_id": session_id,
+                            }),
+                        }
+                        yield {
+                            "event": "complete",
+                            "data": json.dumps({
+                                "status": "message",
+                                "message": rep,
+                                "session_id": session_id,
+                                "solution_id": str(solution.id),
+                            }),
+                        }
+                        return
+
+                    if turn_result.kind in ("build", "change"):
+                        payload.build_requested = True
+                        if turn_result.changes:
+                            change_notice = turn_result.message + "\n\n" + "\n".join(f"• {c}" for c in turn_result.changes)
+                            if turn_result.warnings:
+                                change_notice += "\n\n⚠️ " + "\n".join(f"• {w}" for w in turn_result.warnings)
+                            yield {
+                                "event": "message",
+                                "data": json.dumps({
+                                    "role": "assistant",
+                                    "message": change_notice,
+                                    "session_id": session_id,
+                                }),
+                            }
+
+                # ── Generate the conversational reply (fallback path) ──
                 # A description request must not be handed to the sidecar: that
                 # branch is phrased as a build request and answers with a short
                 # file-change summary, which is exactly the vague reply we are
@@ -1512,7 +1637,8 @@ async def chat(
                             dropped (refresh, proxy timeout, client disconnect).
                             """
                             nonlocal mvp_build, solution
-                            progress = chat_progress(phase, step, percentage, message)
+                            plain_msg = describe_progress(phase, message)
+                            progress = chat_progress(phase, step, percentage, plain_msg)
                             if mvp_build is not None:
                                 try:
                                     mvp_build.app_config = {
@@ -1539,7 +1665,7 @@ async def chat(
                                 "step": step,
                                 "total_steps": len(_CHAT_BUILD_STEPS),
                                 "percentage": percentage,
-                                "message": message,
+                                "message": plain_msg,
                                 "solution_id": str(solution_id),
                                 "session_id": session_id,
                             }
@@ -1847,36 +1973,74 @@ async def chat(
                                     local_zip_path,
                                 )
 
+                            # Fake-implementation audit: catches apps that only look alive
+                            from app.services import fake_detector
+
+                            audit = fake_detector.audit_build(ws_dir, spec_obj)
+                            fake_detector.write_report(ws_dir, audit)
+                            audit_blockers = fake_detector.blockers(audit)
+
+                            if audit_blockers and sidecar_ok and session_id:
+                                try:
+                                    await builder.send_message(
+                                        session_id,
+                                        fake_detector.repair_brief(audit),
+                                        timeout=settings.MVP_BUILD_TIMEOUT,
+                                        seed=str(solution.id),
+                                    )
+                                    audit = fake_detector.audit_build(ws_dir, spec_obj)
+                                    fake_detector.write_report(ws_dir, audit)
+                                    audit_blockers = fake_detector.blockers(audit)
+                                except Exception as exc:
+                                    logger.warning("Fake-implementation repair turn in chat failed: %s", exc)
+
+                            if audit_blockers:
+                                build_gate = "failed"
+                                summary_msg = fake_detector.plain_summary(audit)
+                            else:
+                                build_gate = "passed"
+                                summary_msg = f"Build complete! {len(files)} files generated."
+
+                            assistant_text = summary_msg
+
                             if mvp_build is not None:
-                                mvp_build.status = "complete"
+                                mvp_build.status = "complete" if not audit_blockers else "failed"
+                                if audit_blockers:
+                                    mvp_build.error_message = summary_msg
                                 mvp_build.file_count = len(files)
                                 mvp_build.file_list = rel_files
                                 mvp_build.storage_key = storage_key
                                 mvp_build.app_config = {
                                     **(mvp_build.app_config or {}),
+                                    "quality_gate": build_gate,
+                                    "plain_summary": summary_msg,
+                                    "audit_blockers": [f.as_dict() for f in audit_blockers],
                                     "progress": chat_progress(
-                                        "completed",
+                                        "completed" if not audit_blockers else "failed",
                                         7,
                                         100,
-                                        f"Build complete! {len(files)} files generated.",
+                                        summary_msg,
                                     ),
                                 }
-                            solution.status = "complete"
+                            solution.status = "complete" if not audit_blockers else "failed"
                             await stream_db.commit()
                             build_state = {
                                 "build_id": str(build_id),
                                 "build_number": build_number,
                                 "file_count": len(files),
+                                "quality_gate": build_gate,
+                                "plain_summary": summary_msg,
+                                "audit_blockers": [f.as_dict() for f in audit_blockers],
                                 "files": [
                                     {"path": p, "size": 0, "is_dir": False} for p in rel_files
                                 ],
                             }
 
                             yield await emit_progress(
-                                "completed",
+                                "completed" if not audit_blockers else "failed",
                                 7,
                                 100,
-                                f"Build complete! {len(files)} files generated.",
+                                summary_msg,
                             )
                         except Exception:
                             if mvp_build is not None:

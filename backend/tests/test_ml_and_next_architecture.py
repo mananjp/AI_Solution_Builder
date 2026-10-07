@@ -152,13 +152,16 @@ def test_write_generated_produces_next_route_handlers_and_dockerfile(tmp_path: P
     )
     write_generated(tmp_path, spec)
 
-    # 1. Next.js Route Handlers
-    assert (tmp_path / "frontend" / "src" / "app" / "api" / "v1" / "health" / "route.ts").exists()
-    assert (tmp_path / "frontend" / "src" / "app" / "api" / "v1" / "bookings" / "route.ts").exists()
-    assert (
-        tmp_path / "frontend" / "src" / "app" / "api" / "v1" / "bookings" / "[id]" / "route.ts"
-    ).exists()
-    assert (tmp_path / "frontend" / "src" / "lib" / "db.ts").exists()
+    # 1. /api/v1 is a proxy to the real application server, not a local fake.
+    #    It used to be per-entity handlers over an in-memory store seeded with
+    #    another app's sample rows, so every generated app shipped the same
+    #    fake data and lost everything on restart.
+    api_root = tmp_path / "frontend" / "src" / "app" / "api" / "v1"
+    proxy = api_root / "[...path]" / "route.ts"
+    assert proxy.exists()
+    assert "fetch(" in proxy.read_text(encoding="utf-8")
+    assert not (tmp_path / "frontend" / "src" / "lib" / "db.ts").exists()
+    assert [p for p in api_root.rglob("route.ts")] == [proxy]
 
     # 2. Node.js single-stage Dockerfile
     dockerfile = tmp_path / "Dockerfile"

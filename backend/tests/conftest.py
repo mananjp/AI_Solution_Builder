@@ -79,7 +79,8 @@ async def db_engine():
     for attempt in range(3):
         try:
             async with engine.begin() as conn:
-                await conn.execute(sa_text("CREATE EXTENSION IF NOT EXISTS vector"))
+                if "sqlite" not in TEST_DATABASE_URL:
+                    await conn.execute(sa_text("CREATE EXTENSION IF NOT EXISTS vector"))
                 await conn.run_sync(Base.metadata.create_all)
             break
         except Exception:

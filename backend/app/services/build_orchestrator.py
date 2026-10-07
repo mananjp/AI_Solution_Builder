@@ -203,6 +203,34 @@ async def run_build_pipeline(ctx: BuildContext) -> dict[str, Any]:
             raise v_err
         logger.warning("Offline build verification note: %s", v_err)
 
+    # Fake-implementation audit: catches apps that only look alive
+    # (constant responses, volatile storage, foreign sample data, screens
+    # that never talk to the server). Blockers trigger a repair turn.
+    from app.services import fake_detector
+
+    audit = fake_detector.audit_build(ctx.workspace_dir, spec)
+    fake_detector.write_report(ctx.workspace_dir, audit)
+    audit_blockers = fake_detector.blockers(audit)
+    if audit_blockers and sidecar_ok and session_id != "auto-synthesized":
+        await _notify("repairing", 4, 90, fake_detector.plain_summary(audit))
+        try:
+            await builder.send_build_prompt(
+                session_id,
+                fake_detector.repair_brief(audit),
+                seed=str(ctx.solution_id),
+            )
+            audit = fake_detector.audit_build(ctx.workspace_dir, spec)
+            fake_detector.write_report(ctx.workspace_dir, audit)
+            audit_blockers = fake_detector.blockers(audit)
+        except Exception as exc:
+            logger.warning("Fake-implementation repair turn failed: %s", exc)
+    if audit_blockers:
+        logger.warning(
+            "Build %s has %d fake-implementation blocker(s)",
+            ctx.build_number,
+            len(audit_blockers),
+        )
+
     # Quality gate check
     quality_issues = verify_mvp_quality(ctx.workspace_dir, spec)
     if quality_issues:
@@ -227,6 +255,12 @@ async def run_build_pipeline(ctx: BuildContext) -> dict[str, Any]:
             "tests_failed": int(tests.get("failed", 0)),
             "repair_turns": int(verification.get("repair_turns", 0)),
             "actions": [a.name for a in spec.actions],
-            "quality_gate": "passed" if not quality_issues else "warned",
+            "quality_gate": (
+                "failed"
+                if audit_blockers
+                else ("passed" if not quality_issues else "warned")
+            ),
+            "audit_blockers": [f.as_dict() for f in audit_blockers],
+            "plain_summary": fake_detector.plain_summary(audit),
         },
     }
