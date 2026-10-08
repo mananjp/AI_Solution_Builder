@@ -29,7 +29,7 @@ from app.core.redis import sliding_window_count
 logger = logging.getLogger(__name__)
 
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-_HEALTH_PATHS = {"/health", "/ready", "/metrics", "/docs", "/redoc", "/openapi.json"}
+_HEALTH_PATHS = {"/health", "/ready", "/metrics", "/docs", "/redoc", "/openapi.json", "/api/v1/system/resources"}
 _AI_PATHS = ("/api/v1/chat", "/api/v1/export")
 
 
@@ -104,6 +104,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         window = (
             settings.RATE_LIMIT_AI_WINDOW_SECONDS if is_ai else settings.RATE_LIMIT_WINDOW_SECONDS
         )
+        if ident in ("ip:127.0.0.1", "ip:::1", "ip:localhost", "ip:unknown", "ip:testclient"):
+            limit = max(limit, 1200)
         key = f"rl:{ident}:{'ai' if is_ai else 'api'}"
         allowed, current = await sliding_window_count(key, limit, window)
         if not allowed:

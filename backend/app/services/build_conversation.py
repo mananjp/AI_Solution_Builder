@@ -26,14 +26,14 @@ import logging
 import re
 import uuid
 from dataclasses import asdict, dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from app.services.plain_language import (
+    dejargon,
     describe_change,
     describe_data_loss,
     describe_spec,
-    dejargon,
     lint_for_jargon,
 )
 
@@ -43,7 +43,7 @@ MAX_QUESTIONS_PER_TURN = 3
 MAX_QUESTION_ROUNDS = 3
 
 
-class Stage(str, Enum):
+class Stage(StrEnum):
     GATHERING = "gathering"  # still asking what we need to know
     PLAN_REVIEW = "plan_review"  # plan shown, waiting for approval
     BUILDING = "building"
@@ -283,7 +283,7 @@ async def _call_model(state: ConversationState, user_message: str) -> tuple[str,
 
     envelope = (
         system
-        + "\n\nReturn ONLY JSON: {\"tool\": \"ask|plan|change|answer\", \"input\": {...}}"
+        + '\n\nReturn ONLY JSON: {"tool": "ask|plan|change|answer", "input": {...}}'
         + "\nTool inputs:\n"
         + json.dumps({t["name"]: t["input_schema"] for t in TOOLS})[:4000]
     )
@@ -305,9 +305,12 @@ def _extract_json(text: str) -> dict[str, Any]:
     if start < 0 or end < 0:
         return {"tool": "answer", "input": {"message": text}}
     try:
-        return json.loads(cleaned[start : end + 1])
+        parsed = json.loads(cleaned[start : end + 1])
     except json.JSONDecodeError:
         return {"tool": "answer", "input": {"message": text}}
+    if isinstance(parsed, dict):
+        return parsed
+    return {"tool": "answer", "input": {"message": text}}
 
 
 # ── Guard rails on what the user sees ───────────────────────────────────
@@ -331,9 +334,7 @@ def clean_user_text(text: str) -> str:
     cleaned = dejargon(text or "")
     hits = lint_for_jargon(cleaned)
     if hits:
-        logger.info(
-            "Jargon survived in user-facing copy: %s", [h.term for h in hits][:5]
-        )
+        logger.info("Jargon survived in user-facing copy: %s", [h.term for h in hits][:5])
     return cleaned
 
 
@@ -394,10 +395,37 @@ class TurnResult:
 
 
 _APPROVALS = {
-    "yes", "yep", "yeah", "ok", "okay", "sure", "go", "go ahead", "build", "build it",
-    "build it now", "do it", "make it", "proceed", "confirm", "confirmed", "looks good",
-    "sounds good", "perfect", "great", "approve", "approved", "start", "lgtm", "fine",
-    "haan", "ha", "theek hai", "ho ja", "banao", "kar do",
+    "yes",
+    "yep",
+    "yeah",
+    "ok",
+    "okay",
+    "sure",
+    "go",
+    "go ahead",
+    "build",
+    "build it",
+    "build it now",
+    "do it",
+    "make it",
+    "proceed",
+    "confirm",
+    "confirmed",
+    "looks good",
+    "sounds good",
+    "perfect",
+    "great",
+    "approve",
+    "approved",
+    "start",
+    "lgtm",
+    "fine",
+    "haan",
+    "ha",
+    "theek hai",
+    "ho ja",
+    "banao",
+    "kar do",
 }
 
 
@@ -445,7 +473,10 @@ async def handle_turn(
         message = "Great — I'm building it now. This takes a few minutes."
         state.transcript.append({"role": "assistant", "content": message})
         return TurnResult(
-            kind="build", message=message, state=state, spec=spec,
+            kind="build",
+            message=message,
+            state=state,
+            spec=spec,
             plain_plan=describe_spec(spec),
         )
 
@@ -502,8 +533,13 @@ async def handle_turn(
             message = note or "Here's what I'm changing:"
             state.transcript.append({"role": "assistant", "content": message})
             return TurnResult(
-                kind="change", message=message, state=state, spec=spec,
-                plain_plan=plain_plan, changes=changes, warnings=warnings,
+                kind="change",
+                message=message,
+                state=state,
+                spec=spec,
+                plain_plan=plain_plan,
+                changes=changes,
+                warnings=warnings,
             )
 
         state.spec = spec.model_dump()
@@ -511,7 +547,11 @@ async def handle_turn(
         message = note or "Here's what I'm going to build for you."
         state.transcript.append({"role": "assistant", "content": message})
         return TurnResult(
-            kind="plan", message=message, state=state, spec=spec, plain_plan=plain_plan,
+            kind="plan",
+            message=message,
+            state=state,
+            spec=spec,
+            plain_plan=plain_plan,
         )
 
     message = clean_user_text(str(payload.get("message", "")))

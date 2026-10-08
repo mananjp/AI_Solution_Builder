@@ -256,9 +256,7 @@ async def run_build_pipeline(ctx: BuildContext) -> dict[str, Any]:
             "repair_turns": int(verification.get("repair_turns", 0)),
             "actions": [a.name for a in spec.actions],
             "quality_gate": (
-                "failed"
-                if audit_blockers
-                else ("passed" if not quality_issues else "warned")
+                "failed" if audit_blockers else ("passed" if not quality_issues else "warned")
             ),
             "audit_blockers": [f.as_dict() for f in audit_blockers],
             "plain_summary": fake_detector.plain_summary(audit),

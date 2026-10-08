@@ -470,8 +470,16 @@ class AppSpec(BaseModel):
             if unknown:
                 for u in sorted(unknown):
                     val = record.values[u]
-                    ftype = "float" if isinstance(val, float) else "int" if isinstance(val, int) else "string"
-                    entity.fields.append(SpecField(name=u, type=ftype, required=False, description=f"{u} attribute"))
+                    ftype: FieldType = (
+                        "float"
+                        if isinstance(val, float)
+                        else "int"
+                        if isinstance(val, int)
+                        else "string"
+                    )
+                    entity.fields.append(
+                        SpecField(name=u, type=ftype, required=False, description=f"{u} attribute")
+                    )
                 field_names.update(unknown)
 
         if self.analytics.enabled and self.analytics.entity and self.analytics.entity not in names:

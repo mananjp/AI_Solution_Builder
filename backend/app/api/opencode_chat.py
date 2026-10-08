@@ -1191,17 +1191,18 @@ async def chat(
                 lang_name = LANGUAGE_NAMES.get(content_language, content_language)
 
                 # ── Conversational Build Flow ─────────────────────────
-                from app.services.build_conversation import ConversationState, Stage, handle_turn
+                from app.services.build_conversation import ConversationState, handle_turn
                 from app.services.plain_language import (
                     describe_progress,
-                    describe_test_results,
                 )
 
                 conv_state_dict = (solution.ai_state or {}).get("build_conversation")
                 conv_state = ConversationState.from_dict(conv_state_dict)
 
                 turn_result = None
-                user_msg = payload.message or ("I have submitted my answers." if payload.answers else "")
+                user_msg = payload.message or (
+                    "I have submitted my answers." if payload.answers else ""
+                )
                 try:
                     turn_result = await handle_turn(
                         conv_state,
@@ -1210,7 +1211,9 @@ async def chat(
                         answers=payload.answers or {},
                     )
                 except Exception as conv_err:
-                    logger.warning("Conversational turn handler failed (%s); using fallback", conv_err)
+                    logger.warning(
+                        "Conversational turn handler failed (%s); using fallback", conv_err
+                    )
 
                 if turn_result is not None:
                     solution.ai_state = {
@@ -1236,20 +1239,24 @@ async def chat(
                             rep = await translate_text(rep, content_language)
                         yield {
                             "event": "message",
-                            "data": json.dumps({
-                                "role": "assistant",
-                                "message": rep,
-                                "session_id": session_id,
-                            }),
+                            "data": json.dumps(
+                                {
+                                    "role": "assistant",
+                                    "message": rep,
+                                    "session_id": session_id,
+                                }
+                            ),
                         }
                         yield {
                             "event": "complete",
-                            "data": json.dumps({
-                                "status": "message",
-                                "message": rep,
-                                "session_id": session_id,
-                                "solution_id": str(solution.id),
-                            }),
+                            "data": json.dumps(
+                                {
+                                    "status": "message",
+                                    "message": rep,
+                                    "session_id": session_id,
+                                    "solution_id": str(solution.id),
+                                }
+                            ),
                         }
                         return
 
@@ -1260,20 +1267,24 @@ async def chat(
                             rep = await translate_text(rep, content_language)
                         yield {
                             "event": "message",
-                            "data": json.dumps({
-                                "role": "assistant",
-                                "message": rep,
-                                "session_id": session_id,
-                            }),
+                            "data": json.dumps(
+                                {
+                                    "role": "assistant",
+                                    "message": rep,
+                                    "session_id": session_id,
+                                }
+                            ),
                         }
                         yield {
                             "event": "complete",
-                            "data": json.dumps({
-                                "status": "message",
-                                "message": rep,
-                                "session_id": session_id,
-                                "solution_id": str(solution.id),
-                            }),
+                            "data": json.dumps(
+                                {
+                                    "status": "message",
+                                    "message": rep,
+                                    "session_id": session_id,
+                                    "solution_id": str(solution.id),
+                                }
+                            ),
                         }
                         return
 
@@ -1283,36 +1294,48 @@ async def chat(
                             rep = await translate_text(rep, content_language)
                         yield {
                             "event": "message",
-                            "data": json.dumps({
-                                "role": "assistant",
-                                "message": rep,
-                                "session_id": session_id,
-                            }),
+                            "data": json.dumps(
+                                {
+                                    "role": "assistant",
+                                    "message": rep,
+                                    "session_id": session_id,
+                                }
+                            ),
                         }
                         yield {
                             "event": "complete",
-                            "data": json.dumps({
-                                "status": "message",
-                                "message": rep,
-                                "session_id": session_id,
-                                "solution_id": str(solution.id),
-                            }),
+                            "data": json.dumps(
+                                {
+                                    "status": "message",
+                                    "message": rep,
+                                    "session_id": session_id,
+                                    "solution_id": str(solution.id),
+                                }
+                            ),
                         }
                         return
 
                     if turn_result.kind in ("build", "change"):
                         payload.build_requested = True
                         if turn_result.changes:
-                            change_notice = turn_result.message + "\n\n" + "\n".join(f"• {c}" for c in turn_result.changes)
+                            change_notice = (
+                                turn_result.message
+                                + "\n\n"
+                                + "\n".join(f"• {c}" for c in turn_result.changes)
+                            )
                             if turn_result.warnings:
-                                change_notice += "\n\n⚠️ " + "\n".join(f"• {w}" for w in turn_result.warnings)
+                                change_notice += "\n\n⚠️ " + "\n".join(
+                                    f"• {w}" for w in turn_result.warnings
+                                )
                             yield {
                                 "event": "message",
-                                "data": json.dumps({
-                                    "role": "assistant",
-                                    "message": change_notice,
-                                    "session_id": session_id,
-                                }),
+                                "data": json.dumps(
+                                    {
+                                        "role": "assistant",
+                                        "message": change_notice,
+                                        "session_id": session_id,
+                                    }
+                                ),
                             }
 
                 # ── Generate the conversational reply (fallback path) ──
@@ -1992,7 +2015,9 @@ async def chat(
                                     fake_detector.write_report(ws_dir, audit)
                                     audit_blockers = fake_detector.blockers(audit)
                                 except Exception as exc:
-                                    logger.warning("Fake-implementation repair turn in chat failed: %s", exc)
+                                    logger.warning(
+                                        "Fake-implementation repair turn in chat failed: %s", exc
+                                    )
 
                             if audit_blockers:
                                 build_gate = "failed"

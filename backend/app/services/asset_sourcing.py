@@ -185,7 +185,18 @@ async def fetch_wikimedia_image(query: str) -> SourcedAsset | None:
 def match_domain_keyword(text: str) -> str:
     """Map natural prompt text to curated domain asset buckets."""
     t = text.lower()
-    if any(k in t for k in ("architecture", "architect", "villa", "pavilion", "atelier", "interior design", "residence")):
+    if any(
+        k in t
+        for k in (
+            "architecture",
+            "architect",
+            "villa",
+            "pavilion",
+            "atelier",
+            "interior design",
+            "residence",
+        )
+    ):
         return "architecture"
     if any(k in t for k in ("ice cream", "icecream", "gelato", "sorbet", "dessert")):
         return "ice_cream"
@@ -268,7 +279,13 @@ def wire_generated_visuals(spec: AppSpec, workspace_dir: Path, assets: list[Sour
     local_images: list[str] = []
     images_dir = workspace_dir / "frontend" / "public" / "images"
     if images_dir.exists():
-        found = sorted([f.name for f in images_dir.iterdir() if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")])
+        found = sorted(
+            [
+                f.name
+                for f in images_dir.iterdir()
+                if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
+            ]
+        )
         local_images = [f"/images/{name}" for name in found]
 
     # Enrich or initialize seed_data from assets
@@ -277,7 +294,9 @@ def wire_generated_visuals(spec: AppSpec, workspace_dir: Path, assets: list[Sour
         for img in local_images:
             if "villa" in t_low and "villa" in img.lower():
                 return img
-            if ("timber" in t_low or "pavilion" in t_low) and ("timber" in img.lower() or "pavilion" in img.lower()):
+            if ("timber" in t_low or "pavilion" in t_low) and (
+                "timber" in img.lower() or "pavilion" in img.lower()
+            ):
                 return img
         if index < len(local_images):
             return local_images[index]
@@ -312,9 +331,12 @@ def wire_generated_visuals(spec: AppSpec, workspace_dir: Path, assets: list[Sour
             )
     elif spec.seed_data:
         for i, record in enumerate(spec.seed_data):
-            rec_title = record.label or record.values.get("title") or record.values.get("name") or ""
+            rec_title = (
+                record.label or record.values.get("title") or record.values.get("name") or ""
+            )
             current_url = record.values.get("image_url") or ""
-            record.values["image_url"] = _pick_image(rec_title, i, current_url or (assets[i % len(assets)].url if assets else ""))
+            record.values["image_url"] = _pick_image(
+                rec_title, i, current_url or (assets[i % len(assets)].url if assets else "")
+            )
             if not record.label and assets:
                 record.label = assets[i % len(assets)].title
-

@@ -2043,7 +2043,7 @@ async def sandbox_chat(
             logger.exception("Sandbox chat stream failed for build %s", build_id)
             yield {"event": "error", "data": json.dumps({"message": f"Sandbox agent error: {exc}"})}
 
-    return EventSourceResponse(event_stream())  # type: ignore[arg-type]
+    return EventSourceResponse(event_stream())
 
 
 @router.post("/builds/{build_id}/preview/destroy", response_model=dict[str, Any])

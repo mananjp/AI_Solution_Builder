@@ -167,7 +167,7 @@ def gen_seed_script(spec: Any, be: Path) -> None:
         "",
         "MODELS = {",
     ]
-    for entity_name, entity in entities.items():
+    for entity_name, _entity in entities.items():
         cls = "".join(part.capitalize() for part in entity_name.split("_"))
         lines.append(f"    {entity_name!r}: models.{cls},")
     lines += [
@@ -212,14 +212,12 @@ def wire_frontend_env(fe: Path) -> None:
     env_example.write_text(content, encoding="utf-8")
 
 
-_CLIENT_FALLBACK = re.compile(
-    r'const API_BASE\s*=\s*[\s\S]*?;', re.MULTILINE
-)
+_CLIENT_FALLBACK = re.compile(r"const API_BASE\s*=\s*[\s\S]*?;", re.MULTILINE)
 
-_SAFE_CLIENT_BASE = '''const API_BASE =
+_SAFE_CLIENT_BASE = """const API_BASE =
   process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL.trim() !== ""
     ? process.env.NEXT_PUBLIC_API_URL
-    : "/api/v1";'''
+    : "/api/v1";"""
 
 
 def harden_api_client(fe: Path) -> None:
@@ -252,10 +250,10 @@ def wire_real_data_layer(spec: Any, root: Path) -> None:
 # shipped app did nothing. A stub must FAIL until a real implementation lands.
 
 _STUB_BODY = (
-    '    raise HTTPException(\n'
-    '        status_code=501,\n'
+    "    raise HTTPException(\n"
+    "        status_code=501,\n"
     '        detail="This part of the app has not been built yet.",\n'
-    '    )'
+    "    )"
 )
 
 

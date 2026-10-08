@@ -809,7 +809,8 @@ def _title_from_prompt(prompt: str) -> str:
     if target_match:
         target = target_match.group("target").strip()
         t_words = [
-            w for w in _TOKEN_RE.findall(target)
+            w
+            for w in _TOKEN_RE.findall(target)
             if w.lower() not in ("a", "an", "the", "this", "my", "our")
         ]
         if t_words:
@@ -828,7 +829,9 @@ def _title_from_prompt(prompt: str) -> str:
     )
 
     # Cut at the first clause boundary — the product name rarely spans one.
-    text = re.split(r"[.;!?]|\bthat\b|\bwhich\b|\bwhere\b|\bwith\b|\bcovering\b", text, maxsplit=1)[0]
+    text = re.split(r"[.;!?]|\bthat\b|\bwhich\b|\bwhere\b|\bwith\b|\bcovering\b", text, maxsplit=1)[
+        0
+    ]
 
     words = [w for w in _TOKEN_RE.findall(text) if w]
     while words and words[0].lower() in {"a", "an", "the", "n"}:

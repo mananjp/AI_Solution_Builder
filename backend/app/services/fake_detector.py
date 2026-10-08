@@ -39,9 +39,7 @@ _FOREIGN_SEED_TERMS = [
 ]
 
 # An action handler that returns a constant instead of computing anything.
-_ECHO_ACTION = re.compile(
-    r'status:\s*["\'](completed|success|ok)["\']', re.IGNORECASE
-)
+_ECHO_ACTION = re.compile(r'status:\s*["\'](completed|success|ok)["\']', re.IGNORECASE)
 _RETURNS_OUTPUT_EXAMPLE = re.compile(r"result:\s*\{", re.IGNORECASE)
 
 # State that evaporates when the process restarts.

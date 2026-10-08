@@ -414,19 +414,43 @@ cp .env.example .env
 # OPENCODE_MODEL=groq/openai/gpt-oss-120b and it uses your GROQ_API_KEY.
 ```
 
-### 2. Run with Docker Compose
+### 2. Run the Stack Locally
+
+#### Option A: One-Command Native Runner (Recommended — Zero Docker Bloat)
+Run the entire stack natively directly on your host machine without building multi-gigabyte Docker images:
 ```bash
-docker compose up --build
+./run_local.sh          # Linux / macOS / Git Bash (or .\run_local.ps1 on PowerShell)
+```
+- Starts FastAPI Backend (:8000), Next.js Frontend (:3000), OpenCode Sidecar (:4096), and Build Worker.
+- Zero build cache or disk bloat on your C: drive.
+- Press `Ctrl+C` to cleanly stop, or run `./run_local.sh stop`.
+
+#### Option B: Lightweight Infrastructure Mode (Postgres + Redis in Docker, App Native)
+Runs official Postgres (pgvector) and Redis in lightweight containers without building any heavy custom images:
+```bash
+./run_local.sh infra    # (or .\run_local.ps1 -Infra)
+```
+
+#### Option C: Full Docker Stack
+```bash
+./run_local.sh docker   # runs existing containers without rebuilding
+# or with forced rebuild:
+./run_local.sh docker --build
+# or standard compose:
+docker compose up
+```
+
+#### Useful Stack Commands:
+```bash
+./run_local.sh status   # Show health & listening ports of all services
+./run_local.sh logs     # Tail combined service logs (or logs backend / frontend / etc.)
+./run_local.sh stop     # Gracefully stop all native & container processes
+./run_local.sh prune    # Reclaim gigabytes on C: drive by cleaning Docker build cache & images
 ```
 - Frontend: `http://localhost:3000`
 - Backend API: `http://localhost:8000`
 - Interactive API Docs: `http://localhost:8000/docs`
 - OpenCode sidecar health: `http://localhost:4096/global/health` (`{"healthy":true}`)
-
-This starts six cooperating services: `frontend` (Next.js standalone), `postgres`
-(pgvector), `redis`, `backend`, `worker` (durable queue consumer), and the `opencode`
-sidecar (which shares the `mvp_workspace` volume with the backend and worker so
-generated code is visible instantly).
 
 > **Worker Mode:** `WORKER_MODE=worker` (default) requires the `worker` container to be
 > running to process queued builds. If running the backend locally outside Docker without

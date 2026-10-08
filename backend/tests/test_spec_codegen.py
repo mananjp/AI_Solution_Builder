@@ -53,10 +53,10 @@ def test_stub_fails_then_real_logic_passes(workspace: Path):
     actions = workspace / "backend" / "actions.py"
     src = actions.read_text()
     stub_target = (
-        '    raise HTTPException(\n'
-        '        status_code=501,\n'
+        "    raise HTTPException(\n"
+        "        status_code=501,\n"
         '        detail="This part of the app has not been built yet.",\n'
-        '    )'
+        "    )"
     )
     if stub_target in src:
         actions.write_text(src.replace(stub_target, BALANCES_IMPL))

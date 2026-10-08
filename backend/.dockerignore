@@ -1,0 +1,15 @@
+.venv
+.venv-old
+.data
+builds
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+*.db
+.env
+.env.*
+tests

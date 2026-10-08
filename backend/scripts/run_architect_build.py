@@ -3,13 +3,10 @@ Run custom build pipeline for Architect Studio Portfolio with 2 showcased projec
 """
 
 import asyncio
-import json
-import os
 import shutil
 from pathlib import Path
 from uuid import uuid4
 
-from app.core.config import settings
 from app.services.build_orchestrator import BuildContext, run_build_pipeline
 
 
@@ -24,7 +21,9 @@ async def main():
     img_dir = build_dir / "frontend" / "public" / "images"
     img_dir.mkdir(parents=True, exist_ok=True)
 
-    brain_dir = Path(r"C:\Users\ASUS\.gemini\antigravity-ide\brain\f5a2576d-a164-4b71-89b6-84254dc5e44c")
+    brain_dir = Path(
+        r"C:\Users\ASUS\.gemini\antigravity-ide\brain\f5a2576d-a164-4b71-89b6-84254dc5e44c"
+    )
     img1 = brain_dir / "villa_caelum_1791396846178.jpg"
     img2 = brain_dir / "timber_pavilion_1791396882978.jpg"
 
@@ -64,7 +63,9 @@ async def main():
         content = page_file.read_text(encoding="utf-8")
         print("\n=== FRONTEND LANDING PAGE (page.tsx preview) ===")
         print(f"Total lines: {len(content.splitlines())}")
-        has_projects = "villa_caelum" in content or "timber_pavilion" in content or "Villa Caelum" in content
+        has_projects = (
+            "villa_caelum" in content or "timber_pavilion" in content or "Villa Caelum" in content
+        )
         print(f"Contains architectural project references: {has_projects}")
 
 

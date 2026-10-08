@@ -1485,8 +1485,14 @@ def _build_mock_content(messages: list[Any], state: dict[str, Any]) -> str:
                             "question": "Who will use this app?",
                             "why": "This helps me set up the right screens for each person",
                             "options": [
-                                {"label": "Just me", "description": "Single person running the business"},
-                                {"label": "Me and my customers", "description": "Storefront for customers and admin dashboard for you"},
+                                {
+                                    "label": "Just me",
+                                    "description": "Single person running the business",
+                                },
+                                {
+                                    "label": "Me and my customers",
+                                    "description": "Storefront for customers and admin dashboard for you",
+                                },
                             ],
                         }
                     ]

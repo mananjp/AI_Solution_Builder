@@ -57,12 +57,19 @@ async def main():
         print(f"\n[AI Derived] App Name: {spec.get('app_name')}", flush=True)
         print(f"[AI Derived] One-Liner: {spec.get('one_liner')}", flush=True)
         print(f"[AI Derived] Core Value: {spec.get('core_value')}", flush=True)
-        print(f"[AI Derived] Kind & Stage: {spec.get('app_kind')} ({spec.get('lifecycle_stage')})", flush=True)
-        print("[AI Derived] Entities:", [e.get("name") for e in spec.get("entities", [])], flush=True)
+        print(
+            f"[AI Derived] Kind & Stage: {spec.get('app_kind')} ({spec.get('lifecycle_stage')})",
+            flush=True,
+        )
+        print(
+            "[AI Derived] Entities:", [e.get("name") for e in spec.get("entities", [])], flush=True
+        )
         for e in spec.get("entities", []):
             field_names = [f.get("name") for f in e.get("fields", [])]
             print(f"   -> {e.get('name')}: {field_names}", flush=True)
-        print("[AI Derived] Screens:", [s.get("route") for s in spec.get("screens", [])], flush=True)
+        print(
+            "[AI Derived] Screens:", [s.get("route") for s in spec.get("screens", [])], flush=True
+        )
         print("[AI Derived] Actions:", [a.get("name") for a in spec.get("actions", [])], flush=True)
 
 

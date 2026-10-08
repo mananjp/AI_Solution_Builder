@@ -163,7 +163,9 @@ def describe_field(field: Any, spec: Any = None) -> str:
     ftype = getattr(field, "type", "string")
     if ftype == "enum":
         values = [str(v).replace("_", " ") for v in getattr(field, "enum_values", [])]
-        choices = ", ".join(values[:-1]) + " or " + values[-1] if len(values) > 1 else "".join(values)
+        choices = (
+            ", ".join(values[:-1]) + " or " + values[-1] if len(values) > 1 else "".join(values)
+        )
         return f"{label} ({choices})"
     if ftype == "ref":
         target = _humanize(getattr(field, "ref", "") or "")
@@ -190,7 +192,11 @@ def describe_action(action: Any) -> str:
     rules = [str(r) for r in getattr(action, "rules", []) if r]
     if not rules:
         return summary
-    return summary + ". It follows these rules: " + "; ".join(dejargon(r).rstrip(".") for r in rules[:4])
+    return (
+        summary
+        + ". It follows these rules: "
+        + "; ".join(dejargon(r).rstrip(".") for r in rules[:4])
+    )
 
 
 def describe_screen(screen: Any) -> str:
@@ -286,8 +292,7 @@ def describe_test_results(passed: int, failed: int) -> str:
         return "I haven't been able to test it yet."
     if failed == 0:
         return (
-            f"I ran {total} real check{'s' if total != 1 else ''} on your app "
-            f"— everything worked."
+            f"I ran {total} real check{'s' if total != 1 else ''} on your app — everything worked."
         )
     return (
         f"I ran {total} checks on your app. {passed} worked, but {failed} didn't. "
@@ -314,8 +319,12 @@ def describe_change(old_spec: Any, new_spec: Any) -> list[str]:
         changes.append(f"Stop keeping track of {_humanize(name)} (existing ones will be removed)")
 
     for name in new_entities.keys() & old_entities.keys():
-        old_fields = {str(getattr(f, "name", "")) for f in getattr(old_entities[name], "fields", [])}
-        new_fields = {str(getattr(f, "name", "")) for f in getattr(new_entities[name], "fields", [])}
+        old_fields = {
+            str(getattr(f, "name", "")) for f in getattr(old_entities[name], "fields", [])
+        }
+        new_fields = {
+            str(getattr(f, "name", "")) for f in getattr(new_entities[name], "fields", [])
+        }
         for field in sorted(new_fields - old_fields):
             changes.append(f"Record {_humanize(field)} for each {_humanize(name)}")
         for field in sorted(old_fields - new_fields):
@@ -356,8 +365,12 @@ def describe_data_loss(old_spec: Any, new_spec: Any) -> list[str]:
     for name in old_entities.keys() - new_entities.keys():
         warnings.append(f"Everything you've saved under {_humanize(name)} will be deleted.")
     for name in old_entities.keys() & new_entities.keys():
-        old_fields = {str(getattr(f, "name", "")) for f in getattr(old_entities[name], "fields", [])}
-        new_fields = {str(getattr(f, "name", "")) for f in getattr(new_entities[name], "fields", [])}
+        old_fields = {
+            str(getattr(f, "name", "")) for f in getattr(old_entities[name], "fields", [])
+        }
+        new_fields = {
+            str(getattr(f, "name", "")) for f in getattr(new_entities[name], "fields", [])
+        }
         for field in sorted(old_fields - new_fields):
             warnings.append(
                 f"The {_humanize(field)} you've recorded for each {_humanize(name)} will be lost."
