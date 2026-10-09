@@ -1203,6 +1203,13 @@ async def chat(
                 user_msg = payload.message or (
                     "I have submitted my answers." if payload.answers else ""
                 )
+                if not payload.build_requested and user_msg:
+                    if re.search(
+                        r"\b(build|deploy|ship|launch|publish|make\s+app|create\s+app|generate\s+app|build\s+it|deploy\s+it)\b",
+                        user_msg,
+                        re.IGNORECASE,
+                    ):
+                        payload.build_requested = True
                 try:
                     turn_result = await handle_turn(
                         conv_state,
@@ -1232,7 +1239,7 @@ async def chat(
                     flag_modified(solution, "ai_state")
                     await stream_db.commit()
 
-                    if turn_result.kind == "ask":
+                    if turn_result.kind == "ask" and not payload.build_requested:
                         yield {"event": "questions", "data": json.dumps(turn_result.to_dict())}
                         rep = turn_result.message
                         if content_language not in ("", settings.DEFAULT_LANGUAGE):
@@ -1260,7 +1267,7 @@ async def chat(
                         }
                         return
 
-                    if turn_result.kind == "plan":
+                    if turn_result.kind == "plan" and not payload.build_requested:
                         yield {"event": "plan", "data": json.dumps(turn_result.to_dict())}
                         rep = turn_result.plain_plan or turn_result.message
                         if content_language not in ("", settings.DEFAULT_LANGUAGE):
@@ -1288,7 +1295,7 @@ async def chat(
                         }
                         return
 
-                    if turn_result.kind == "answer":
+                    if turn_result.kind == "answer" and not payload.build_requested:
                         rep = turn_result.message
                         if content_language not in ("", settings.DEFAULT_LANGUAGE):
                             rep = await translate_text(rep, content_language)
@@ -1315,7 +1322,7 @@ async def chat(
                         }
                         return
 
-                    if turn_result.kind in ("build", "change"):
+                    if turn_result.kind in ("build", "change") or payload.build_requested:
                         payload.build_requested = True
                         if turn_result.changes:
                             change_notice = (

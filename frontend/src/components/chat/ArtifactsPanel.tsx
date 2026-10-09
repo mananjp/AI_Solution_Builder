@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { CheckCircle2, Layers, Play } from 'lucide-react';
+import { CheckCircle2, Layers, Play, Rocket } from 'lucide-react';
 import clsx from 'clsx';
 import { BuildCard } from '@/components/mvp/BuildCard';
 import { ArtifactsSkeleton, Skeleton } from '@/components/chat/Skeleton';
@@ -10,16 +10,39 @@ import type { ChatState } from '@/hooks/useChatSession';
 import type { MVPBuild, MVPDeployResult } from '@/types';
 import type { TranslationKey } from '@/lib/i18n/dictionaries';
 
-function EmptyArtifacts({ title, hint }: { title: string; hint: string }) {
+function EmptyArtifacts({
+  title,
+  hint,
+  onTriggerBuild,
+  disabled,
+}: {
+  title: string;
+  hint: string;
+  onTriggerBuild?: () => void;
+  disabled?: boolean;
+}) {
   return (
-    <div className="h-full flex flex-col items-center justify-center text-center space-y-4 opacity-60 py-8">
-      <div className="w-12 h-12 flex items-center justify-center border border-[var(--border)] border-dashed">
-        <Play className="w-5 h-5 text-[var(--text-3)]" />
+    <div className="h-full flex flex-col items-center justify-center text-center space-y-4 py-8 px-4">
+      <div className="w-14 h-14 rounded-full bg-[var(--sutra-muted-gold)]/15 border border-[var(--sutra-muted-gold)]/30 flex items-center justify-center text-[var(--sutra-muted-gold)] shadow-sm">
+        <Rocket className="w-6 h-6" />
       </div>
       <div>
-        <p className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">{title}</p>
-        <p className="text-[11px] text-[var(--text-2)] font-light max-w-[200px] mx-auto mt-2">{hint}</p>
+        <p className="text-[12px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)]">{title}</p>
+        <p className="text-[11px] text-[var(--text-2)] font-light max-w-[220px] mx-auto mt-2 leading-relaxed">
+          {hint}
+        </p>
       </div>
+      {onTriggerBuild && (
+        <button
+          type="button"
+          onClick={onTriggerBuild}
+          disabled={disabled}
+          className="mt-2 inline-flex items-center gap-2 px-5 py-2.5 bg-[var(--sutra-charcoal)] hover:bg-black text-[var(--sutra-warm-ivory)] rounded-sm text-[11px] uppercase tracking-widest font-bold shadow-md transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer disabled:opacity-50"
+        >
+          <Rocket className="w-3.5 h-3.5 text-amber-400" />
+          <span>Build &amp; Deploy Now</span>
+        </button>
+      )}
     </div>
   );
 }
@@ -34,6 +57,7 @@ export function ArtifactsPanel({
   onConfigure,
   onDownload,
   onDestroy,
+  onTriggerBuild,
 }: {
   state: ChatState;
   t: (key: TranslationKey) => string;
@@ -44,6 +68,7 @@ export function ArtifactsPanel({
   onConfigure: (b: MVPBuild) => void;
   onDownload: (b: MVPBuild) => void;
   onDestroy: (b: MVPBuild) => void;
+  onTriggerBuild?: () => void;
 }) {
   const showSkeleton = state.buildsStatus === 'loading' && state.builds.length === 0;
   const showProgress = state.streaming && Boolean(state.progress);
@@ -116,7 +141,12 @@ export function ArtifactsPanel({
         )}
 
         {empty && (
-          <EmptyArtifacts title={t('chat.awaitingSynthesis')} hint={buildToggleHint} />
+          <EmptyArtifacts
+            title={t('chat.awaitingSynthesis')}
+            hint={buildToggleHint}
+            onTriggerBuild={onTriggerBuild}
+            disabled={state.streaming}
+          />
         )}
 
         {!showSkeleton && state.buildsStatus === 'loading' && state.builds.length > 0 && (

@@ -391,6 +391,8 @@ export interface MVPDeployPayload {
   private?: boolean;
   force?: boolean;
   env?: Record<string, unknown>;
+  github_token?: string;
+  render_api_key?: string;
 }
 
 export interface MVPDeployResult {

@@ -129,7 +129,7 @@ function Stop-AllServices {
     # Stop Docker if compose exists
     if (Get-Command docker -ErrorAction SilentlyContinue) {
         try {
-            docker compose stop | Out-Null
+            $null = docker compose stop 2>$null
             Write-Host "  Docker containers stopped." -ForegroundColor Green
         } catch {}
     }
@@ -182,16 +182,24 @@ function Show-ServiceStatus {
     }
 }
 
-function Wait-ForService([string]$Name, [string]$Url, [int]$TimeoutSec, [string]$LogFile = "") {
+function Wait-ForService([string]$Name, [string]$Url, [int]$TimeoutSec, [string]$LogFile = "", [int]$Port = 0) {
     Write-Host ("  Waiting for {0,-26}" -f $Name) -NoNewline
     $elapsed = 0
     while ($elapsed -lt $TimeoutSec) {
-        if (Test-UrlResponding $Url) {
+        if ($Url -and (Test-UrlResponding $Url)) {
             Write-Host " OK ($Url)" -ForegroundColor Green
+            return $true
+        }
+        if (-not $Url -and $Port -gt 0 -and (Test-PortListening $Port)) {
+            Write-Host " OK (port $Port)" -ForegroundColor Green
             return $true
         }
         Start-Sleep -Seconds 2
         $elapsed += 2
+    }
+    if ($Port -gt 0 -and (Test-PortListening $Port)) {
+        Write-Host " LISTENING (port $Port)" -ForegroundColor Green
+        return $true
     }
     Write-Host " TIMEOUT ($Url)" -ForegroundColor Red
     if ($LogFile -and (Test-Path $LogFile)) {
@@ -200,6 +208,22 @@ function Wait-ForService([string]$Name, [string]$Url, [int]$TimeoutSec, [string]
         Write-Host "---------------------------------`n" -ForegroundColor Yellow
     }
     return $false
+}
+
+function Show-Logs([string]$Service) {
+    if (-not $Service) { $Service = "all" }
+    switch ($Service.ToLower()) {
+        "backend"  { Get-Content (Join-Path $LogDir "backend.log") -Tail 50 -Wait }
+        "frontend" { Get-Content (Join-Path $LogDir "frontend.log") -Tail 50 -Wait }
+        "opencode" { Get-Content (Join-Path $LogDir "opencode.log") -Tail 50 -Wait }
+        "worker"   { Get-Content (Join-Path $LogDir "worker.log") -Tail 50 -Wait }
+        default {
+            Get-ChildItem -Path $LogDir -Filter "*.log" | ForEach-Object {
+                Write-Host "`n=== $($_.Name) ===" -ForegroundColor Cyan
+                Get-Content $_.FullName -Tail 20
+            }
+        }
+    }
 }
 
 function Prune-Docker {
@@ -245,10 +269,16 @@ function Start-NativeStack([bool]$Detached = $false) {
     }
 
     Write-Success "Python:   $(& $pythonBin --version) ($pythonBin)"
-    Write-Success "Node.js:  $(node --version) ($(Get-Command node).Source)"
+    Write-Success "Node.js:  $(node --version) ($((Get-Command node).Source))"
     Write-Success "npm:      $(npm --version)"
 
-    $opencodeBin = Get-Command opencode -ErrorAction SilentlyContinue
+    $opencodeBin = Get-Command opencode.cmd -ErrorAction SilentlyContinue
+    if (-not $opencodeBin) {
+        $opencodeBin = Get-Command opencode.exe -ErrorAction SilentlyContinue
+    }
+    if (-not $opencodeBin) {
+        $opencodeBin = Get-Command opencode -ErrorAction SilentlyContinue
+    }
     if ($opencodeBin) {
         Write-Success "OpenCode: installed ($($opencodeBin.Source))"
     } else {
@@ -268,13 +298,20 @@ function Start-NativeStack([bool]$Detached = $false) {
 
     # 1. OpenCode Sidecar
     Write-Step "Starting OpenCode sidecar on port 4096"
-    if (Test-PortListening 4096 -or (Test-UrlResponding "$SidecarUrl/global/health")) {
+    if (Test-PortListening 4096 -or (Test-UrlResponding "$SidecarUrl/global/health") -or (Test-UrlResponding "$SidecarUrl/api/info")) {
         Write-Success "OpenCode sidecar already listening on port 4096 - reusing."
     } elseif ($opencodeBin) {
         $ocDir = Join-Path $ScriptDir "backend\opencode"
         $ocLog = Join-Path $LogDir "opencode.log"
-        $p = Start-Process -FilePath "opencode" -ArgumentList "serve --port 4096 --hostname 127.0.0.1" `
-            -WorkingDirectory $ocDir -RedirectStandardOutput $ocLog -RedirectStandardError $ocLog `
+        $ocErr = Join-Path $LogDir "opencode_err.log"
+        $ocExe = if ($opencodeBin.Source -like "*.ps1") {
+            $cmdAlt = Get-Command opencode.cmd -ErrorAction SilentlyContinue
+            if ($cmdAlt) { $cmdAlt.Source } else { "opencode.cmd" }
+        } else {
+            $opencodeBin.Source
+        }
+        $p = Start-Process -FilePath $ocExe -ArgumentList "serve --port 4096 --hostname 127.0.0.1" `
+            -WorkingDirectory $ocDir -RedirectStandardOutput $ocLog -RedirectStandardError $ocErr `
             -PassThru -WindowStyle Hidden
         Set-Content -Path (Join-Path $PidDir "opencode.pid") -Value $p.Id
         Write-Success "OpenCode started (PID $($p.Id))"
@@ -284,9 +321,10 @@ function Start-NativeStack([bool]$Detached = $false) {
     Write-Step "Starting FastAPI Backend API on port 8000"
     $bkDir = Join-Path $ScriptDir "backend"
     $bkLog = Join-Path $LogDir "backend.log"
+    $bkErr = Join-Path $LogDir "backend_err.log"
     $env:MVP_BUILD_DIR = (Join-Path $DataDir "mvp_builds")
     $p = Start-Process -FilePath $pythonBin -ArgumentList "-m uvicorn main:app --host 127.0.0.1 --port 8000" `
-        -WorkingDirectory $bkDir -RedirectStandardOutput $bkLog -RedirectStandardError $bkLog `
+        -WorkingDirectory $bkDir -RedirectStandardOutput $bkLog -RedirectStandardError $bkErr `
         -PassThru -WindowStyle Hidden
     Set-Content -Path (Join-Path $PidDir "backend.pid") -Value $p.Id
     Write-Success "Backend started (PID $($p.Id))"
@@ -302,8 +340,9 @@ function Start-NativeStack([bool]$Detached = $false) {
     if ($workerMode -eq "worker") {
         Write-Step "Starting Build Worker process (WORKER_MODE=worker)"
         $wkLog = Join-Path $LogDir "worker.log"
+        $wkErr = Join-Path $LogDir "worker_err.log"
         $p = Start-Process -FilePath $pythonBin -ArgumentList "-m app.worker" `
-            -WorkingDirectory $bkDir -RedirectStandardOutput $wkLog -RedirectStandardError $wkLog `
+            -WorkingDirectory $bkDir -RedirectStandardOutput $wkLog -RedirectStandardError $wkErr `
             -PassThru -WindowStyle Hidden
         Set-Content -Path (Join-Path $PidDir "worker.pid") -Value $p.Id
         Write-Success "Worker started (PID $($p.Id))"
@@ -315,8 +354,10 @@ function Start-NativeStack([bool]$Detached = $false) {
     Write-Step "Starting Next.js Frontend on port 3000"
     $feDir = Join-Path $ScriptDir "frontend"
     $feLog = Join-Path $LogDir "frontend.log"
-    $p = Start-Process -FilePath "npm.cmd" -ArgumentList "run dev -- --port 3000" `
-        -WorkingDirectory $feDir -RedirectStandardOutput $feLog -RedirectStandardError $feLog `
+    $feErr = Join-Path $LogDir "frontend_err.log"
+    $npmExe = if (Get-Command npm.cmd -ErrorAction SilentlyContinue) { (Get-Command npm.cmd).Source } else { "npm.cmd" }
+    $p = Start-Process -FilePath $npmExe -ArgumentList "run dev -- --port 3000" `
+        -WorkingDirectory $feDir -RedirectStandardOutput $feLog -RedirectStandardError $feErr `
         -PassThru -WindowStyle Hidden
     Set-Content -Path (Join-Path $PidDir "frontend.pid") -Value $p.Id
     Write-Success "Frontend started (PID $($p.Id))"
@@ -324,11 +365,11 @@ function Start-NativeStack([bool]$Detached = $false) {
     # 5. Wait for health
     Write-Step "Waiting for services to become healthy..."
     $failed = $false
-    if (-not (Wait-ForService "Backend /health" "$BackendUrl/health" $HealthTimeout (Join-Path $LogDir "backend.log"))) { $failed = $true }
-    if (-not (Wait-ForService "Backend /ready"  "$BackendUrl/ready"  $HealthTimeout (Join-Path $LogDir "backend.log"))) { $failed = $true }
-    if (-not (Wait-ForService "Frontend"        $FrontendUrl        $HealthTimeout (Join-Path $LogDir "frontend.log"))) { $failed = $true }
+    if (-not (Wait-ForService "Backend /health" "$BackendUrl/health" $HealthTimeout (Join-Path $LogDir "backend.log") 8000)) { $failed = $true }
+    if (-not (Wait-ForService "Backend /ready"  "$BackendUrl/ready"  $HealthTimeout (Join-Path $LogDir "backend.log") 8000)) { $failed = $true }
+    if (-not (Wait-ForService "Frontend"        $FrontendUrl        $HealthTimeout (Join-Path $LogDir "frontend.log") 3000)) { $failed = $true }
     if ($opencodeBin) {
-        Wait-ForService "OpenCode Sidecar" $SidecarUrl 30 (Join-Path $LogDir "opencode.log") | Out-Null
+        Wait-ForService "OpenCode Sidecar" "$SidecarUrl/global/health" 30 (Join-Path $LogDir "opencode.log") 4096 | Out-Null
     }
 
     if ($failed) {
@@ -366,6 +407,10 @@ function Start-NativeStack([bool]$Detached = $false) {
 }
 
 # -- Router ------------------------------------------
+if ($Logs) {
+    Show-Logs $Logs
+    exit 0
+}
 if ($Stop) {
     Stop-AllServices
     exit 0
@@ -402,6 +447,7 @@ if ($Docker -or $DockerBuild) {
 switch ($Command.ToLower()) {
     "stop"    { Stop-AllServices }
     "status"  { Show-ServiceStatus }
+    "logs"    { Show-Logs $Logs }
     "prune"   { Prune-Docker }
     "down"    { Stop-AllServices; docker compose down -v 2>$null }
     "infra"   { docker compose up -d postgres redis; Start-NativeStack $false }

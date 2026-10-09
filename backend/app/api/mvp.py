@@ -27,9 +27,11 @@ from typing import Any
 from uuid import UUID
 
 import httpx
+import contextlib
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import (
     FileResponse,
+    HTMLResponse,
     RedirectResponse,
     Response,
     StreamingResponse,
@@ -38,6 +40,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 from sse_starlette.sse import EventSourceResponse
 
 from app.core.build_locks import allocate_build_number
@@ -45,7 +48,7 @@ from app.core.config import settings
 from app.core.credits import action_cost, refund_credit, require_and_deduct_credit
 from app.core.database import async_session_factory, get_db
 from app.core.llm import get_llm
-from app.core.secrets import decrypt_secret
+from app.core.secrets import decrypt_secret, encrypt_secret
 from app.core.security import get_current_user
 from app.models.build_job import BuildJob
 from app.models.mvp_build import MVPBuild
@@ -1368,8 +1371,9 @@ async def download_build(
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
     except Exception as exc:
-        if local_dir.exists():
-            data = builder.build_bytes(local_dir)
+        resolved_dir = await _resolve_workspace_dir(build)
+        if resolved_dir.exists() and any(resolved_dir.iterdir()):
+            data = builder.build_bytes(resolved_dir)
             return StreamingResponse(
                 io.BytesIO(data),
                 media_type="application/zip",
@@ -1387,8 +1391,8 @@ async def deploy_build(
 ) -> dict[str, Any]:
     """Push a finished MVP build to a fresh GitHub repo (Render-deployable).
 
-    Uses the user's saved GitHub token (user.settings["github_token"]); the
-    generated project already ships `render.yaml` (blueprint), a Dockerfile,
+    Uses user-supplied or profile/environment GitHub and Render credentials;
+    the generated project already ships `render.yaml` (blueprint), a Dockerfile,
     and a CI workflow, so Render auto-deploys on green CI once connected.
     """
     build = await _get_build_for_user(db, build_id, current_user)
@@ -1404,6 +1408,8 @@ async def deploy_build(
 
     raw_token = str((current_user.settings or {}).get("github_token", ""))
     gh_token = decrypt_secret(raw_token) if raw_token else ""
+    if payload.github_token and payload.github_token.strip():
+        gh_token = payload.github_token.strip()
     if not gh_token and settings.GITHUB_TOKEN:
         gh_token = settings.GITHUB_TOKEN
     if not gh_token:
@@ -1411,9 +1417,23 @@ async def deploy_build(
             status_code=400,
             detail=(
                 "No GitHub token configured on your profile or server environment. "
-                "Save one via PATCH /api/v1/auth/me/settings, then retry."
+                "Provide one in the Deploy dialog or configure GITHUB_TOKEN in your .env file."
             ),
         )
+
+    # Persist provided tokens for convenience
+    user_settings = dict(current_user.settings or {})
+    settings_changed = False
+    if payload.github_token and payload.github_token.strip():
+        user_settings["github_token"] = encrypt_secret(payload.github_token.strip())
+        settings_changed = True
+    if payload.render_api_key and payload.render_api_key.strip():
+        user_settings["render_api_key"] = encrypt_secret(payload.render_api_key.strip())
+        settings_changed = True
+    if settings_changed:
+        current_user.settings = user_settings
+        flag_modified(current_user, "settings")
+        await db.commit()
 
     zip_data = None
     build_key = build.storage_key or _storage_key(build)
@@ -1434,8 +1454,14 @@ async def deploy_build(
         except Exception:
             pass
 
-    if zip_data is None and local_dir.exists():
+    if zip_data is None and local_dir.exists() and any(local_dir.iterdir()):
         zip_data = builder.build_bytes(local_dir)
+
+    # Comprehensive fallback: resolve workspace via disk / chat / storage
+    if zip_data is None:
+        resolved_dir = await _resolve_workspace_dir(build)
+        if resolved_dir.exists() and any(resolved_dir.iterdir()):
+            zip_data = builder.build_bytes(resolved_dir)
 
     if zip_data is None:
         template_slug = (build.app_config or {}).get("template")
@@ -1459,10 +1485,15 @@ async def deploy_build(
             status_code=410, detail="Build artifact archive unavailable for deployment"
         )
 
+    # Sanitize repository name to be GitHub-safe (slug)
+    safe_repo_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", payload.repo_name.strip()).strip("-")
+    if not safe_repo_name:
+        safe_repo_name = f"mvp-{build.id.hex[:8]}"
+
     try:
         result = await deploy_build_workspace(
             gh_token=gh_token,
-            repo_name=payload.repo_name,
+            repo_name=safe_repo_name,
             archive_bytes=zip_data,
             description=payload.description,
             private=payload.private,
@@ -1480,9 +1511,11 @@ async def deploy_build(
         {"key": k, "value": str(v)} for k, v in user_env.items() if k.startswith("NEXT_PUBLIC_")
     ]
 
-    # Check if user has saved a Render API key, or fallback to server environment
+    # Check if user has saved a Render API key, or provided one in payload, or fallback to server environment
     raw_render_token = str((current_user.settings or {}).get("render_api_key", ""))
     render_token = decrypt_secret(raw_render_token) if raw_render_token else ""
+    if payload.render_api_key and payload.render_api_key.strip():
+        render_token = payload.render_api_key.strip()
     if not render_token and settings.RENDER_API_KEY:
         render_token = settings.RENDER_API_KEY
 
@@ -1503,11 +1536,12 @@ async def deploy_build(
             # NEXT_PUBLIC_API_URL pointing at the freshly deployed backend.
             r_res = await r_client.deploy_repo(
                 repo_url=result["url"],
-                repo_name=payload.repo_name,
+                repo_name=safe_repo_name,
                 branch=result.get("branch", "main"),
                 backend_env_vars=backend_env_vars,
                 frontend_env_vars=frontend_env_vars,
             )
+
             services = r_res.get("services") or {}
             deploy_state = {
                 "status": "building",
@@ -2044,6 +2078,104 @@ async def sandbox_chat(
             yield {"event": "error", "data": json.dumps({"message": f"Sandbox agent error: {exc}"})}
 
     return EventSourceResponse(event_stream())
+
+
+@router.get("/builds/{build_id}/preview", response_class=HTMLResponse)
+async def preview_build(
+    build_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Live interactive preview of a build.
+
+    If deployed, redirects to the live URL. If still running locally,
+    serves the static HTML/SPA or an interactive sandbox explorer.
+    """
+    build = await _get_build_for_user(db, build_id, current_user)
+    app_config = dict(build.app_config or {})
+
+    # 1. If deployed to Render/Vercel, redirect directly to live URL
+    fe_url = app_config.get("frontend_url") or app_config.get("render_service_url")
+    if fe_url:
+        return RedirectResponse(url=fe_url, status_code=307)
+
+    # 2. Check local workspace files for static index.html
+    app_name = app_config.get("app_name") or f"MVP #{build.build_number}"
+    file_list = build.file_list or []
+    try:
+        local_dir = await _resolve_workspace_dir(build)
+        if local_dir.exists():
+            candidates = [
+                local_dir / "frontend" / "dist" / "index.html",
+                local_dir / "dist" / "index.html",
+                local_dir / "frontend" / "index.html",
+                local_dir / "index.html",
+                local_dir / "frontend" / "public" / "index.html",
+                local_dir / "public" / "index.html",
+            ]
+            for candidate in candidates:
+                if candidate.exists() and candidate.is_file():
+                    content = candidate.read_text(encoding="utf-8", errors="replace")
+                    return HTMLResponse(content=content)
+    except Exception as exc:
+        logger.warning("Could not resolve workspace for preview: %s", exc)
+
+    # 3. Render rich interactive Sandbox preview page with status, tech stack, and file viewer
+    items_html = "".join(
+        f'<li class="font-mono text-xs py-1 px-2 hover:bg-slate-800 rounded text-slate-300">{f}</li>'
+        for f in file_list[:25]
+    )
+    if len(file_list) > 25:
+        items_html += f'<li class="font-mono text-xs py-1 px-2 text-slate-500 italic">+ {len(file_list) - 25} more files</li>'
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Preview — {app_name}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans">
+  <header class="border-b border-slate-800 bg-slate-900/60 backdrop-blur px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 font-bold">⚡</div>
+      <div>
+        <h1 class="text-sm font-semibold text-white">{app_name} <span class="text-xs text-slate-400 font-normal">Build #{build.build_number}</span></h1>
+        <p class="text-xs text-emerald-400 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Artifact Generated ({build.file_count or len(file_list)} files)</p>
+      </div>
+    </div>
+    <div class="flex items-center space-x-2">
+      <a href="/api/v1/mvp/builds/{build.id}/download" class="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded border border-slate-700 transition">Download ZIP</a>
+    </div>
+  </header>
+  <main class="flex-1 max-w-5xl w-full mx-auto p-6 space-y-6">
+    <div class="bg-slate-900/40 border border-slate-800 rounded-xl p-6">
+      <h2 class="text-base font-semibold text-white mb-2">Build Artifact Ready for Deployment</h2>
+      <p class="text-sm text-slate-400 mb-6">
+        Full-stack application code has been generated. Deploy 1-click to Render or clone locally to run.
+      </p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div class="p-4 rounded-lg bg-slate-900 border border-slate-800">
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">Architecture</span>
+          <span class="text-sm font-medium text-slate-200">FastAPI Backend + Next.js / React Frontend</span>
+        </div>
+        <div class="p-4 rounded-lg bg-slate-900 border border-slate-800">
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">Cloud Blueprint</span>
+          <span class="text-sm font-medium text-slate-200">render.yaml Blueprint + Dockerfile Configured</span>
+        </div>
+      </div>
+      <div>
+        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-2">Generated Files</span>
+        <ul class="bg-slate-950 border border-slate-800/80 rounded-lg p-3 max-h-60 overflow-y-auto space-y-0.5">
+          {items_html or '<li class="text-xs text-slate-500 py-1 px-2">No files recorded</li>'}
+        </ul>
+      </div>
+    </div>
+  </main>
+</body>
+</html>"""
+    return HTMLResponse(content=html_content)
 
 
 @router.post("/builds/{build_id}/preview/destroy", response_model=dict[str, Any])

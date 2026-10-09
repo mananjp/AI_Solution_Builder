@@ -272,10 +272,12 @@ class MVPTemplateResponse(BaseModel):
 class MVPDeployRequest(BaseModel):
     """Payload to deploy a finished MVP build to GitHub (+ Render blueprint)."""
 
-    repo_name: str = Field(..., min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_.-]+$")
+    repo_name: str = Field(..., min_length=1, max_length=100)
     description: str = ""
     private: bool = False
     force: bool = False
+    github_token: str | None = None
+    render_api_key: str | None = None
     # Environment values the user confirmed before deploy. NEXT_PUBLIC_* keys go
     # to the frontend service; everything else goes to the backend service.
     env: dict[str, Any] = Field(default_factory=dict)

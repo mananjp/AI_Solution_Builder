@@ -277,10 +277,23 @@ export function DeployModal({
   onClose: () => void;
   onDeployed: (result: MVPDeployResult | string) => void;
 }) {
-  const [repoName, setRepoName] = useState(`mvp-${build.build_id.slice(0, 8)}`);
+  const defaultSlug = useMemo(() => {
+    const raw = build.app_name || (build.app_config as Record<string, unknown> | undefined)?.app_name || `mvp-${build.build_id.slice(0, 8)}`;
+    const sanitized = String(raw)
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9_.-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return sanitized || `mvp-${build.build_id.slice(0, 8)}`;
+  }, [build]);
+
+  const [repoName, setRepoName] = useState(defaultSlug);
   const [description, setDescription] = useState('');
   const [privateRepo, setPrivateRepo] = useState(false);
   const [force, setForce] = useState(false);
+  const [githubToken, setGithubToken] = useState('');
+  const [renderApiKey, setRenderApiKey] = useState('');
+  const [showTokens, setShowTokens] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [envPlan, setEnvPlan] = useState<MVPEnvPlan | null>(null);
@@ -362,12 +375,15 @@ export function DeployModal({
     setLoading(true);
     setError(null);
     try {
+      const sanitizedRepoName = repoName.trim().replace(/[^A-Za-z0-9_.-]+/g, '-') || `mvp-${build.build_id.slice(0, 8)}`;
       const res = await mvpApi.deploy(build.build_id, {
-        repo_name: repoName.trim(),
+        repo_name: sanitizedRepoName,
         description,
         private: privateRepo,
         force,
         env: envValues,
+        github_token: githubToken.trim() || undefined,
+        render_api_key: renderApiKey.trim() || undefined,
       });
       setDeployResult(res);
       onDeployed(res);
@@ -430,7 +446,7 @@ export function DeployModal({
                 <div>
                   <span className="font-semibold text-[13px] text-[var(--sutra-charcoal)]">Make repository private</span>
                   <p className="text-[11px] text-[var(--text-2)] font-light mt-0.5">
-                    {privateRepo ? "Private repos require Vercel permissions." : "Public repo recommended for 1-click deployments."}
+                    {privateRepo ? "Private repos require Vercel/Render permissions." : "Public repo recommended for 1-click deployments."}
                   </p>
                 </div>
               </label>
@@ -443,6 +459,45 @@ export function DeployModal({
                 />
                 <span className="font-semibold text-[13px] text-[var(--sutra-charcoal)]">Force redeploy if already pushed</span>
               </label>
+            </div>
+
+            {/* Optional Credentials Override */}
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setShowTokens(!showTokens)}
+                className="text-[11px] uppercase tracking-widest font-bold text-[var(--sutra-muted-gold)] hover:underline flex items-center gap-1.5"
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                <span>{showTokens ? 'Hide Deploy Credentials' : 'Configure Custom Deploy Tokens (Optional)'}</span>
+              </button>
+              {showTokens && (
+                <div className="mt-3 p-4 bg-[var(--bg-2)] border border-[var(--border)] space-y-3 animate-fade-in">
+                  <p className="text-[11px] text-[var(--text-2)]">
+                    By default, the server uses your environment’s configured <code>GITHUB_TOKEN</code> and <code>RENDER_API_KEY</code>. You can override them below:
+                  </p>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold text-[var(--sutra-charcoal)]">GitHub Personal Access Token</label>
+                    <input
+                      type="password"
+                      value={githubToken}
+                      onChange={(e) => setGithubToken(e.target.value)}
+                      placeholder="ghp_... (leave empty to use server default)"
+                      className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] text-[12px] font-mono focus:outline-none focus:border-[var(--sutra-muted-gold)]"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold text-[var(--sutra-charcoal)]">Render API Key</label>
+                    <input
+                      type="password"
+                      value={renderApiKey}
+                      onChange={(e) => setRenderApiKey(e.target.value)}
+                      placeholder="rnd_... (leave empty to use server default)"
+                      className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] text-[12px] font-mono focus:outline-none focus:border-[var(--sutra-muted-gold)]"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Required / optional env vars discovered in the generated code */}

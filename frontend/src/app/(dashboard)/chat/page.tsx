@@ -14,6 +14,7 @@ import {
   Send,
   Settings2,
   ShieldCheck,
+  Rocket,
   X,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -23,7 +24,7 @@ import { ChatSidecar } from '@/components/chat/ChatSidecar';
 import { ArtifactsPanel } from '@/components/chat/ArtifactsPanel';
 import { ThreadSkeleton, ThinkingBubble } from '@/components/chat/Skeleton';
 import { mvpApi, opencodeApi, sendOpenCodeChatStream, solutionApi } from '@/lib/api';
-import { ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
+import { BuildCard, ConfigureModal, DeployModal } from '@/components/mvp/BuildCard';
 import { useI18n } from '@/components/I18nProvider';
 import {
   removeCachedSolution,
@@ -244,19 +245,22 @@ function ChatContent() {
                 try {
                   const fresh = await mvpApi.getStatus(c.build_id);
                   dispatch({ type: 'builds/upsert', build: fresh });
+                  setDeployTarget(fresh);
                 } catch {
+                  const fallbackBuild: MVPBuild = {
+                    build_id: c.build_id,
+                    solution_id: c.solution_id || solutionIdRef.current || '',
+                    build_number: c.build_number || 1,
+                    status: 'complete',
+                    workspace_path: '',
+                    file_count: c.file_count || 0,
+                    files: (c.files || []).map((f) => ({ path: f, size: 1024, is_dir: false })),
+                  };
                   dispatch({
                     type: 'builds/upsert',
-                    build: {
-                      build_id: c.build_id,
-                      solution_id: c.solution_id || solutionIdRef.current || '',
-                      build_number: c.build_number || 1,
-                      status: 'complete',
-                      workspace_path: '',
-                      file_count: c.file_count || 0,
-                      files: (c.files || []).map((f) => ({ path: f, size: 1024, is_dir: false })),
-                    },
+                    build: fallbackBuild,
                   });
+                  setDeployTarget(fallbackBuild);
                 }
               }
               if (c.solution_id) void syncHistoryEntry(c.solution_id);
@@ -289,14 +293,29 @@ function ChatContent() {
       const text = state.input.trim();
       if (!text || state.streaming) return;
 
+      const buildIntent = /\b(build|deploy|ship|launch|publish|make app|create app|generate app|run app)\b/i.test(text);
+      const shouldBuild = finalize || state.buildRequested || buildIntent;
+
       setPendingQuestions(null);
       setPendingPlan(null);
       dispatch({ type: 'set-input', value: '' });
       dispatch({ type: 'user/message', message: text });
-      await executeChatStream({ message: text, build_requested: finalize });
+      await executeChatStream({ message: text, build_requested: shouldBuild });
     },
-    [state.input, state.streaming, dispatch, executeChatStream]
+    [state.input, state.streaming, state.buildRequested, dispatch, executeChatStream]
   );
+
+  const handleTriggerBuild = useCallback(async () => {
+    if (state.streaming) return;
+    setPendingQuestions(null);
+    setPendingPlan(null);
+    dispatch({ type: 'toggle-build-requested', value: true });
+    dispatch({ type: 'user/message', message: 'Build and deploy this application now.' });
+    await executeChatStream({
+      message: 'Build and deploy this application now.',
+      build_requested: true,
+    });
+  }, [state.streaming, dispatch, executeChatStream]);
 
   const handleAnswerQuestions = useCallback(
     async (answers: Record<string, string>) => {
@@ -543,7 +562,7 @@ function ChatContent() {
         </aside>
 
         {/* Zone 2 — thread */}
-        <section className="flex flex-col lg:col-span-10 xl:col-span-7 h-[56vh] lg:h-full min-h-0 bg-[var(--bg)] border border-[var(--sutra-muted-gold)] rounded-sm shadow-md overflow-hidden">
+        <section className="flex flex-col lg:col-span-6 xl:col-span-7 h-[56vh] lg:h-full min-h-0 bg-[var(--bg)] border border-[var(--sutra-muted-gold)] rounded-sm shadow-md overflow-hidden">
           <div className="flex-1 overflow-y-auto p-4 sm:p-5 pb-3 min-h-0">
             {showThreadSkeleton ? (
               <ThreadSkeleton />
@@ -584,6 +603,72 @@ function ChatContent() {
                   {t('chat.buildingAppStatus')} <strong className="text-[var(--sutra-charcoal)]">{state.progress.target}%</strong>{' '}
                   — {t('chat.stepLabel')} {state.progress.step}/{state.progress.totalSteps}: {state.progress.message}
                 </span>
+              </div>
+            )}
+
+            {/* Embedded Active / Completed Build Artifact & Deployment Card */}
+            {state.builds.length > 0 && (
+              <div className="mt-4 p-4 rounded-sm border border-[var(--sutra-muted-gold)] bg-[var(--bg-2)]/60 shadow-sm animate-fade-in">
+                <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-[var(--border)]">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-[10px] uppercase tracking-widest font-bold text-[var(--sutra-charcoal)] truncate">
+                      Build Artifacts &amp; Deployment
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-[var(--green)] border border-emerald-500/20 shrink-0">
+                      {state.builds[0].file_count} files
+                    </span>
+                  </div>
+                  {state.solutionId && (
+                    <a
+                      href={`/solution/${state.solutionId}`}
+                      className="text-[10px] font-medium text-[var(--sutra-muted-gold)] hover:underline shrink-0"
+                    >
+                      {t('chat.viewArtifacts')} →
+                    </a>
+                  )}
+                </div>
+                <BuildCard
+                  build={state.builds[0]}
+                  isDeployed={Boolean(state.builds[0].repo_url)}
+                  onDeploy={() => setDeployTarget(state.builds[0])}
+                  onConfigure={() => setConfigureTarget(state.builds[0])}
+                  onDownload={() => void handleDownload(state.builds[0])}
+                  onDestroy={() => void handleDestroy(state.builds[0])}
+                />
+              </div>
+            )}
+
+            {/* Prominent Prompt to Deploy & Build Card */}
+            {state.messages.length > 1 && state.builds.length === 0 && !state.streaming && !pendingQuestions && !pendingPlan && (
+              <div className="mt-5 p-5 bg-[var(--bg)] border-2 border-[var(--sutra-muted-gold)] rounded-sm shadow-md animate-fade-in space-y-4">
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-sm bg-[var(--sutra-charcoal)] text-[var(--sutra-warm-ivory)] flex items-center justify-center shrink-0 shadow-sm">
+                      <Rocket className="w-5 h-5 text-amber-400" />
+                    </div>
+                    <div>
+                      <h4 className="text-[14px] font-serif font-bold text-[var(--sutra-charcoal)]">
+                        Prompt to Deploy — Turn Into Live Application
+                      </h4>
+                      <p className="text-[12px] text-[var(--text-2)] font-light mt-0.5 max-w-xl">
+                        Your application requirements are ready. Click below to generate the complete full-stack codebase, run automated tests, and launch the 1-click cloud deployment.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleTriggerBuild}
+                    disabled={state.streaming}
+                    className="inline-flex items-center gap-2 px-6 py-3 bg-[var(--sutra-charcoal)] hover:bg-black text-[var(--sutra-warm-ivory)] text-[11px] uppercase tracking-widest font-bold rounded-sm shadow-lg transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                  >
+                    <Rocket className="w-4 h-4 text-amber-400" />
+                    <span>Build &amp; Deploy Now</span>
+                  </button>
+                </div>
+                <div className="pt-2.5 border-t border-[var(--border)] flex items-center justify-between text-[11px] text-[var(--text-3)] font-mono flex-wrap gap-2">
+                  <span>⚡ Scaffolds FastAPI Backend + Next.js Frontend</span>
+                  <span>🚀 Direct 1-Click Cloud Deployment to Render &amp; GitHub</span>
+                </div>
               </div>
             )}
             <div ref={endRef} className="h-2" />
@@ -716,7 +801,7 @@ function ChatContent() {
         </section>
 
         {/* Zone 3 — artifacts */}
-        <aside className="flex flex-col lg:col-span-12 xl:col-span-3 h-[42vh] lg:h-full min-h-0">
+        <aside className="flex flex-col lg:col-span-4 xl:col-span-3 h-[42vh] lg:h-full min-h-0">
           <ArtifactsPanel
             state={state}
             t={t}
@@ -727,6 +812,7 @@ function ChatContent() {
             onConfigure={setConfigureTarget}
             onDownload={(b) => void handleDownload(b)}
             onDestroy={(b) => void handleDestroy(b)}
+            onTriggerBuild={handleTriggerBuild}
           />
         </aside>
       </div>

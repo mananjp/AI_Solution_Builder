@@ -748,7 +748,11 @@ export function useChatSession(options: UseChatSessionOptions) {
         dispatch({ type: 'activate', solutionId: latest.id, appName: latest.title, welcome });
         loadedRef.current = latest.id;
         dispatch({ type: 'conversation/loaded', solution: latest, agent, welcome });
-        dispatch({ type: 'builds/loaded', builds: [] });
+        const builds = await mvpApi.listBuilds(latest.id).catch(() => [] as MVPBuild[]);
+        const sorted = [...builds].sort((a, b) => (b.build_number || 0) - (a.build_number || 0));
+        if (!cancelled) {
+          dispatch({ type: 'builds/loaded', builds: sorted });
+        }
       } catch {
         if (!cancelled) dispatch({ type: 'conversation/empty', welcome });
       }
