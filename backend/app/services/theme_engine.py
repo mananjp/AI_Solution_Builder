@@ -586,10 +586,12 @@ def patch_globals_css(css: str, theme: ThemeSpec) -> str:
     else:
         patched = block + "\n\n" + css
 
-    # Ensure Tailwind v4 compatibility: replace legacy directives with @import "tailwindcss"
-    if '@import "tailwindcss";' not in patched and "@import 'tailwindcss';" not in patched:
-        patched = re.sub(r"@tailwind\s+(?:base|components|utilities);\s*", "", patched)
-        patched = '@import "tailwindcss";\n\n' + patched.lstrip()
+    # Ensure Tailwind v3 compatibility: ensure standard directives are present
+    if "@tailwind base;" not in patched and "@tailwind base" not in patched:
+        patched = re.sub(r"@import\s+['\"]tailwindcss['\"];\s*", "", patched)
+        patched = "@tailwind base;\n@tailwind components;\n@tailwind utilities;\n\n" + patched.lstrip()
+    elif '@import "tailwindcss";' in patched or "@import 'tailwindcss';" in patched:
+        patched = re.sub(r"@import\s+['\"]tailwindcss['\"];\s*", "", patched)
 
     # Defensive guarantee: Ensure CSS braces are balanced so PostCSS never throws 'Unclosed block'
     open_count = patched.count("{")

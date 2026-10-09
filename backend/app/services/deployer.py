@@ -12,6 +12,7 @@ import contextlib
 import json
 import logging
 from pathlib import Path
+import re
 from tempfile import TemporaryDirectory
 from typing import Any
 
@@ -128,6 +129,69 @@ def _extract_mvp_files(root: Path) -> dict[str, str]:
         files["frontend/src/lib/api.ts"] = _API_CLIENT_TS
     if any(k.startswith("frontend/") for k in files) and "frontend/public/.gitkeep" not in files:
         files["frontend/public/.gitkeep"] = ""
+
+    # ── Self-healing for Tailwind / PostCSS CSS build compatibility ───────
+    postcss_standard = (
+        "const config = {\n"
+        "  plugins: {\n"
+        "    tailwindcss: {},\n"
+        "    autoprefixer: {},\n"
+        "  },\n"
+        "};\n\n"
+        "export default config;\n"
+    )
+    for pkey in (
+        "frontend/postcss.config.mjs",
+        "frontend/postcss.config.js",
+        "postcss.config.mjs",
+        "postcss.config.js",
+    ):
+        if pkey in files and "@tailwindcss/postcss" in files[pkey]:
+            files[pkey] = postcss_standard
+
+    if any(k.startswith("frontend/") for k in files):
+        if "frontend/postcss.config.mjs" not in files and "frontend/postcss.config.js" not in files:
+            files["frontend/postcss.config.mjs"] = postcss_standard
+
+    for gkey in ("frontend/src/app/globals.css", "src/app/globals.css"):
+        if gkey in files:
+            css = files[gkey]
+            css = re.sub(r"@import\s+['\"]tailwindcss(\/[^'\"]+)?['\"];\s*", "", css)
+            if "@tailwind base" not in css:
+                css = "@tailwind base;\n@tailwind components;\n@tailwind utilities;\n\n" + css.lstrip()
+            open_c = css.count("{")
+            close_c = css.count("}")
+            if open_c > close_c:
+                css += "\n" + ("}\n" * (open_c - close_c))
+            files[gkey] = css
+
+    for pkg_key in ("frontend/package.json", "package.json"):
+        if pkg_key in files:
+            try:
+                pkg = json.loads(files[pkg_key])
+                d_deps = pkg.get("devDependencies", {})
+                deps = pkg.get("dependencies", {})
+                changed = False
+                if "@tailwindcss/postcss" in d_deps:
+                    del d_deps["@tailwindcss/postcss"]
+                    changed = True
+                if "@tailwindcss/postcss" in deps:
+                    del deps["@tailwindcss/postcss"]
+                    changed = True
+                if "tailwindcss" not in d_deps and "tailwindcss" not in deps:
+                    d_deps["tailwindcss"] = "^3.4.17"
+                    changed = True
+                if "autoprefixer" not in d_deps and "autoprefixer" not in deps:
+                    d_deps["autoprefixer"] = "^10.4.20"
+                    changed = True
+                if "postcss" not in d_deps and "postcss" not in deps:
+                    d_deps["postcss"] = "^8.4.49"
+                    changed = True
+                if changed:
+                    pkg["devDependencies"] = d_deps
+                    files[pkg_key] = json.dumps(pkg, indent=2) + "\n"
+            except Exception:
+                pass
 
     return files
 

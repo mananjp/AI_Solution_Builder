@@ -2694,6 +2694,29 @@ def scaffold_build(
         pub_dir.mkdir(parents=True, exist_ok=True)
         (pub_dir / ".gitkeep").touch()
 
+        # Guarantee Tailwind v3 PostCSS configuration
+        postcss_mjs = frontend_dir / "postcss.config.mjs"
+        if not postcss_mjs.exists() or "@tailwindcss/postcss" in postcss_mjs.read_text(encoding="utf-8", errors="replace"):
+            postcss_mjs.write_text(
+                "const config = {\n"
+                "  plugins: {\n"
+                "    tailwindcss: {},\n"
+                "    autoprefixer: {},\n"
+                "  },\n"
+                "};\n\n"
+                "export default config;\n",
+                encoding="utf-8",
+            )
+
+        # Guarantee Tailwind v3 globals.css directives
+        globals_css = frontend_dir / "src" / "app" / "globals.css"
+        if globals_css.exists():
+            css_text = globals_css.read_text(encoding="utf-8", errors="replace")
+            css_text = re.sub(r"@import\s+['\"]tailwindcss(\/[^'\"]+)?['\"];\s*", "", css_text)
+            if "@tailwind base" not in css_text:
+                css_text = "@tailwind base;\n@tailwind components;\n@tailwind utilities;\n\n" + css_text.lstrip()
+            globals_css.write_text(css_text, encoding="utf-8")
+
     app_name = _slugify(app_title)
     db_name = re.sub(r"[^a-z0-9_]+", "_", app_name).strip("_") or "app_db"
     mapping = {
