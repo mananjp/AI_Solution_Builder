@@ -872,9 +872,11 @@ def fallback_app_spec(
     Ensures that OpenCode receives a well-formed spec with valid schemas, models, and
     acceptance tests even when the external LLM provider hits rate limits or is offline.
     """
+    prompt_based_title = _prompt_title(user_prompt) if user_prompt else ""
     title = (
-        ai_state.get("solution_title")
-        or _prompt_title(user_prompt or ai_state.get("business_description", ""))
+        prompt_based_title
+        or ai_state.get("solution_title")
+        or _prompt_title(ai_state.get("business_description", ""))
         or "Custom App"
     ).strip()
     clean_name = re.sub(r"[^\w\s]+", " ", title).strip() or "Custom App"
@@ -902,6 +904,21 @@ def fallback_app_spec(
                 if not fields:
                     fields = [{"name": "name", "type": "string"}]
                 entities.append((ename, eplural, fields))
+
+    combined_text = (
+        f"{user_prompt} {uploaded_context} {ai_state.get('business_description', '')}".strip()
+    )
+
+    # If the user provided a prompt and no explicit ER entities exist, check if prompt specifies entities/domain
+    if not entities and user_prompt:
+        from app.services.domain_lexicon import infer_entities as _infer
+
+        inferred = list(_infer(combined_text, limit=_MAX_FALLBACK_ENTITIES))
+        if inferred and not (len(inferred) == 2 and inferred[0][0] == "item"):
+            entities = [
+                (name, plural, [{"name": fname, "type": ftype} for fname, ftype in fields])
+                for name, plural, fields in inferred
+            ]
 
     if not entities:
         modules = ai_state.get("confirmed_modules") or ai_state.get("identified_solutions", [])
@@ -1100,8 +1117,8 @@ async def generate_app_spec(
             conversation_history=conversation_history,
         )
 
-    # Use compact 2500 max_tokens to stay well within Groq TPM limits
-    llm = get_llm(temperature=0.2, max_tokens=2500)
+    # Allow generous max_tokens and timeout so Groq/OpenAI models can complete full JSON specs
+    llm = get_llm(temperature=0.2, max_tokens=6500)
     base_messages = [
         SystemMessage(content=SPEC_SYSTEM + "\nJSON schema:\n" + _spec_schema_hint()),
         HumanMessage(
@@ -1117,19 +1134,22 @@ async def generate_app_spec(
     current_messages = list(base_messages)
     for attempt in range(1, max_attempts + 1):
         try:
-            resp = await asyncio.wait_for(llm.ainvoke(current_messages), timeout=12.0)
+            resp = await asyncio.wait_for(llm.ainvoke(current_messages), timeout=45.0)
         except Exception as exc:
             logger.warning(
-                "generate_app_spec LLM error on attempt %d (%s); using smart fallback AppSpec",
+                "generate_app_spec LLM error on attempt %d (%s)",
                 attempt,
                 exc,
             )
-            return fallback_app_spec(
-                ai_state,
-                user_prompt,
-                uploaded_context=uploaded_context,
-                conversation_history=conversation_history,
-            )
+            if attempt >= max_attempts:
+                return fallback_app_spec(
+                    ai_state,
+                    user_prompt,
+                    uploaded_context=uploaded_context,
+                    conversation_history=conversation_history,
+                )
+            await asyncio.sleep(1.0)
+            continue
 
         raw = str(getattr(resp, "content", resp))
         try:

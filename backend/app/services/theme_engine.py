@@ -327,6 +327,26 @@ INDUSTRY_PALETTES: dict[str, dict[str, Any]] = {
         "font_display": "Plus Jakarta Sans",
         "mood": "executive",
     },
+    "subscription": {
+        "keywords": (
+            "subscription",
+            "subscriptions",
+            "subtrack",
+            "recurring",
+            "renew",
+            "renewal",
+            "spend tracker",
+        ),
+        "primary": _c(258, 85, 56),
+        "accent": _c(158, 75, 42),
+        "background": _c(240, 20, 98),
+        "foreground": _c(240, 30, 10),
+        "muted": _c(240, 15, 92),
+        "radius": "0.75rem",
+        "font_sans": "Inter",
+        "font_display": "Plus Jakarta Sans",
+        "mood": "modern_saas",
+    },
 }
 
 _DEFAULT_VERTICAL = "generic"
@@ -361,7 +381,9 @@ def classify_vertical(spec: AppSpec | None = None, text: str = "") -> str:
 
     best_name, best_score = _DEFAULT_VERTICAL, 0
     for name, keywords in _vertical_keywords():
-        score = sum(1 for k in keywords if k in lowered)
+        score = sum(
+            1 for k in keywords if re.search(r"\b" + re.escape(k) + r"\b", lowered)
+        )
         if score > best_score:
             best_name, best_score = name, score
     return best_name

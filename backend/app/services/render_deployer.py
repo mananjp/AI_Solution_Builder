@@ -378,7 +378,9 @@ class RenderDeployer:
             entries = resp.json()
             if isinstance(entries, list) and entries:
                 first = entries[0]
-                return first if isinstance(first, dict) else None
+                if isinstance(first, dict):
+                    return first.get("deploy", first)
+                return None
             if isinstance(entries, dict):
                 # Render wraps collections as {"deploy": [...]} on some routes.
                 wrapped = entries.get("deploy") or entries.get("deploys")

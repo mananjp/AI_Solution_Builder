@@ -30,7 +30,14 @@ _FIELD_HINTS: dict[str, list[tuple[str, str]]] = {
     ],
     "trainer": [("full_name", "string"), ("email", "string"), ("specialization", "string")],
     "class": [("title", "string"), ("schedule", "string"), ("capacity", "int")],
-    "subscription": [("plan_name", "string"), ("price", "float"), ("renews_on", "date")],
+    "subscription": [
+        ("name", "string"),
+        ("cost", "float"),
+        ("billing_cycle", "string"),
+        ("renewal_date", "date"),
+        ("category", "string"),
+        ("status", "string"),
+    ],
     "product": [("name", "string"), ("sku", "string"), ("price", "float"), ("stock", "int")],
     "supplier": [("name", "string"), ("email", "string"), ("phone", "string")],
     "movement": [("quantity", "int"), ("reason", "string"), ("occurred_on", "date")],
@@ -128,6 +135,34 @@ _NAME_FIELDS = [("name", "string"), ("description", "string")]
 # Ordered most-specific first: the first matching vertical wins, so narrow
 # domains (clinic) are not swallowed by broad ones (booking).
 _LEXICON: list[tuple[tuple[str, ...], list[tuple[str, str, list[tuple[str, str]]]]]] = [
+    (
+        (
+            "subtrack",
+            "subscription",
+            "subscriptions",
+            "recurring subscription",
+            "recurring subscriptions",
+            "subscription tracker",
+            "recurring expense",
+            "recurring payment",
+            "renewal tracker",
+            "renewals",
+        ),
+        [
+            (
+                "subscription",
+                "subscriptions",
+                [
+                    ("name", "string"),
+                    ("cost", "float"),
+                    ("billing_cycle", "string"),
+                    ("renewal_date", "date"),
+                    ("category", "string"),
+                    ("status", "string"),
+                ],
+            ),
+        ],
+    ),
     (
         (
             "clinic",
@@ -721,6 +756,13 @@ _STOP_VERBS = {
     "need",
     "please",
     "let",
+    "lets",
+    "log",
+    "logs",
+    "flag",
+    "flags",
+    "convert",
+    "converting",
     "allow",
     "enable",
     "support",
