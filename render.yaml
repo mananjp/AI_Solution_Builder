@@ -76,7 +76,9 @@ services:
           name: ai-solution-builder-builder
           property: hostport
       - key: OPENCODE_MODEL
-        value: opencode/big-pickle
+        value: opencode/step-5-preview-free
+      - key: OPENCODE_SMALL_MODEL
+        value: opencode/nemotron-3.5-lightning-free
       - key: OPENCODE_AGENT
         value: mvp-builder
       - key: ENABLE_OPENCODE_SIDECAR
@@ -139,7 +141,15 @@ services:
       - key: MVP_VERIFY_BUILD_TIMEOUT
         value: "120"
       - key: MVP_VERIFY_NPM
-        value: "false"
+        value: "true"
+      - key: MVP_RUN_ACCEPTANCE_TESTS
+        value: "true"
+      - key: MVP_STRICT_TESTS
+        value: "true"
+      - key: MVP_STRICT_SCREENS
+        value: "true"
+      - key: MVP_QUALITY_GATE
+        value: "true"
       - key: DB_POOL_SIZE
         value: "1"
       - key: DB_MAX_OVERFLOW
@@ -194,7 +204,9 @@ services:
       - key: OPENCODE_SERVER_URL
         value: http://127.0.0.1:4096
       - key: OPENCODE_MODEL
-        value: opencode/big-pickle
+        value: opencode/step-5-preview-free
+      - key: OPENCODE_SMALL_MODEL
+        value: opencode/nemotron-3.5-lightning-free
       - key: OPENCODE_AGENT
         value: mvp-builder
       - key: OPENCODE_NODE_HEAP_MB
@@ -244,7 +256,15 @@ services:
       - key: MVP_VERIFY_BUILD_TIMEOUT
         value: "120"
       - key: MVP_VERIFY_NPM
-        value: "false"
+        value: "true"
+      - key: MVP_RUN_ACCEPTANCE_TESTS
+        value: "true"
+      - key: MVP_STRICT_TESTS
+        value: "true"
+      - key: MVP_STRICT_SCREENS
+        value: "true"
+      - key: MVP_QUALITY_GATE
+        value: "true"
       - key: DB_POOL_SIZE
         value: "1"
       - key: DB_MAX_OVERFLOW

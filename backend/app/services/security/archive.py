@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import io
 import logging
-import shutil
+import os
 import zipfile
 from pathlib import Path, PurePosixPath
 
@@ -31,6 +31,16 @@ _ARCHIVE_EXTENSIONS = {
     ".rar",
     ".iso",
 }
+
+
+def _is_symlink(member: zipfile.ZipInfo) -> bool:
+    """Return whether a ZIP member is a Unix symbolic link.
+
+    ``ZipInfo.is_dir`` only identifies directory entries.  A symlink otherwise
+    looks like an ordinary file and can redirect a later extraction outside the
+    destination directory, so it must be rejected before any filesystem write.
+    """
+    return (member.external_attr >> 16) & 0o170000 == 0o120000
 
 
 def _validate_member_filename(filename: str) -> None:
@@ -169,6 +179,19 @@ def guard_archive(
             # 2. Path safety check
             _validate_member_filename(member.filename)
 
+            if _is_symlink(member):
+                raise ArchiveRejectedError(
+                    f"Symbolic-link archive entries are not permitted: {member.filename!r}",
+                    findings=[
+                        ScanFinding(
+                            source=source,
+                            verdict=ScanVerdict.MALICIOUS,
+                            reason="symlink_entry",
+                            detail={"filename": member.filename},
+                        )
+                    ],
+                )
+
             # 3. Encryption check
             if member.flag_bits & 0x1:
                 raise ArchiveRejectedError(
@@ -204,9 +227,13 @@ def guard_archive(
             total_uncompressed += member.file_size
 
             # 5. Compression ratio check (zip bomb defense)
-            if member.compress_size > 0:
-                ratio = member.file_size / member.compress_size
-                if ratio > settings.ARCHIVE_MAX_RATIO and member.file_size > 1024 * 1024:
+            if member.file_size:
+                ratio = (
+                    member.file_size / member.compress_size
+                    if member.compress_size
+                    else float("inf")
+                )
+                if ratio > settings.ARCHIVE_MAX_RATIO:
                     raise ArchiveRejectedError(
                         f"Entry {member.filename!r} compression ratio {ratio:.1f}:1 exceeds "
                         f"limit of {settings.ARCHIVE_MAX_RATIO}:1 (potential zip bomb)",
@@ -269,9 +296,22 @@ def safe_extract_zip(zip_bytes: bytes, dest: Path) -> Path:
     dest_resolved.mkdir(parents=True, exist_ok=True)
 
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        bytes_written = 0
         for member in zf.infolist():
             # Validate path before extraction
             _validate_member_filename(member.filename)
+            if _is_symlink(member):
+                raise ArchiveRejectedError(
+                    f"Symbolic-link archive entries are not permitted: {member.filename!r}",
+                    findings=[
+                        ScanFinding(
+                            source="archive",
+                            verdict=ScanVerdict.MALICIOUS,
+                            reason="symlink_entry",
+                            detail={"filename": member.filename},
+                        )
+                    ],
+                )
 
             # Compute and verify destination path
             target_path = (dest_resolved / member.filename).resolve()
@@ -292,10 +332,38 @@ def safe_extract_zip(zip_bytes: bytes, dest: Path) -> Path:
 
             if member.is_dir() or member.filename.endswith("/"):
                 target_path.mkdir(parents=True, exist_ok=True)
+                os.chmod(target_path, 0o700)
             else:
                 target_path.parent.mkdir(parents=True, exist_ok=True)
                 with zf.open(member) as source_stream, open(target_path, "wb") as target_file:
-                    shutil.copyfileobj(source_stream, target_file)
+                    entry_written = 0
+                    while chunk := source_stream.read(64 * 1024):
+                        entry_written += len(chunk)
+                        bytes_written += len(chunk)
+                        if (
+                            entry_written > settings.ARCHIVE_MAX_UNCOMPRESSED_BYTES
+                            or bytes_written > settings.ARCHIVE_MAX_UNCOMPRESSED_BYTES
+                        ):
+                            target_file.close()
+                            target_path.unlink(missing_ok=True)
+                            raise ArchiveRejectedError(
+                                "Archive exceeded the uncompressed-byte limit while extracting",
+                                findings=[
+                                    ScanFinding(
+                                        source="archive",
+                                        verdict=ScanVerdict.MALICIOUS,
+                                        reason="oversized_uncompressed",
+                                        detail={
+                                            "filename": member.filename,
+                                            "entry_written": entry_written,
+                                            "total_written": bytes_written,
+                                        },
+                                    )
+                                ],
+                            )
+                        target_file.write(chunk)
+                # Never preserve archive-supplied execute bits.
+                os.chmod(target_path, 0o600)
 
     # Unwrap single root folder if created by GitHub zipball
     subdirs = [p for p in dest_resolved.iterdir() if p.is_dir() and not p.name.startswith(".")]

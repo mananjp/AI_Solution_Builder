@@ -1,11 +1,9 @@
 """
 AI Solution Builder — Pluggable Storage Backend
 
-Provides LocalStorage (disk, dev-only) and CloudinaryStorage (Cloudinary raw
-file storage) behind a common interface.  In production the factory hard-
-requires ``STORAGE_BACKEND=cloudinary`` with complete credentials — it never
-silently falls back to disk because MVP artifacts must live only in
-Cloudinary.
+Provides local disk, Cloudinary raw file storage, and S3-compatible storage
+(including Neon Object Storage) behind a common interface. In production the
+factory never silently falls back to disk: MVP artifacts must be durable.
 """
 
 import asyncio
@@ -16,6 +14,14 @@ from pathlib import Path
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_object_key(key: str) -> str:
+    """Reject keys that could be interpreted as paths outside an object prefix."""
+    candidate = Path(key)
+    if not key or candidate.is_absolute() or ".." in candidate.parts:
+        raise ValueError("Artifact key must be a relative path")
+    return key
 
 
 # ── Interface ────────────────────────────────────────────────────────────────
@@ -52,16 +58,26 @@ class StorageBackend(ABC):
 
 
 class LocalStorage(StorageBackend):
-    """Dev-only wrapper around the local disk."""
+    """Dev-only artifact store rooted outside the mutable build workspace."""
+
+    def _path(self, key: str) -> Path:
+        candidate = Path(_validate_object_key(key))
+        root = Path(settings.ARTIFACT_DIR).resolve()
+        path = (root / candidate).resolve()
+        try:
+            path.relative_to(root)
+        except ValueError as exc:
+            raise ValueError("Artifact key escapes the configured artifact store") from exc
+        return path
 
     async def upload_bytes(self, data: bytes, key: str) -> str:
-        path = Path(key)
+        path = self._path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
         return key
 
     async def download_raw(self, key: str) -> bytes:
-        path = Path(key)
+        path = self._path(key)
         if not path.exists():
             raise FileNotFoundError(f"No local object at {key}")
         return path.read_bytes()
@@ -71,8 +87,7 @@ class LocalStorage(StorageBackend):
         return None
 
     async def delete_file(self, key: str) -> None:
-        # Local cleanup is handled by ``mvp_builder.cleanup_build``.
-        pass
+        self._path(key).unlink(missing_ok=True)
 
 
 # ── Cloudinary (Raw File Storage) ────────────────────────────────────────────
@@ -179,14 +194,126 @@ class CloudinaryStorage(StorageBackend):
         logger.info("Deleted cloudinary://%s", key)
 
 
+# ── S3-compatible object storage (Neon) ─────────────────────────────────────
+
+
+class S3Storage(StorageBackend):
+    """Durable artifact storage for S3-compatible providers such as Neon.
+
+    Calls use a bounded SDK retry policy and are moved off the event loop. A
+    presigned URL keeps downloads out of the API process while retaining a
+    short-lived, private object URL.
+    """
+
+    def __init__(
+        self,
+        endpoint_url: str,
+        bucket: str,
+        region: str,
+        access_key_id: str,
+        secret_access_key: str,
+        force_path_style: bool = True,
+    ) -> None:
+        import boto3
+        from botocore.config import Config
+
+        self._bucket = bucket
+        self._client = boto3.client(
+            "s3",
+            endpoint_url=endpoint_url,
+            region_name=region,
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key,
+            config=Config(
+                signature_version="s3v4",
+                connect_timeout=10,
+                read_timeout=60,
+                retries={"max_attempts": 3, "mode": "standard"},
+                s3={"addressing_style": "path" if force_path_style else "virtual"},
+            ),
+        )
+        self._ensure_bucket()
+
+    def _ensure_bucket(self) -> None:
+        """Create the bucket when it is missing, tolerating a concurrent creator.
+
+        Neon and MinIO both require the bucket to exist before ``put_object``;
+        doing it here keeps a fresh deployment (and local dev) working without a
+        manual console step. An already-existing bucket is not an error.
+        """
+        from botocore.exceptions import ClientError
+
+        def _create() -> None:
+            try:
+                self._client.head_bucket(Bucket=self._bucket)
+                return
+            except ClientError as exc:
+                code = str(exc.response.get("Error", {}).get("Code", ""))
+                if code not in {"403", "404", "NoSuchBucket", "NotFound"}:
+                    raise
+            try:
+                self._client.create_bucket(Bucket=self._bucket)
+                logger.info("Created object-storage bucket: %s", self._bucket)
+            except ClientError as exc:
+                code = str(exc.response.get("Error", {}).get("Code", ""))
+                if code in {"BucketAlreadyOwnedByYou", "BucketAlreadyExists"}:
+                    return
+                logger.warning("Could not create bucket %s: %s", self._bucket, exc)
+
+        try:
+            _create()
+        except Exception as exc:  # noqa: BLE001 — never block boot on optional bucket setup
+            logger.warning("Bucket pre-flight check failed for %s: %s", self._bucket, exc)
+
+    async def upload_bytes(self, data: bytes, key: str) -> str:
+        key = _validate_object_key(key)
+        await asyncio.to_thread(
+            self._client.put_object,
+            Bucket=self._bucket,
+            Key=key,
+            Body=data,
+            ContentType="application/zip",
+        )
+        logger.info("Uploaded artifact to S3-compatible object storage: %s", key.split("/")[-1])
+        return key
+
+    async def download_raw(self, key: str) -> bytes:
+        key = _validate_object_key(key)
+
+        def _download() -> bytes:
+            response = self._client.get_object(Bucket=self._bucket, Key=key)
+            body = response["Body"]
+            try:
+                data: bytes = body.read()
+            finally:
+                body.close()
+            return data
+
+        return await asyncio.to_thread(_download)
+
+    async def get_download_url(self, key: str, expires_in: int = 3600) -> str | None:
+        key = _validate_object_key(key)
+        return await asyncio.to_thread(
+            self._client.generate_presigned_url,
+            "get_object",
+            Params={"Bucket": self._bucket, "Key": key},
+            ExpiresIn=expires_in,
+        )
+
+    async def delete_file(self, key: str) -> None:
+        key = _validate_object_key(key)
+        await asyncio.to_thread(self._client.delete_object, Bucket=self._bucket, Key=key)
+        logger.info("Deleted artifact from S3-compatible object storage: %s", key)
+
+
 # ── Factory ──────────────────────────────────────────────────────────────────
 
 
 def get_storage() -> StorageBackend:
     """Resolve the configured storage backend.
 
-    ``STORAGE_BACKEND=cloudinary`` requires all three credentials — otherwise
-    a ``RuntimeError`` is raised instead of silently falling back to disk.
+    Remote backends require complete credentials — otherwise a ``RuntimeError``
+    is raised instead of silently falling back to disk.
     Local disk remains available for development only.
     """
     backend = settings.STORAGE_BACKEND.lower()
@@ -211,6 +338,38 @@ def get_storage() -> StorageBackend:
             cloud_name=settings.CLOUDINARY_CLOUD_NAME,
             api_key=settings.CLOUDINARY_API_KEY,
             api_secret=settings.CLOUDINARY_API_SECRET,
+        )
+
+    if backend in {"neon_s3", "s3"}:
+        missing = [
+            name
+            for name, value in [
+                ("S3_ENDPOINT_URL", settings.S3_ENDPOINT_URL),
+                ("S3_BUCKET", settings.S3_BUCKET),
+                ("S3_REGION", settings.S3_REGION),
+                ("S3_ACCESS_KEY_ID", settings.S3_ACCESS_KEY_ID),
+                ("S3_SECRET_ACCESS_KEY", settings.S3_SECRET_ACCESS_KEY),
+            ]
+            if not value
+        ]
+        if missing:
+            raise RuntimeError(
+                "STORAGE_BACKEND=neon_s3 is configured but the following "
+                f"values are missing: {', '.join(missing)}"
+            )
+        return S3Storage(
+            endpoint_url=settings.S3_ENDPOINT_URL,
+            bucket=settings.S3_BUCKET,
+            region=settings.S3_REGION,
+            access_key_id=settings.S3_ACCESS_KEY_ID,
+            secret_access_key=settings.S3_SECRET_ACCESS_KEY,
+            force_path_style=settings.S3_FORCE_PATH_STYLE,
+        )
+
+    if backend != "local":
+        raise RuntimeError(
+            "STORAGE_BACKEND must be one of: local, cloudinary, neon_s3. "
+            f"Received {settings.STORAGE_BACKEND!r}."
         )
 
     return LocalStorage()

@@ -340,7 +340,7 @@ def _auth_hint(status_code: int) -> str | None:
     if status_code in (401, 403):
         return (
             f"LLM provider rejected the credentials (HTTP {status_code}). Make sure OPENCODE_ZEN_API_KEY "
-            "(default model opencode/big-pickle) is set in the sidecar env, or set "
+            "(default model opencode/step-5-preview-free) is set in the sidecar env, or set "
             "OPENCODE_MODEL to a groq/* model and provide GROQ_API_KEY."
         )
     return None
@@ -584,7 +584,7 @@ def _fix_for_error(exc: Exception) -> str:
             "service to the same password as the sidecar; the username defaults to 'opencode'."
         )
     if "401" in lowered or "403" in lowered or "unauthorized" in lowered or "denied" in lowered:
-        return "LLM provider rejected the key. Set OPENCODE_ZEN_API_KEY in the sidecar env (default model opencode/big-pickle), or override OPENCODE_MODEL to a groq/* model and use GROQ_API_KEY."
+        return "LLM provider rejected the key. Set OPENCODE_ZEN_API_KEY in the sidecar env (default model opencode/step-5-preview-free), or override OPENCODE_MODEL to a groq/* model and use GROQ_API_KEY."
     if "timed out" in lowered or "connecterror" in lowered or "connect" in lowered:
         return "Sidecar unreachable: is the opencode container running?\n  docker compose up -d opencode   (local)  ·  see README 'OpenCode sidecar' (Render/Fly)"
     if "404" in lowered or "not found" in lowered:
@@ -662,7 +662,7 @@ async def diagnose() -> dict[str, Any]:
             else (
                 "OPENCODE_ZEN_API_KEY present (model opencode/* required)"
                 if zen_key
-                else "the default model opencode/big-pickle needs OPENCODE_ZEN_API_KEY (or set OPENCODE_MODEL to a groq/* model with GROQ_API_KEY)"
+                else "the default model opencode/step-5-preview-free needs OPENCODE_ZEN_API_KEY (or set OPENCODE_MODEL to a groq/* model with GROQ_API_KEY)"
             ),
             "fix": None
             if llm_key
@@ -2925,7 +2925,13 @@ Run them yourself if bash is available: `cd backend && python -m pytest -q`.
 ## Rules
 - Implement rules generally; never special-case test inputs.
 - Validation errors → HTTPException(400); missing rows → 404; conflicts → 409.
-- No new dependencies. No secrets. Do not start servers.
+- Install what you need. The scaffold's pinned dependencies are a baseline, not a
+  ceiling: `npm install <pkg>` in `frontend` (and `pip install <pkg>` in `backend`) when
+  the spec genuinely needs it, then verify the build still passes. Pin exact versions in
+  package.json / requirements.txt, never use a registry alias. Do not add a dependency just
+  to re-implement something already installed — compose first, install second.
+- No secrets, tokens or credentials in the code. Do not start long-running servers
+  (`npm run dev`, `uvicorn`) and leave them running; a build/verify command that exits is fine.
 - Use Framer Motion and Skiper UI for animation and visual excellence.
 - Finish with: files changed + which tests you expect to pass.
 """

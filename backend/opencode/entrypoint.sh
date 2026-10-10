@@ -2,9 +2,11 @@
 # AI Solution Builder — OpenCode sidecar entrypoint
 #
 # Responsibilities:
-#   1. Work out of the box: the default model is `opencode/big-pickle` (OpenCode
-#      Zen). Set OPENCODE_ZEN_API_KEY for it; without it, generation degrades to
-#      the GROQ_API_KEY fallback (groq/* model) if you override OPENCODE_MODEL.
+#   1. Work out of the box with Free-tier models: the default generation model
+#      is `opencode/step-5-preview-free` and the default cheap model (titles,
+#      summaries) is `opencode/nemotron-3.5-lightning-free`, both free via
+#      OpenCode Zen. Set OPENCODE_ZEN_API_KEY for them; without it, override
+#      OPENCODE_MODEL to a groq/* model and supply GROQ_API_KEY instead.
 #      Neither OPENCODE_SERVER_PASSWORD nor a Zen key is required to boot.
 #   2. Seed the OpenCode Zen credential file (~/.local/share/opencode/auth.json)
 #      ONLY when OPENCODE_ZEN_API_KEY is set.
@@ -15,6 +17,25 @@
 set -euo pipefail
 
 log() { echo "[opencode] $*"; }
+
+# The config is baked into the image so it remains reviewable, but the selected
+# models are deployment configuration. Resolve the explicit placeholders at
+# startup rather than silently ignoring OPENCODE_MODEL / OPENCODE_SMALL_MODEL.
+MODEL="${OPENCODE_MODEL:-opencode/step-5-preview-free}"
+SMALL_MODEL="${OPENCODE_SMALL_MODEL:-opencode/nemotron-3.5-lightning-free}"
+for VALUE in "${MODEL}" "${SMALL_MODEL}"; do
+  if ! printf '%s' "${VALUE}" | grep -Eq '^[A-Za-z0-9._/:@-]+$'; then
+    log "fatal: model name '${VALUE}' contains unsupported characters"
+    exit 64
+  fi
+done
+CONFIG_FILE="${HOME}/.config/opencode/opencode.json"
+if [ ! -f "${CONFIG_FILE}" ]; then
+  log "fatal: OpenCode configuration is missing at ${CONFIG_FILE}"
+  exit 78
+fi
+sed -i "s|__OPENCODE_MODEL__|${MODEL}|g" "${CONFIG_FILE}"
+sed -i "s|__OPENCODE_SMALL_MODEL__|${SMALL_MODEL}|g" "${CONFIG_FILE}"
 
 # ── 1. Optional Zen credentials ──────────────────────────────────────────
 # OpenCode reads provider credentials from ~/.local/share/opencode/auth.json.
@@ -40,7 +61,7 @@ else
 fi
 
 # ── 2. Diagnostics banner ────────────────────────────────────────────────
-log "diag: starting opencode serve (model=${OPENCODE_MODEL:-opencode/big-pickle}, agent=${OPENCODE_AGENT:-mvp-builder})"
+log "diag: starting opencode serve (model=${MODEL}, small_model=${SMALL_MODEL}, agent=${OPENCODE_AGENT:-mvp-builder})"
 log "diag: auth file present: $([ -f "${AUTH_FILE}" ] && echo yes || echo no)"
 log "diag: node: $(node --version 2>/dev/null || echo missing)"
 log "diag: python3: $(python3 --version 2>&1 || echo missing)"

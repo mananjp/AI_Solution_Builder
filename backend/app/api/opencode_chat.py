@@ -51,6 +51,7 @@ from app.models.workspace import Workspace
 from app.schemas import OpenCodeChatRequest
 from app.services import mvp_builder as builder
 from app.services import mvp_verifier
+from app.services.arch_enricher import enrich_architecture
 from app.services.image_gen import generate_product_images, has_image_credentials, image_storage_key
 from app.services.storage import get_storage
 
@@ -1442,6 +1443,18 @@ async def chat(
                     "Custom App",
                 ):
                     solution.title = synthesized["app_title"]
+
+                # The deterministic synthesizer emits generic architecture prose.
+                # Re-draft HLD/LLD/roadmap from the confirmed spec via OpenCode so
+                # the documents match this app instead of any app. Falls back to
+                # the deterministic artifacts whenever the sidecar is unavailable.
+                if settings.OPENCODE_ARCH_ENRICH:
+                    synthesized = await enrich_architecture(
+                        synthesized,
+                        {**(ai_state or {}), **synthesized},
+                        solution.title,
+                        synthesized.get("industry") or (ai_state or {}).get("industry") or "custom",
+                    )
 
                 solution.ai_state = {
                     **ai_state,

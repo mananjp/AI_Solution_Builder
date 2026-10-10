@@ -182,7 +182,11 @@ def _extract_email_from_claims(claims: dict[str, Any]) -> str | None:
             return val.strip().lower()
 
     for key, val in claims.items():
-        if isinstance(val, str) and "@" in val and (key.endswith("/email") or key.endswith(":email")):
+        if (
+            isinstance(val, str)
+            and "@" in val
+            and (key.endswith("/email") or key.endswith(":email"))
+        ):
             return val.strip().lower()
 
     return None
@@ -209,11 +213,12 @@ async def _fetch_userinfo(token: str) -> dict[str, Any]:
                 if isinstance(data, dict):
                     return data
             else:
-                logger.warning("Auth0 /userinfo returned status %s: %s", resp.status_code, resp.text)
+                logger.warning(
+                    "Auth0 /userinfo returned status %s: %s", resp.status_code, resp.text
+                )
     except Exception as exc:
         logger.warning("Could not reach Auth0 /userinfo (%s); proceeding with token claims", exc)
     return {}
-
 
 
 async def get_current_user(
@@ -229,18 +234,17 @@ async def get_current_user(
     """
     from app.models.user import User
 
+    # Dev-only: let the UI be exercised before a complete Auth0 API audience
+    # is configured.  This takes precedence over a browser's incomplete token
+    # too, so enabling the login UI cannot turn local API calls into 401s.
+    # `enforce_production_secrets` rejects this setting in production.
+    if settings.APP_ENV != "production" and settings.DEV_AUTH_BYPASS:
+        dev_user = await _get_or_create_dev_user(db)
+        request.state.user_sub = str(dev_user.id)
+        request.state.org_id = str(dev_user.org_id) if dev_user.org_id else None
+        return dev_user
+
     if credentials is None or not credentials.credentials:
-        # Dev-only: let the UI be exercised without a working Auth0 tenant.
-        # `DEV_AUTH_BYPASS` is rejected at boot when APP_ENV='production', so this
-        # branch is unreachable in a deployed environment.
-        if settings.APP_ENV != "production" and settings.DEV_AUTH_BYPASS:
-            # Named distinctly from `user` below: binding `user` here would make
-            # mypy infer it as `User`, and the normal path assigns a
-            # `User | None` from `scalar_one_or_none()`.
-            dev_user = await _get_or_create_dev_user(db)
-            request.state.user_sub = str(dev_user.id)
-            request.state.org_id = str(dev_user.org_id) if dev_user.org_id else None
-            return dev_user
         raise _unauthorized("Not authenticated")
 
     claims = decode_token(credentials.credentials)
@@ -424,7 +428,9 @@ async def _provision_user(
     if not email:
         clean_sub = subject.split("|")[-1] if "|" in subject else subject
         email = f"user_{clean_sub[:16]}@auth0.local"
-        logger.info("Auth0 profile has no email claim; assigned fallback %s for sub=%s", email, subject)
+        logger.info(
+            "Auth0 profile has no email claim; assigned fallback %s for sub=%s", email, subject
+        )
 
     name = (
         str(claims.get("name") or "").strip()

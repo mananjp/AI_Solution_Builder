@@ -193,7 +193,8 @@ The backend and the OpenCode sidecar share the `mvp_workspace` Docker volume: th
 The sidecar is a headless `opencode serve` server on `:4096`. Local dev:
 ```bash
 # From the repo root — put OPENCODE_ZEN_API_KEY in .env first (free at
-# https://opencode.ai/zen); the default model is opencode/big-pickle
+# https://opencode.ai/zen); the default models are the free opencode/step-5-preview-free and
+# opencode/nemotron-3.5-lightning-free
 docker compose up -d opencode
 make -C backend sidecar-logs      # tail [opencode] logs
 curl http://localhost:4096/api/info   # or /global/health (older builds)
@@ -282,7 +283,7 @@ GET  /api/v1/mvp/builds/{id}/status     # status + generated file tree
 ### Phase 6 — What happens inside a build
 1. The backend **scaffolds** a complete FastAPI + Next.js + infra project into the shared volume (`scaffold_build` substitutes app name / slug / title).
 2. It compiles a **compact "slot-fill" prompt** from the HLD, LLD, ER entities, API endpoints, wireframe screens, and DDL — deliberately small so it fits the model's token limits.
-3. The **OpenCode sidecar agent** (`mvp-builder`, default model `opencode/big-pickle` — free on OpenCode Zen) edits only these slots: `models.py`, `schemas.py`, `routers.py`, Alembic migration, and one CRUD page per module.
+3. The **OpenCode sidecar agent** (`mvp-builder`, default model `opencode/step-5-preview-free` — free on OpenCode Zen) edits only these slots: `models.py`, `schemas.py`, `routers.py`, Alembic migration, and one CRUD page per module.
 4. You can **download** the project as a ZIP (`GET …/download`) or **tune it** before shipping via a config overlay (`POST …/configure` with env values / app name).
 
 ### Phase 7 — One-click deploy to GitHub + Render
@@ -328,7 +329,7 @@ Prometheus metrics (`/metrics`), health/ready probes, audit logs, and credit met
 | **Backend** | Python 3.12, FastAPI, SQLAlchemy 2.0 (Async), Pydantic v2, LangGraph, LangChain, pgvector, Redis, PyMuPDF, python-docx, python-pptx, openpyxl/pandas, beautifulsoup4, PyYAML |
 | **Frontend** | Next.js 16 (App Router, Turbopack), React 19, TypeScript 5, Tailwind CSS v4, `@xyflow/react`, Lucide Icons |
 | **Mobile & PWA** | Capacitor 8 (Android shell; web app / PWA), PWA Service Worker |
-| **MVP Builder** | OpenCode headless sidecar (`opencode serve`), agent `mvp-builder` on model `opencode/big-pickle` (free via OpenCode Zen; Groq fallback), HTTP proxy client (`httpx`) |
+| **MVP Builder** | OpenCode headless sidecar (`opencode serve`), agent `mvp-builder` on model `opencode/step-5-preview-free` (free via OpenCode Zen; Groq fallback), HTTP proxy client (`httpx`) |
 | **Data & Cache** | PostgreSQL 16 with `vector` extension, Redis 7 |
 | **DevOps & CI/CD**| GitHub Actions (CI & GHCR publishing), Docker & Docker Compose, Dockle security scanning, Ruff, Mypy, Pytest (Coverage ≥ 80%), ESLint |
 
@@ -366,7 +367,7 @@ AI_Solution_Builder/
 │   │   └── workable/                 # Dynamic schema provisioner & runtime engine
 │   ├── opencode/                     # OpenCode sidecar — built into Docker image
 │   │   ├── Dockerfile
-│   │   ├── config.json               # model: opencode/big-pickle (Zen)
+│   │   ├── config.json               # model: __OPENCODE_MODEL__ -> opencode/step-5-preview-free (Zen)
 │   │   ├── agents/
 │   │   │   └── mvp-builder.md        # Agent instructions (slot-fill workflow)
 │   │   └── templates/mvp/            # Pre-scaffolded MVP project base
@@ -409,7 +410,7 @@ cd AI_Solution_Builder
 # Copy environment template
 cp .env.example .env
 # Edit .env with your LLM API keys (Groq or OpenAI).
-# The OpenCode sidecar defaults to the free opencode/big-pickle model, which
+# The OpenCode sidecar defaults to the free opencode/step-5-preview-free model, which
 # needs OPENCODE_ZEN_API_KEY (https://opencode.ai/zen). No Zen key? Set
 # OPENCODE_MODEL=groq/openai/gpt-oss-120b and it uses your GROQ_API_KEY.
 ```

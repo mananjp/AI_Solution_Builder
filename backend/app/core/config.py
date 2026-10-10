@@ -118,11 +118,24 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = ".data/uploads"
     EXPORT_DIR: str = ".data/exports"
 
-    # ── Object Storage (Cloudinary) ───────────────
-    STORAGE_BACKEND: str = "local"  # "local" | "cloudinary"
+    # ── Object Storage ────────────────────────────
+    STORAGE_BACKEND: str = "local"  # "local" | "cloudinary" | "neon_s3"
+    # Local development/test artifact root. This is deliberately distinct from
+    # MVP_BUILD_DIR: the API may serve finished artifacts but never needs a
+    # worker's mutable generation workspace.
+    ARTIFACT_DIR: str = ".data/artifacts"
     CLOUDINARY_CLOUD_NAME: str = ""
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""
+    # Neon Object Storage is S3-compatible.  These deliberately use explicit
+    # S3 names rather than the AWS SDK's ambient credential chain: generated
+    # artifacts must never accidentally land in a developer's default bucket.
+    S3_ENDPOINT_URL: str = ""
+    S3_BUCKET: str = ""
+    S3_REGION: str = ""
+    S3_ACCESS_KEY_ID: str = ""
+    S3_SECRET_ACCESS_KEY: str = ""
+    S3_FORCE_PATH_STYLE: bool = True
 
     # ── Security / Threat Scanning ────────────────────
     SECURITY_SCAN_ENABLED: bool = True
@@ -203,18 +216,36 @@ class Settings(BaseSettings):
     # deterministically pinned to one member of the pool (parallel multi-user builds).
     OPENCODE_POOL_URLS: str = ""
     OPENCODE_ZEN_API_KEY: str = ""  # Optional — only needed for opencode/* Zen models
-    OPENCODE_MODEL: str = "opencode/big-pickle"
+    OPENCODE_MODEL: str = "opencode/step-5-preview-free"
+    # Cheap model for titles/summaries — keeps generation quota free on the primary model.
+    OPENCODE_SMALL_MODEL: str = "opencode/nemotron-3.5-lightning-free"
     OPENCODE_AGENT: str = "mvp-builder"
     MVP_BUILD_TIMEOUT: int = 600  # seconds
     MVP_BUILD_DIR: str = ".data/mvp_builds"
     MVP_TEMPLATE_DIR: str = "opencode/templates/mvp"
     MVP_BUILD_CREDIT_COST: int = 30
-    MVP_VERIFY_NPM: bool = False  # Skip npm install/build in memory-constrained environments
+    MVP_VERIFY_NPM: bool = True
     MVP_VERIFY_INSTALL_TIMEOUT: int = 180  # seconds for npm install in checkpoint
     MVP_VERIFY_BUILD_TIMEOUT: int = 120  # seconds for npm run build in checkpoint
     MVP_MAX_REPAIR_TURNS: int = 4
     MVP_TEST_TIMEOUT_S: int = 180
-    MVP_QUALITY_GATE: bool = False  # Enforce strict zero-placeholder and visual quality gate
+    MVP_QUALITY_GATE: bool = True
+    MVP_RUN_ACCEPTANCE_TESTS: bool = True
+    MVP_STRICT_TESTS: bool = True
+    MVP_STRICT_SCREENS: bool = True
+    # Premade templates (todo/calculator/portfolio/restaurant) can skip the LLM
+    # entirely and ship a hand-written scaffold in ~1s. That path produces
+    # generic, non-generated output, so it is opt-in: leave it off to run every
+    # build — premade or custom — through full OpenCode generation + verification.
+    MVP_PREMADE_FAST_PATH: bool = False
+
+    # ── Architecture Enrichment (OpenCode) ───────────
+    # The deterministic artifact synthesizer emits structurally correct but
+    # generic HLD/LLD/roadmap prose. When enabled, the confirmed spec is sent to
+    # the OpenCode sidecar to draft spec-specific architecture documents instead.
+    # Disable to always use deterministic artifacts.
+    OPENCODE_ARCH_ENRICH: bool = True
+    OPENCODE_ARCH_TIMEOUT: int = 240  # seconds for one enrichment round-trip
 
     # ── Product Image Generation (Gemini) ───────────
     # Optional. When no key is configured the build's "illustrating" phase is
@@ -235,6 +266,7 @@ class Settings(BaseSettings):
     WORKER_HEARTBEAT_INTERVAL: float = 10.0
     WORKER_HEARTBEAT_STALE_SECONDS: int = 180
     WORKER_RETRY_DELAY_SECONDS: int = 10
+    WORKER_MAX_ATTEMPTS: int = 3
 
     # ── Frontend origin ───────────────────────────
     # Used for CORS and the Auth0 post-login redirect allow-list check.
@@ -244,6 +276,11 @@ class Settings(BaseSettings):
         "CLOUDINARY_CLOUD_NAME",
         "CLOUDINARY_API_KEY",
         "CLOUDINARY_API_SECRET",
+        "S3_ENDPOINT_URL",
+        "S3_BUCKET",
+        "S3_REGION",
+        "S3_ACCESS_KEY_ID",
+        "S3_SECRET_ACCESS_KEY",
         "VIRUSTOTAL_API_KEY",
         mode="before",
     )
@@ -295,6 +332,10 @@ class Settings(BaseSettings):
         the constructor turns that into an immediate, actionable startup error.
         """
         if self.APP_ENV == "production":
+            if self.STORAGE_BACKEND.lower() == "local":
+                raise ValueError(
+                    "STORAGE_BACKEND must use durable object storage when APP_ENV='production'."
+                )
             if self.DEV_AUTH_BYPASS:
                 raise ValueError(
                     "DEV_AUTH_BYPASS must be false when APP_ENV='production'. "

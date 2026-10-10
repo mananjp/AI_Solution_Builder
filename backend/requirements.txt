@@ -51,8 +51,9 @@ reportlab>=4.2.5
 # Observability
 prometheus-client>=0.21.0
 
-# Object Storage (Cloudinary)
+# Object Storage (Cloudinary + S3-compatible Neon Object Storage)
 cloudinary>=1.41.0
+boto3==1.43.111
 
 # Utilities
 pydantic==2.13.5

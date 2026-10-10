@@ -160,6 +160,10 @@ def _is_retryable_build_error(exc: Exception) -> bool:
             "worker terminated",
             "abandoned mid-execution",
             "worker stopped responding",
+            "could not resolve host",
+            "name or service not known",
+            "resolving timed out",
+            "temporary failure in name resolution",
         )
     )
 
@@ -173,7 +177,11 @@ def _age_seconds(timestamp: datetime | None, now: datetime) -> float:
 
 
 def _storage_key(build: MVPBuild) -> str:
-    """Deterministic Cloudinary key for a build artifact."""
+    """Deterministic object-storage key for a build artifact.
+
+    Re-uploading the same key overwrites the previous artifact in place, so an
+    edited build replaces the stored ZIP without leaving orphans behind.
+    """
     return f"builds/{build.solution_id}/build_{build.build_number}.zip"
 
 
@@ -339,6 +347,7 @@ async def execute_build_job(build_id: UUID) -> None:
                 template_slug
                 and template_slug in ("todo", "calculator", "portfolio", "restaurant_ordering")
                 and builder.run_build is _ORIG_RUN_BUILD
+                and settings.MVP_PREMADE_FAST_PATH
             ):
                 logger.info(
                     "Executing fast-path premade build for solution=%s template=%s",
@@ -452,9 +461,10 @@ async def execute_build_job(build_id: UUID) -> None:
                     store_err,
                     local_zip_path,
                 )
-                if settings.STORAGE_BACKEND.lower() == "cloudinary":
+                if settings.STORAGE_BACKEND.lower() != "local":
                     raise RuntimeError(
-                        "Build artifact could not be saved to Cloudinary; check the shared storage credentials."
+                        "Build artifact could not be saved to configured object storage; "
+                        "check the storage credentials and endpoint."
                     ) from store_err
 
             del zip_data
@@ -617,7 +627,11 @@ async def quick_build(
         db.add(build)
         await db.flush()
 
-        job = BuildJob(build_id=build.id, status="queued")
+        job = BuildJob(
+            build_id=build.id,
+            status="queued",
+            max_attempts=settings.WORKER_MAX_ATTEMPTS,
+        )
         db.add(job)
         await db.commit()
         await db.refresh(build)
@@ -675,7 +689,11 @@ async def trigger_build(
         db.add(build)
         await db.flush()
 
-        job = BuildJob(build_id=build.id, status="queued")
+        job = BuildJob(
+            build_id=build.id,
+            status="queued",
+            max_attempts=settings.WORKER_MAX_ATTEMPTS,
+        )
         db.add(job)
         await db.commit()
         await db.refresh(build)
@@ -1044,7 +1062,7 @@ async def chat_edit_build(
     if not local_dir.exists() or not any(local_dir.iterdir()):
         raise HTTPException(
             status_code=410,
-            detail="Build files are unavailable. Verify the Cloudinary artifact and retry.",
+            detail="Build files are unavailable. Verify the stored artifact in object storage and retry.",
         )
     rel_files = builder.relative_paths(local_dir)
 
@@ -1300,8 +1318,8 @@ async def download_build(
 ) -> Response:
     """Download the generated MVP project as a ZIP archive.
 
-    In production the artifact lives in object storage (Cloudinary); we return
-    a 307 redirect to a signed Cloudinary URL. If the remote URL can't be
+    In production the artifact lives in object storage; we return
+    a 307 redirect to a short-lived presigned URL. If the remote URL can't be
     produced, the raw bytes are streamed back through the API.
     """
     build = await _get_build_for_user(db, build_id, current_user)
@@ -1323,7 +1341,7 @@ async def download_build(
                 filename=filename,
             )
 
-    # 2. Try remote object storage (Cloudinary) when storage_key is explicitly set
+    # 2. Try remote object storage (presigned URL) when storage_key is explicitly set
     if build.storage_key and not build.storage_key.startswith("local:"):
         try:
             storage = get_storage()
@@ -2073,7 +2091,7 @@ async def configure_build(
 ) -> dict[str, Any]:
     """Apply a user configuration overlay (env values / app name) to a build.
 
-    The artifact is pulled from object storage (Cloudinary), patched in a
+    The artifact is pulled from object storage, patched in a
     temporary directory, then re-uploaded so downloads always reflect the
     configured state.
     """

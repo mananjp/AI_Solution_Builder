@@ -9,25 +9,27 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.storage import CloudinaryStorage, LocalStorage, get_storage
+from app.services.storage import CloudinaryStorage, LocalStorage, S3Storage, get_storage
 
 # ── LocalStorage ─────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_local_storage_upload_bytes(tmp_path: Path):
+async def test_local_storage_upload_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """upload_bytes writes the blob to the keyed path."""
+    monkeypatch.setattr("app.services.storage.settings.ARTIFACT_DIR", str(tmp_path))
     storage = LocalStorage()
-    key = str(tmp_path / "builds" / "abc" / "build_1.zip")
+    key = "builds/abc/build_1.zip"
     await storage.upload_bytes(b"PK", key)
     assert (tmp_path / "builds" / "abc" / "build_1.zip").read_bytes() == b"PK"
 
 
 @pytest.mark.asyncio
-async def test_local_storage_download_raw(tmp_path: Path):
+async def test_local_storage_download_raw(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """download_raw reads the blob back from disk."""
+    monkeypatch.setattr("app.services.storage.settings.ARTIFACT_DIR", str(tmp_path))
     storage = LocalStorage()
-    key = str(tmp_path / "blob.bin")
+    key = "blob.bin"
     (tmp_path / "blob.bin").write_bytes(b"payload")
     assert await storage.download_raw(key) == b"payload"
 
@@ -41,11 +43,22 @@ async def test_local_storage_download_url_none():
 
 
 @pytest.mark.asyncio
-async def test_local_storage_delete_noop():
-    """delete_file is a no-op (local cleanup is handled elsewhere)."""
+async def test_local_storage_delete_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """delete_file removes only the requested object under the artifact root."""
+    monkeypatch.setattr("app.services.storage.settings.ARTIFACT_DIR", str(tmp_path))
     storage = LocalStorage()
-    # Should not raise
+    await storage.upload_bytes(b"PK", "builds/abc/build_1.zip")
     await storage.delete_file("builds/abc/build_1.zip")
+    assert not (tmp_path / "builds/abc/build_1.zip").exists()
+
+
+@pytest.mark.asyncio
+async def test_local_storage_rejects_path_escape(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("app.services.storage.settings.ARTIFACT_DIR", str(tmp_path))
+    with pytest.raises(ValueError, match="relative path"):
+        await LocalStorage().upload_bytes(b"PK", "/tmp/outside.zip")
+    with pytest.raises(ValueError, match="relative path"):
+        await LocalStorage().upload_bytes(b"PK", "../outside.zip")
 
 
 # ── CloudinaryStorage ────────────────────────────────────────────────────────
@@ -165,6 +178,85 @@ async def test_cloudinary_storage_delete_calls_destroy():
 
 
 # ── get_storage() factory ────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_s3_storage_uses_path_style_and_presigned_urls():
+    class FakeBody:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def read(self) -> bytes:
+            return b"zip-bytes"
+
+        def close(self) -> None:
+            self.closed = True
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.body = FakeBody()
+            self.put_calls: list[dict] = []
+            self.delete_calls: list[dict] = []
+
+        def put_object(self, **kwargs) -> None:
+            self.put_calls.append(kwargs)
+
+        def get_object(self, **kwargs) -> dict:
+            assert kwargs == {"Bucket": "artifacts", "Key": "builds/abc/build_1.zip"}
+            return {"Body": self.body}
+
+        def generate_presigned_url(self, *args, **kwargs) -> str:
+            assert args == ("get_object",)
+            assert kwargs == {
+                "Params": {"Bucket": "artifacts", "Key": "builds/abc/build_1.zip"},
+                "ExpiresIn": 3600,
+            }
+            return "https://storage.example/presigned"
+
+        def delete_object(self, **kwargs) -> None:
+            self.delete_calls.append(kwargs)
+
+    client = FakeClient()
+
+    with patch("boto3.client", return_value=client) as create_client:
+        storage = S3Storage(
+            endpoint_url="https://storage.example",
+            bucket="artifacts",
+            region="ap-southeast-1",
+            access_key_id="access",
+            secret_access_key="secret",
+        )
+        assert (
+            await storage.upload_bytes(b"PK", "builds/abc/build_1.zip") == "builds/abc/build_1.zip"
+        )
+        assert await storage.download_raw("builds/abc/build_1.zip") == b"zip-bytes"
+        assert (
+            await storage.get_download_url("builds/abc/build_1.zip")
+            == "https://storage.example/presigned"
+        )
+        await storage.delete_file("builds/abc/build_1.zip")
+
+    create_client.assert_called_once()
+    assert create_client.call_args.kwargs["endpoint_url"] == "https://storage.example"
+    assert create_client.call_args.kwargs["config"].s3["addressing_style"] == "path"
+    assert client.put_calls == [
+        {
+            "Bucket": "artifacts",
+            "Key": "builds/abc/build_1.zip",
+            "Body": b"PK",
+            "ContentType": "application/zip",
+        }
+    ]
+    assert client.delete_calls == [{"Bucket": "artifacts", "Key": "builds/abc/build_1.zip"}]
+    assert client.body.closed
+
+
+@pytest.mark.asyncio
+async def test_s3_storage_rejects_path_escape():
+    with patch("boto3.client"):
+        storage = S3Storage("https://storage.example", "artifacts", "region", "access", "secret")
+    with pytest.raises(ValueError, match="relative path"):
+        await storage.upload_bytes(b"PK", "../outside.zip")
 
 
 def test_get_storage_returns_local_by_default():

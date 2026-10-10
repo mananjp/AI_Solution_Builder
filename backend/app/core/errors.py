@@ -35,14 +35,20 @@ def error_response(
     details: list[Any] | None = None,
     http_code: int = status.HTTP_400_BAD_REQUEST,
     headers: Mapping[str, str] | None = None,
+    request_id: str | None = None,
 ) -> JSONResponse:
     """Build a JSON error response in the standard envelope."""
+    # request_id comes from `request.state`, which is untyped at runtime: anything
+    # that is not a real string cannot be JSON-encoded. Coerce rather than emit a
+    # 500 while reporting a 500.
+    rid = str(request_id) if request_id is not None else None
     return JSONResponse(
         status_code=http_code,
         content={
             "error": {
                 "code": code,
                 "message": message,
+                "request_id": rid,
                 "details": details or [],
             }
         },
@@ -70,6 +76,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
         details=details,
         http_code=exc.status_code,
         headers=getattr(exc, "headers", None),
+        request_id=getattr(request.state, "request_id", None),
     )
 
 
@@ -91,6 +98,7 @@ async def validation_exception_handler(
         message="Request validation failed",
         details=details,
         http_code=getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422),
+        request_id=getattr(request.state, "request_id", None),
     )
 
 
@@ -100,6 +108,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
         code="INTERNAL_SERVER_ERROR",
         message="An unexpected error occurred",
         http_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        request_id=getattr(request.state, "request_id", None),
     )
 
 

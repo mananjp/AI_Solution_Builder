@@ -798,14 +798,9 @@ interface Project {
 }
 
 export default function Home() {
-  const [projects, setProjects] = useState<Project[]>([
-    { id: "p1", name: "Default Project" },
-  ]);
-  const [activeProject, setActiveProject] = useState<string>("p1");
-  const [tasks, setTasks] = useState<Task[]>([
-    { id: "t1", project_id: "p1", title: "Welcome to __APP_TITLE__!", done: false },
-    { id: "t2", project_id: "p1", title: "Mark tasks complete with checkboxes", done: true },
-  ]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeProject, setActiveProject] = useState<string>("");
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [newTitle, setNewTitle] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
 
@@ -821,7 +816,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!activeProject || activeProject === "p1") return;
+    if (!activeProject) return;
     api.get<Task[]>(`/projects/${activeProject}/tasks`)
       .then((res) => {
         if (res) setTasks(res);

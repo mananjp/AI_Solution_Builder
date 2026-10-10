@@ -339,7 +339,34 @@ def verify_screens(workspace_dir: Path) -> list[str]:
             errors.append(
                 f"{page.relative_to(workspace_dir)} never calls the API (static mock UI)."
             )
+        errors.extend(verify_no_seed_data(src, page.relative_to(workspace_dir)))
     return errors
+
+
+# A seeded screen renders fabricated rows until the first API response lands, so
+# the UI looks functional while showing data that does not exist. The agent prompt
+# forbids it, but nothing enforced it, so it survived to the packaged artifact.
+_SEEDED_STATE = re.compile(r"useState\s*(?:<[^>]*>)?\s*\(\s*\[\s*\{")
+
+
+def verify_no_seed_data(src: str, rel: Path) -> list[str]:
+    """Reject React state seeded with a non-empty array/object literal.
+
+    ``useState([])`` / ``useState(null)`` / ``useState(false)`` are correct
+    "nothing loaded yet" states. ``useState([{...}])`` is fabricated data that
+    ships to the user before any API call resolves, which is the one thing the
+    generator is told never to do.
+    """
+    if _SEEDED_STATE.search(src):
+        return [
+            f"{rel} seeds React state with hardcoded sample data; start from an empty "
+            "state (`useState<Type[]>([])`) and render only what the API returns."
+        ]
+    if re.search(r"useState\s*(?:<[^>]*>)?\s*\(\s*\{\s*\w+\s*:", src):
+        return [
+            f"{rel} seeds React state with a hardcoded object; derive it from the API response."
+        ]
+    return []
 
 
 def _repair_prompt(
@@ -433,7 +460,12 @@ def verify_mvp_quality(workspace_dir: Path, spec: Any = None) -> list[str]:
             for token, msg in placeholder_patterns:
                 if token in content:
                     issues.append(f"{tsx.relative_to(workspace_dir)}: Contains {msg}")
-            if "<img" in content or "Image" in content or "image_url" in content or "unsplash" in content:
+            if (
+                "<img" in content
+                or "Image" in content
+                or "image_url" in content
+                or "unsplash" in content
+            ):
                 has_image = True
         except Exception:
             pass
@@ -444,7 +476,8 @@ def verify_mvp_quality(workspace_dir: Path, spec: Any = None) -> list[str]:
     if app_kind in visual_kinds and not has_image:
         credits_file = workspace_dir / "CREDITS.json"
         if not credits_file.exists():
-            issues.append(f"Visual application kind '{app_kind}' has no image assets or CREDITS.json configured")
+            issues.append(
+                f"Visual application kind '{app_kind}' has no image assets or CREDITS.json configured"
+            )
 
     return issues
-

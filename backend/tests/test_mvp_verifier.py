@@ -278,3 +278,142 @@ def test_verify_frontend_npm_build_failure(tmp_path: Path, monkeypatch):
     assert len(errors) == 1
     assert "Frontend npm build failed" in errors[0]
     assert len(calls) == 2
+
+
+def _spec_dir(tmp_path: Path, screens: list[dict]) -> Path:
+    """Build a minimal workspace containing only a spec and its screens."""
+    import json
+
+    (tmp_path / "spec.json").write_text(json.dumps({"screens": screens}), encoding="utf-8")
+    app_dir = tmp_path / "frontend" / "src" / "app"
+    app_dir.mkdir(parents=True)
+    return app_dir
+
+
+def test_missing_screen_blocks_build(tmp_path: Path):
+    """A spec screen with no page must fail verification, not pass silently."""
+    from app.services.mvp_verifier import verify_screens
+
+    app_dir = _spec_dir(tmp_path, [{"name": "Orders", "route": "orders"}])
+    errors = verify_screens(tmp_path)
+    assert any("Orders" in e and "missing" in e for e in errors)
+    assert not (app_dir / "orders").exists()
+
+
+def test_placeholder_screen_blocks_build(tmp_path: Path):
+    """A left-behind template placeholder must fail verification."""
+    from app.services.mvp_verifier import verify_screens
+
+    _spec_dir(tmp_path, [{"name": "Orders", "route": "orders"}])
+    page = tmp_path / "frontend" / "src" / "app" / "orders" / "page.tsx"
+    page.parent.mkdir(parents=True)
+    page.write_text(
+        "export default function Page() { return <div>__APP_TITLE__</div>; }",
+        encoding="utf-8",
+    )
+
+    errors = verify_screens(tmp_path)
+    assert any("placeholders" in e for e in errors)
+
+
+def test_static_mock_ui_blocks_build(tmp_path: Path):
+    """A screen that never calls the API is static mock UI and must fail."""
+    from app.services.mvp_verifier import verify_screens
+
+    _spec_dir(tmp_path, [{"name": "Orders", "route": "orders", "uses_entities": ["Order"]}])
+    page = tmp_path / "frontend" / "src" / "app" / "orders" / "page.tsx"
+    page.parent.mkdir(parents=True)
+    page.write_text(
+        "export default function Page() { return <div>Order 1 Order 2</div>; }",
+        encoding="utf-8",
+    )
+
+    errors = verify_screens(tmp_path)
+    assert any("never calls the API" in e for e in errors)
+
+
+def test_real_screen_passes_verification(tmp_path: Path):
+    """The counter-example: a wired, API-calling screen must pass."""
+    from app.services.mvp_verifier import verify_screens
+
+    _spec_dir(tmp_path, [{"name": "Orders", "route": "orders", "uses_entities": ["Order"]}])
+    page = tmp_path / "frontend" / "src" / "app" / "orders" / "page.tsx"
+    page.parent.mkdir(parents=True)
+    page.write_text(
+        "'use client';\nimport { api } from '@/lib/api';\n"
+        "export default function Page() { return <div>{api.orders.list()}</div>; }",
+        encoding="utf-8",
+    )
+
+    assert verify_screens(tmp_path) == []
+
+
+@pytest.mark.asyncio
+async def test_verify_and_repair_without_session_fails_closed(tmp_path: Path):
+    """With no session to repair into, a broken build must raise — never report success."""
+    backend = tmp_path / "backend"
+    backend.mkdir()
+
+    with pytest.raises(VerificationError) as exc_info:
+        await verify_and_repair(
+            tmp_path,
+            session_id=None,
+            target_dir=str(tmp_path),
+            send_prompt_fn=None,
+        )
+
+    assert "main.py" in str(exc_info.value)
+
+
+def test_seeded_react_state_blocks_build(tmp_path: Path):
+    """Hardcoded sample data in useState must fail — it ships fake rows to users."""
+    from app.services.mvp_verifier import verify_no_seed_data
+
+    src = (
+        '"use client";\n'
+        "const [tasks, setTasks] = useState<Task[]>([\n"
+        '  { id: "t1", title: "Welcome to QuickTodos!", done: false },\n'
+        "]);\n"
+    )
+    errors = verify_no_seed_data(src, Path("frontend/src/app/page.tsx"))
+    assert len(errors) == 1
+    assert "hardcoded sample data" in errors[0]
+
+
+def test_empty_loading_state_is_accepted() -> None:
+    """`useState<Type[]>([])` is the correct empty state and must pass."""
+    from app.services.mvp_verifier import verify_no_seed_data
+
+    for src in (
+        "const [tasks, setTasks] = useState<Task[]>([]);",
+        "const [tasks, setTasks] = useState([]);",
+        "const [loading, setLoading] = useState(false);",
+        "const [query, setQuery] = useState('');",
+        "const [error, setError] = useState<Error | null>(null);",
+    ):
+        assert verify_no_seed_data(src, Path("page.tsx")) == [], src
+
+
+def test_seeded_object_state_blocks_build() -> None:
+    from app.services.mvp_verifier import verify_no_seed_data
+
+    src = 'const [project, setProject] = useState({ id: "p1", name: "Default Project" });\n'
+    errors = verify_no_seed_data(src, Path("frontend/src/app/page.tsx"))
+    assert errors and "hardcoded object" in errors[0]
+
+
+def test_verify_screens_flags_seed_data(tmp_path: Path):
+    """The gate is wired into screen verification, not just a standalone helper."""
+    from app.services.mvp_verifier import verify_screens
+
+    _spec_dir(tmp_path, [{"name": "Dashboard", "route": "/", "uses_entities": ["Task"]}])
+    page = tmp_path / "frontend" / "src" / "app" / "page.tsx"
+    page.write_text(
+        '"use client";\nimport { api } from "@/lib/api";\n'
+        'const [tasks, setTasks] = useState<Task[]>([{ id: "t1", title: "Mock" }]);\n'
+        "export default function Page() { return <div>{api.tasks.list()}</div>; }",
+        encoding="utf-8",
+    )
+
+    errors = verify_screens(tmp_path)
+    assert any("hardcoded sample data" in e for e in errors)

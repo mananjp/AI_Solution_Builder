@@ -12,6 +12,7 @@ AI Solution Builder — Core Middleware
 """
 
 import logging
+import re
 import time
 import uuid
 from datetime import UTC, datetime
@@ -31,13 +32,19 @@ logger = logging.getLogger(__name__)
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 _HEALTH_PATHS = {"/health", "/ready", "/metrics", "/docs", "/redoc", "/openapi.json"}
 _AI_PATHS = ("/api/v1/chat", "/api/v1/export")
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
     """Ensure every request carries a unique X-Request-ID."""
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+        incoming_request_id = request.headers.get("X-Request-ID", "")
+        request_id = (
+            incoming_request_id
+            if _REQUEST_ID_RE.fullmatch(incoming_request_id)
+            else uuid.uuid4().hex
+        )
         request.state.request_id = request_id
         request.state.start_time = time.monotonic()
         response = await call_next(request)

@@ -42,8 +42,8 @@ services:
     container_name: ai_solution_builder_backend
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_solution_builder}
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_solution_builder}}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       APP_ENV: ${APP_ENV:-production}
       GROQ_API_KEY: ${GROQ_API_KEY}
       GROQ_MODEL_NAME: ${GROQ_MODEL_NAME:-openai/gpt-oss-120b}
@@ -53,10 +53,25 @@ services:
       # Comma-separated sidecar pool (see opencode service comment). Empty = single OPENCODE_SERVER_URL.
       OPENCODE_POOL_URLS: ${OPENCODE_POOL_URLS:-}
       MVP_BUILD_DIR: .data/mvp_builds
+      ARTIFACT_DIR: .data/artifacts
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://host.docker.internal:5555}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      AUTH0_DOMAIN: ${AUTH0_DOMAIN:-}
+      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE:-}
+      AUTH0_ENABLED: ${AUTH0_ENABLED:-true}
+      DEV_AUTH_BYPASS: ${DEV_AUTH_BYPASS:-false}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
+      WORKER_MODE: worker
     ports:
       - "8000:8000"
     volumes:
-      - mvp_workspace:/app/.data/mvp_builds
+      - mvp_artifacts:/app/.data/artifacts
     depends_on:
       postgres:
         condition: service_healthy
@@ -79,8 +94,8 @@ services:
     restart: unless-stopped
     command: ["worker"]
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_solution_builder}
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_solution_builder}}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       APP_ENV: ${APP_ENV:-production}
       GROQ_API_KEY: ${GROQ_API_KEY}
       GROQ_MODEL_NAME: ${GROQ_MODEL_NAME:-openai/gpt-oss-120b}
@@ -90,9 +105,24 @@ services:
       # Comma-separated sidecar pool (see opencode service comment). Empty = single OPENCODE_SERVER_URL.
       OPENCODE_POOL_URLS: ${OPENCODE_POOL_URLS:-}
       MVP_BUILD_DIR: .data/mvp_builds
+      ARTIFACT_DIR: .data/artifacts
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://host.docker.internal:5555}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      AUTH0_DOMAIN: ${AUTH0_DOMAIN:-}
+      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE:-}
+      AUTH0_ENABLED: ${AUTH0_ENABLED:-true}
+      DEV_AUTH_BYPASS: ${DEV_AUTH_BYPASS:-false}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
       WORKER_MODE: worker
     volumes:
       - mvp_workspace:/app/.data/mvp_builds
+      - mvp_artifacts:/app/.data/artifacts
     depends_on:
       postgres:
         condition: service_healthy
@@ -121,10 +151,19 @@ services:
     restart: unless-stopped
     environment:
       OPENCODE_ZEN_API_KEY: ${OPENCODE_ZEN_API_KEY:-}
-      OPENCODE_MODEL: ${OPENCODE_MODEL:-opencode/big-pickle}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-opencode/step-5-preview-free}
+      OPENCODE_SMALL_MODEL: ${OPENCODE_SMALL_MODEL:-opencode/nemotron-3.5-lightning-free}
       OPENCODE_AGENT: ${OPENCODE_AGENT:-mvp-builder}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_MODEL_NAME: ${GROQ_MODEL_NAME:-openai/gpt-oss-120b}
+    # Docker's embedded resolver can inherit an unreachable host resolver in
+    # managed development environments. Use explicit, overridable resolvers so
+    # provider connectivity can recover without rebuilding the sidecar.
+    dns:
+      - ${OPENCODE_DNS_PRIMARY:-1.1.1.1}
+      - ${OPENCODE_DNS_SECONDARY:-8.8.8.8}
+    ports:
+      - "4096:4096"
     volumes:
       - mvp_workspace:/workspace
     healthcheck:
@@ -140,6 +179,10 @@ services:
       context: ./frontend
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
+        NEXT_PUBLIC_AUTH0_DOMAIN: ${NEXT_PUBLIC_AUTH0_DOMAIN:-}
+        NEXT_PUBLIC_AUTH0_CLIENT_ID: ${NEXT_PUBLIC_AUTH0_CLIENT_ID:-}
+        NEXT_PUBLIC_AUTH0_AUDIENCE: ${NEXT_PUBLIC_AUTH0_AUDIENCE:-}
+        NEXT_PUBLIC_AUTH0_CALLBACK_URL: ${NEXT_PUBLIC_AUTH0_CALLBACK_URL:-}
     container_name: ai_solution_builder_frontend
     restart: unless-stopped
     ports:
@@ -160,4 +203,6 @@ volumes:
   redis_data:
     driver: local
   mvp_workspace:
+    driver: local
+  mvp_artifacts:
     driver: local
