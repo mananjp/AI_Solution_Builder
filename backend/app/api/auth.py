@@ -14,19 +14,133 @@ authenticate against without hardcoding a second copy of the domain.
 
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.secrets import encrypt_secret
-from app.core.security import get_current_user
+from app.core.security import create_legacy_access_token, get_current_user, hash_password, verify_password
+from app.models.organization import Organization
 from app.models.user import User
+from app.models.workspace import Workspace
 from app.schemas import UserResponse, UserSettingsUpdate
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+class LegacyRegisterRequest(BaseModel):
+    email: str
+    full_name: str = Field(..., min_length=1, max_length=255)
+    password: str = Field(..., min_length=8, max_length=128)
+    org_name: str | None = Field(default=None, min_length=1, max_length=255)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        cleaned = value.strip().lower()
+        if "@" not in cleaned or cleaned.count("@") != 1:
+            raise ValueError("email must be a valid email address")
+        local, domain = cleaned.split("@", 1)
+        if not local or not domain or "." not in domain:
+            raise ValueError("email must be a valid email address")
+        return cleaned
+
+
+class LegacyLoginRequest(BaseModel):
+    email: str
+    password: str = Field(..., min_length=1, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        cleaned = value.strip().lower()
+        if "@" not in cleaned or cleaned.count("@") != 1:
+            raise ValueError("email must be a valid email address")
+        local, domain = cleaned.split("@", 1)
+        if not local or not domain or "." not in domain:
+            raise ValueError("email must be a valid email address")
+        return cleaned
+
+
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+async def register_legacy_user(
+    payload: LegacyRegisterRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Compatibility endpoint for the legacy local register flow.
+
+    This keeps older clients and tests working without removing the modern
+    Auth0-based identity flow that powers production auth.
+    """
+    email = payload.email.lower().strip()
+    existing = await db.execute(select(User).where(User.email == email))
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "CONFLICT", "message": "Email already registered"},
+        )
+
+    org_name = (payload.org_name or payload.full_name or "Workspace").strip() or "Workspace"
+    org = Organization(name=org_name[:255], credits_remaining=200)
+    db.add(org)
+    await db.flush()
+
+    workspace = Workspace(name="Primary Workspace", org_id=org.id)
+    db.add(workspace)
+
+    user = User(
+        email=email,
+        full_name=payload.full_name.strip()[:255],
+        hashed_password=hash_password(payload.password),
+        auth_provider="auth0",
+        auth_issuer="legacy-local",
+        provider_user_id="",
+        email_verified=True,
+        is_anonymous=False,
+        role="owner",
+        org_id=org.id,
+    )
+    db.add(user)
+    await db.flush()
+    user.provider_user_id = str(user.id)
+    await db.commit()
+    await db.refresh(user)
+
+    token = create_legacy_access_token(
+        user.id,
+        email=user.email,
+        org_id=user.org_id,
+        role=user.role,
+    )
+    return {"access_token": token, "token_type": "bearer"}
+
+
+@router.post("/login")
+async def login_legacy_user(
+    payload: LegacyLoginRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Compatibility endpoint for the legacy local login flow."""
+    email = payload.email.lower().strip()
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    if user is None or not verify_password(payload.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "UNAUTHORIZED", "message": "Invalid email or password"},
+        )
+
+    token = create_legacy_access_token(
+        user.id,
+        email=user.email,
+        org_id=user.org_id,
+        role=user.role,
+    )
+    return {"access_token": token, "token_type": "bearer"}
 
 
 @router.get("/config")

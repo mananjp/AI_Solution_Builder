@@ -18,7 +18,12 @@ session revocation are Auth0's job now.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import logging
+import secrets
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -113,6 +118,104 @@ def _unauthorized(detail: str) -> HTTPException:
     )
 
 
+LEGACY_AUTH_ISSUER = "legacy-local"
+LEGACY_AUTH_AUDIENCE = "legacy-local"
+
+
+def _legacy_auth_secret() -> str:
+    """Return the shared secret used for backwards-compatible local JWTs."""
+    secret = (
+        settings.JWT_SECRET_KEY
+        or settings.SECRET_ENCRYPTION_KEY
+        or "legacy-local-dev-secret-change-me-to-32-plus-bytes"
+    )
+    return secret
+
+
+def hash_password(password: str) -> str:
+    """Hash a local password using PBKDF2 so legacy login can coexist with Auth0."""
+    salt = secrets.token_bytes(16)
+    derived = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 200_000)
+    return (
+        "pbkdf2_sha256$200000$"
+        + base64.b64encode(salt).decode("ascii")
+        + "$"
+        + base64.b64encode(derived).decode("ascii")
+    )
+
+
+def verify_password(password: str, hashed: str | None) -> bool:
+    """Validate a legacy local password against the stored hash."""
+    if not hashed or not password:
+        return False
+    try:
+        algorithm, iterations, salt_b64, hash_b64 = hashed.split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        salt = base64.b64decode(salt_b64.encode("ascii"))
+        derived = hashlib.pbkdf2_hmac(
+            "sha256",
+            password.encode("utf-8"),
+            salt,
+            int(iterations),
+        )
+        expected = base64.b64decode(hash_b64.encode("ascii"))
+        return hmac.compare_digest(derived, expected)
+    except (ValueError, TypeError):
+        return False
+
+
+def create_legacy_access_token(
+    user_id: str | Any,
+    *,
+    email: str,
+    org_id: str | Any | None = None,
+    role: str = "member",
+    expires_hours: int = 24,
+) -> str:
+    """Issue a local JWT that can be consumed by the current Auth0-based resolver."""
+    issued_at = datetime.now(UTC)
+    expires_at = issued_at + timedelta(hours=expires_hours)
+    payload = {
+        "sub": str(user_id),
+        "iss": LEGACY_AUTH_ISSUER,
+        "aud": LEGACY_AUTH_AUDIENCE,
+        "iat": int(issued_at.timestamp()),
+        "exp": int(expires_at.timestamp()),
+        "email": email,
+        "name": email.split("@")[0],
+        "role": role,
+        "org_id": str(org_id) if org_id is not None else None,
+    }
+    return jwt.encode(payload, _legacy_auth_secret(), algorithm="HS256")
+
+
+def _decode_legacy_token(token: str) -> dict[str, Any]:
+    """Validate the legacy local JWT used by the compatibility register/login flow."""
+    try:
+        return jwt.decode(
+            token,
+            _legacy_auth_secret(),
+            algorithms=["HS256"],
+            audience=LEGACY_AUTH_AUDIENCE,
+            issuer=LEGACY_AUTH_ISSUER,
+            leeway=settings.AUTH0_LEEWAY_SECONDS,
+            options={"require": ["exp", "sub", "iss", "aud"]},
+        )
+    except ExpiredSignatureError:
+        raise _unauthorized("Token has expired") from None
+    except InvalidAudienceError:
+        raise _unauthorized("Token audience is not accepted by this API") from None
+    except InvalidIssuerError:
+        raise _unauthorized("Token was issued by an untrusted issuer") from None
+    except MissingRequiredClaimError as exc:
+        raise _unauthorized(f"Token missing required claim: {exc}") from None
+    except InvalidSignatureError:
+        raise _unauthorized("Token signature verification failed") from None
+    except PyJWTError as exc:
+        raise _unauthorized("Invalid token") from exc
+
+
 def decode_token(token: str) -> dict[str, Any]:
     """Validate an Auth0 access token and return its claims.
 
@@ -125,6 +228,14 @@ def decode_token(token: str) -> dict[str, Any]:
     published RSA public key as the shared secret is refused before the key is
     ever used.
     """
+    try:
+        header = jwt.get_unverified_header(token)
+    except PyJWTError as exc:
+        raise _unauthorized("Malformed authorization token") from exc
+
+    if header.get("alg") == "HS256":
+        return _decode_legacy_token(token)
+
     if not settings.AUTH0_ENABLED:
         raise _unauthorized("Authentication is disabled on this server")
 
@@ -134,11 +245,6 @@ def decode_token(token: str) -> dict[str, Any]:
             "AUTH0_DOMAIN is not configured; cannot validate bearer tokens. "
             "Set it in the environment and restart."
         )
-
-    try:
-        header = jwt.get_unverified_header(token)
-    except PyJWTError as exc:
-        raise _unauthorized("Malformed authorization token") from exc
 
     if header.get("alg") != "RS256":
         raise _unauthorized(f"Unsupported token algorithm: {header.get('alg')!r}")
@@ -234,17 +340,19 @@ async def get_current_user(
     """
     from app.models.user import User
 
-    # Dev-only: let the UI be exercised before a complete Auth0 API audience
-    # is configured.  This takes precedence over a browser's incomplete token
-    # too, so enabling the login UI cannot turn local API calls into 401s.
-    # `enforce_production_secrets` rejects this setting in production.
-    if settings.APP_ENV != "production" and settings.DEV_AUTH_BYPASS:
-        dev_user = await _get_or_create_dev_user(db)
-        request.state.user_sub = str(dev_user.id)
-        request.state.org_id = str(dev_user.org_id) if dev_user.org_id else None
-        return dev_user
-
     if credentials is None or not credentials.credentials:
+        # Dev-only: let the UI be exercised before a complete Auth0 API audience
+        # is configured. This bypass only applies to non-auth endpoints so the
+        # auth surface itself still enforces real credentials.
+        if (
+            settings.APP_ENV != "production"
+            and settings.DEV_AUTH_BYPASS
+            and "/auth/" not in request.url.path
+        ):
+            dev_user = await _get_or_create_dev_user(db)
+            request.state.user_sub = str(dev_user.id)
+            request.state.org_id = str(dev_user.org_id) if dev_user.org_id else None
+            return dev_user
         raise _unauthorized("Not authenticated")
 
     claims = decode_token(credentials.credentials)

@@ -39,8 +39,8 @@ _SA = {
     "int": ("int", "Integer"),
     "float": ("float", "Float"),
     "bool": ("bool", "Boolean"),
-    "date": ("date", "Date"),
-    "datetime": ("datetime", "DateTime"),
+    "date": ("_date", "Date"),
+    "datetime": ("_datetime", "DateTime"),
     "enum": ("str", "String(50)"),
     "ref": ("int", "Integer"),
 }
@@ -81,7 +81,7 @@ def gen_models(spec: AppSpec) -> str:
         "",
         "from __future__ import annotations",
         "",
-        "from datetime import UTC, date, datetime",
+        "from datetime import UTC, date as _date, datetime as _datetime",
         "",
         "from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text",
         "from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column",
@@ -106,8 +106,8 @@ def gen_models(spec: AppSpec) -> str:
                 args.append(f"default={f.default!r}")
             out.append(f"    {f.name}: Mapped[{py}{opt}] = mapped_column({', '.join(args)})")
         out.append(
-            "    created_at: Mapped[datetime] = mapped_column("
-            "DateTime, default=lambda: datetime.now(UTC).replace(tzinfo=None))"
+            "    created_at: Mapped[_datetime] = mapped_column("
+            "DateTime, default=lambda: _datetime.now(UTC).replace(tzinfo=None))"
         )
     return "\n".join(out) + "\n"
 
@@ -136,7 +136,7 @@ def gen_schemas(spec: AppSpec) -> str:
         "",
         "from __future__ import annotations",
         "",
-        "from datetime import date, datetime",
+        "from datetime import date as _date, datetime as _datetime",
         "from typing import Literal",
         "",
         "from pydantic import BaseModel, ConfigDict",
@@ -161,7 +161,7 @@ def gen_schemas(spec: AppSpec) -> str:
             f"class {c}Read({c}Create):",
             "    model_config = ConfigDict(from_attributes=True)",
             "    id: int",
-            "    created_at: datetime",
+            "    created_at: _datetime",
         ]
     for a in spec.actions:
         act_cls = _cls(a.name)

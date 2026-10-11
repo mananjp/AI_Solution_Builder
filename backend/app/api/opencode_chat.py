@@ -1388,6 +1388,7 @@ async def chat(
                                 f"{payload.uploaded_context[:_TARGET_MAX_CONTEXT]}\n\n"
                                 f"User request:\n{user_prompt}"
                             )
+                        user_prompt = user_prompt[: settings.CHAT_MAX_MESSAGE_CHARS]
 
                     try:
                         resp = await llm.ainvoke(
