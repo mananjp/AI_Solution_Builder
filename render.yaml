@@ -135,7 +135,7 @@ services:
           name: ai-solution-builder-builder
           envVarKey: VIRUSTOTAL_API_KEY
       - key: MVP_BUILD_TIMEOUT
-        value: "600"
+        value: "2700"
       - key: MVP_VERIFY_INSTALL_TIMEOUT
         value: "180"
       - key: MVP_VERIFY_BUILD_TIMEOUT
@@ -150,6 +150,10 @@ services:
         value: "true"
       - key: MVP_QUALITY_GATE
         value: "true"
+      - key: MVP_PREMADE_FAST_PATH
+        value: "false"
+      - key: MVP_ALLOW_OFFLINE_SYNTHESIS
+        value: "false"
       - key: DB_POOL_SIZE
         value: "1"
       - key: DB_MAX_OVERFLOW
@@ -250,7 +254,7 @@ services:
       - key: VIRUSTOTAL_API_KEY
         sync: false
       - key: MVP_BUILD_TIMEOUT
-        value: "600"
+        value: "2700"
       - key: MVP_VERIFY_INSTALL_TIMEOUT
         value: "180"
       - key: MVP_VERIFY_BUILD_TIMEOUT
@@ -265,6 +269,10 @@ services:
         value: "true"
       - key: MVP_QUALITY_GATE
         value: "true"
+      - key: MVP_PREMADE_FAST_PATH
+        value: "false"
+      - key: MVP_ALLOW_OFFLINE_SYNTHESIS
+        value: "false"
       - key: DB_POOL_SIZE
         value: "1"
       - key: DB_MAX_OVERFLOW

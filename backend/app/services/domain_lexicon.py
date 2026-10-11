@@ -498,6 +498,29 @@ _STOP_NOUNS = {
 _PLURAL_RE = re.compile(r"ies$|ses$|xes$|zes$|ches$|shes$|s$", re.IGNORECASE)
 _TOKEN_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9_]*")
 
+# Trailing words that only make sense mid-phrase. A product name must not end on
+# one — "Leave Tracker For" is a broken title, not a shorter "Leave Tracker".
+_DANGLING_FUNCTION_WORDS = {
+    "for",
+    "with",
+    "and",
+    "or",
+    "of",
+    "to",
+    "in",
+    "on",
+    "at",
+    "by",
+    "from",
+    "a",
+    "an",
+    "the",
+    "that",
+    "which",
+    "who",
+    "where",
+}
+
 # Python keywords/builtins that cannot be used as a generated class or table
 # name — "class" and "order" are both extremely common domain nouns.
 _RESERVED_ENTITY_NAMES = {
@@ -651,14 +674,16 @@ def _title_from_prompt(prompt: str) -> str:
     # Drop the leading request frame so the name is the subject, not the verb.
     text = re.sub(
         r"^\s*(please\s+)?(can you\s+|could you\s+|i\s+(want|need|would like)\s+(to\s+)?|"
-        r"(build|create|make|generate|design|develop|produce)\s+(me\s+)?(a|an|the)?\s*)+",
+        r"(build|create|make|generate|design|develop|produce)\s+(me\s+)?(an?|the)?\s*)+",
         "",
         text,
         flags=re.IGNORECASE,
     )
 
     # Cut at the first clause boundary — the product name rarely spans one.
-    text = re.split(r"[.;!?]|\bthat\b|\bwhich\b|\bwhere\b|\bwith\b", text, maxsplit=1)[0]
+    text = re.split(
+        r"[.;!?]|\bthat\b|\bwhich\b|\bwhere\b|\bwith\b|\bfor\b", text, maxsplit=1
+    )[0]
 
     words = [w for w in _TOKEN_RE.findall(text) if w]
     if not words:
@@ -698,7 +723,12 @@ def _title_from_prompt(prompt: str) -> str:
 
     if not words:
         return "Custom App"
+
+    # Keep the subject, not the frame: prefer a natural 2-3 word name and never
+    # end on a dangling preposition ("Leave Tracker For").
     name_words = words[:3]
+    while len(name_words) > 1 and name_words[-1].lower() in _DANGLING_FUNCTION_WORDS:
+        name_words.pop()
     return " ".join(name_words).title().strip()
 
 
@@ -738,6 +768,18 @@ def _safe_entity_name(noun: str) -> str:
     if w not in _RESERVED_ENTITY_NAMES:
         return w
     return f"{w}_record"
+
+
+def _keyword_matches(keyword: str, text: str) -> bool:
+    """True when ``keyword`` appears in ``text`` as a whole word.
+
+    Whole-word matching keeps "patient" from firing on "applicant" or
+    "patience", which would otherwise mis-route an unrelated prompt to a
+    curated vertical.
+    """
+    if not keyword:
+        return False
+    return re.search(rf"\b{re.escape(keyword.lower())}\b", text) is not None
 
 
 def infer_entities(prompt: str, limit: int = 4) -> list[tuple[str, str, list[tuple[str, str]]]]:

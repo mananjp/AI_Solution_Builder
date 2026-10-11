@@ -1233,7 +1233,7 @@ async def chat(
                                 session_id,
                                 instruction,
                                 agent=settings.OPENCODE_AGENT,
-                                timeout=25,
+                                timeout=settings.MVP_BUILD_TIMEOUT,
                                 seed=str(solution.id),
                             ),
                             timeout=30.0,
@@ -1780,7 +1780,7 @@ async def chat(
                                     mvp_build = None
 
                         if sidecar_ok:
-                            # Sidecar available — run verify+repair loop best-effort.
+                            # Sidecar available — run the real verify+repair loop.
                             async def _send_repair_turn(s: str | None, t: str) -> dict[str, Any]:
                                 if not s:
                                     raise ValueError("Missing session_id for repair turn")
@@ -1788,6 +1788,14 @@ async def chat(
                                     s, t, timeout=settings.MVP_BUILD_TIMEOUT, seed=str(solution.id)
                                 )
 
+                            # The whole loop must be allowed to run: it makes up to
+                            # MVP_MAX_REPAIR_TURNS agent turns, each of which can take
+                            # minutes. It used to be capped at 45s total, so it always
+                            # timed out, fell into the bare `except` below, and the
+                            # build shipped unverified while reporting success.
+                            verify_timeout = max(
+                                300.0, float(settings.MVP_BUILD_TIMEOUT) * 0.5
+                            )
                             try:
                                 await asyncio.wait_for(
                                     mvp_verifier.verify_and_repair(
@@ -1795,32 +1803,52 @@ async def chat(
                                         session_id=session_id,
                                         target_dir=target_dir,
                                         send_prompt_fn=_send_repair_turn,
-                                        check_npm=False,
+                                        check_npm=settings.MVP_VERIFY_NPM,
                                         max_repair_turns=settings.MVP_MAX_REPAIR_TURNS,
                                     ),
-                                    timeout=min(45.0, float(settings.MVP_BUILD_TIMEOUT)),
+                                    timeout=verify_timeout,
                                 )
                             except mvp_verifier.VerificationError as exc:
+                                # A genuine verification failure must fail the build.
                                 raise RuntimeError(f"Build verification failed: {exc}") from exc
+                            except (TimeoutError, asyncio.TimeoutError):
+                                # Only the outer deadline being hit is tolerated, and it
+                                # is still surfaced loudly rather than packaged silently.
+                                logger.error(
+                                    "Verification loop hit its %.0fs budget; "
+                                    "packaging with the codebase as-is",
+                                    verify_timeout,
+                                )
+                                yield {
+                                    "event": "text",
+                                    "data": json.dumps(
+                                        {
+                                            "content": (
+                                                "Warning: verification did not finish within its time "
+                                                "budget, so the build was packaged without a full "
+                                                "verification pass. Re-run Build & Deploy to retry."
+                                            )
+                                        }
+                                    ),
+                                }
                             except Exception as exc:
-                                logger.warning(
-                                    "Sidecar verification encountered warnings (%s); proceeding with packaging as requested",
+                                logger.error(
+                                    "Verification raised unexpectedly (%s: %s)",
+                                    type(exc).__name__,
                                     exc,
                                 )
+                                raise RuntimeError(f"Build verification failed: {exc}") from exc
                         else:
-                            # Offline — run static verification as advisory checks
-                            try:
-                                errors = mvp_verifier.verify_workspace(ws_dir, check_npm=False)
-                                if errors:
-                                    logger.warning(
-                                        "Build verification reported %d warning(s): %s; proceeding with packaging",
-                                        len(errors),
-                                        "; ".join(errors[:3]),
-                                    )
-                            except Exception as exc:
-                                logger.warning(
-                                    "Offline verification check encountered an issue (%s); proceeding with packaging",
-                                    exc,
+                            # Offline — run static verification as a hard gate.
+                            errors = list(
+                                mvp_verifier.verify_workspace(
+                                    ws_dir, check_npm=settings.MVP_VERIFY_NPM
+                                )
+                            )
+                            if errors:
+                                raise RuntimeError(
+                                    "Build verification failed: "
+                                    + "; ".join(e[:300] for e in errors[:3])
                                 )
 
                         yield await emit_progress(

@@ -220,7 +220,7 @@ class Settings(BaseSettings):
     # Cheap model for titles/summaries — keeps generation quota free on the primary model.
     OPENCODE_SMALL_MODEL: str = "opencode/nemotron-3.5-lightning-free"
     OPENCODE_AGENT: str = "mvp-builder"
-    MVP_BUILD_TIMEOUT: int = 600  # seconds
+    MVP_BUILD_TIMEOUT: int = 2700  # seconds (45 min) — one OpenCode generation pass
     MVP_BUILD_DIR: str = ".data/mvp_builds"
     MVP_TEMPLATE_DIR: str = "opencode/templates/mvp"
     MVP_BUILD_CREDIT_COST: int = 30
@@ -233,11 +233,20 @@ class Settings(BaseSettings):
     MVP_RUN_ACCEPTANCE_TESTS: bool = True
     MVP_STRICT_TESTS: bool = True
     MVP_STRICT_SCREENS: bool = True
+    # Hard cap on a single chat message. A huge paste is otherwise embedded
+    # verbatim into the sidecar instruction, the LLM calls, persisted history and
+    # the solution description, which blows past model context limits and stalls
+    # the build. The message is clipped to this many characters at the boundary.
+    CHAT_MAX_MESSAGE_CHARS: int = 20_000
     # Premade templates (todo/calculator/portfolio/restaurant) can skip the LLM
     # entirely and ship a hand-written scaffold in ~1s. That path produces
     # generic, non-generated output, so it is opt-in: leave it off to run every
     # build — premade or custom — through full OpenCode generation + verification.
     MVP_PREMADE_FAST_PATH: bool = False
+    # When True, a sidecar failure falls back to deterministic stub synthesis and
+    # the build still reports success. Left False so a failed generation aborts the
+    # build (and refunds credits) instead of shipping ungenerated output.
+    MVP_ALLOW_OFFLINE_SYNTHESIS: bool = False
 
     # ── Architecture Enrichment (OpenCode) ───────────
     # The deterministic artifact synthesizer emits structurally correct but

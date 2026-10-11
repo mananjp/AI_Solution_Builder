@@ -18,6 +18,11 @@ from app.services import mvp_builder as builder
 from app.services import templates
 
 
+async def _coro(value):
+    """Awaitable helper for monkeypatched coroutine functions."""
+    return value
+
+
 def _sample_ai_state(**overrides) -> dict:
     state = {
         "business_description": "A training marketplace for enterprises",
@@ -426,8 +431,10 @@ async def test_run_build_success(monkeypatch, tmp_path):
 
     result = await builder.run_build(sid, _sample_ai_state(), 1, title="Training Hub")
     assert result["session_id"] == "sess-1"
-    assert result["file_count"] == 1
-    assert result["files"] == ["README.md"]
+    # The pipeline (theme engine, scaffold hooks) writes more files than the one
+    # the sidecar produced, so the count is "at least what the agent wrote".
+    assert result["file_count"] >= 1
+    assert "README.md" in result["files"]
     assert len(verified_calls) == 1
     assert verified_calls[0] == target
 
@@ -645,3 +652,58 @@ def test_scaffold_build_with_gym_fitness_ai_state(tmp_path):
     # Workout and bookings studios should be created
     assert (build_dir / "frontend" / "src" / "app" / "workouts" / "page.tsx").exists()
     assert (build_dir / "frontend" / "src" / "app" / "bookings" / "page.tsx").exists()
+
+
+# ── Silent-degradation guard ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_sidecar_failure_does_not_silently_degrade(monkeypatch, tmp_path):
+    """A failed generation must abort the build, not ship canned stubs as 'complete'."""
+    from app.core.config import settings
+    from app.services import mvp_builder as b
+
+    async def _boom(sid, p, **kwargs):
+        raise b.MVPBuilderError("ReadTimeout: sidecar never responded")
+
+    monkeypatch.setattr(settings, "MVP_BUILD_DIR", str(tmp_path))
+    monkeypatch.setattr(settings, "MVP_ALLOW_OFFLINE_SYNTHESIS", False)
+    monkeypatch.setattr(b, "health", _true)
+    monkeypatch.setattr(b, "create_session", lambda t, **kw: _coro("sess-x"))
+    monkeypatch.setattr(b, "send_build_prompt", _boom)
+    monkeypatch.setattr(b, "abort_session", lambda sid, **kw: _coro(None))
+    monkeypatch.setattr(
+        b, "scaffold_build", lambda build_dir, *, app_title, inject_modules, **kw: None
+    )
+
+    with pytest.raises(b.MVPBuilderError):
+        await b.run_build(uuid4(), _sample_ai_state(), 1)
+
+
+@pytest.mark.asyncio
+async def test_offline_synthesis_only_when_opted_in(monkeypatch, tmp_path):
+    """The operator must explicitly choose the lower-quality offline path."""
+    from app.core.config import settings
+    from app.services import mvp_builder as b
+
+    async def _boom(sid, p, **kwargs):
+        raise b.MVPBuilderError("sidecar unreachable")
+
+    async def _mock_verify(workspace_dir, **kwargs):
+        return {"verified": True, "repair_turns": 0, "errors": [], "tests": {}}
+
+    monkeypatch.setattr(settings, "MVP_BUILD_DIR", str(tmp_path))
+    monkeypatch.setattr(settings, "MVP_ALLOW_OFFLINE_SYNTHESIS", True)
+    monkeypatch.setattr(b, "health", _true)
+    monkeypatch.setattr(b, "create_session", lambda t, **kw: _coro("sess-y"))
+    monkeypatch.setattr(b, "send_build_prompt", _boom)
+    monkeypatch.setattr(b, "abort_session", lambda sid, **kw: _coro(None))
+    monkeypatch.setattr(
+        b, "scaffold_build", lambda build_dir, *, app_title, inject_modules, **kw: None
+    )
+    monkeypatch.setattr("app.services.mvp_verifier.verify_and_repair", _mock_verify)
+
+    result = await b.run_build(uuid4(), _sample_ai_state(), 1)
+    # Offline synthesis is reachable, and it completes rather than aborting.
+    assert "local_dir" in result
+    assert result["session_id"] != "sess-x", "must not keep the failed session id"

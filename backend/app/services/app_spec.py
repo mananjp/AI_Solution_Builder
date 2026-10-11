@@ -605,7 +605,7 @@ Theme (`theme`) — required, and it is what stops every app looking identical:
   `font_display`, a one-word `mood`, and a `rationale` sentence.
 
 UI quality (the generated frontend is judged on this):
-- A shadcn/ui component library is PREINSTALLED and ready to import from "@/components/ui/<name>": alert, badge, button, card (Card/CardHeader/CardTitle/CardDescription/CardContent/CardFooter), checkbox, dialog, dropdown-menu, input, label, select, separator, skeleton, sonner (toasts), switch, table (Table/TableHeader/TableBody/TableRow/TableHead/TableCell), tabs, textarea. Also available: "@/components/ui/skiper-ui" animated primitives, lucide-react icons, framer-motion, react-hook-form, zod, and Tailwind design tokens (bg-background, bg-card, bg-muted, text-muted-foreground, bg-primary, bg-destructive, border-border, rounded-lg/md/sm). `recharts` is only installed when `analytics.enabled` is true.
+- A shadcn/ui component library is PREINSTALLED and ready to import from "@/components/ui/<name>": alert, badge, button, card (Card/CardHeader/CardTitle/CardDescription/CardContent/CardFooter), checkbox, dialog, dropdown-menu, input, label, select, separator, skeleton, sonner (toasts), switch, table (Table/TableHeader/TableBody/TableRow/TableHead/TableCell), tabs, textarea. Also available: lucide-react icons, framer-motion, react-hook-form, zod, and Tailwind design tokens (bg-background, bg-card, bg-muted, text-muted-foreground, bg-primary, bg-destructive, border-border, rounded-lg/md/sm). `recharts` is only installed when `analytics.enabled` is true.
 - Build screens by COMPOSING those premade components. A page assembled from Card + Table + Button + Badge + Input reads as a finished product; the same page hand-rolled from raw <div> elements reads as a wireframe. Do not re-implement a button, card, table, badge, input, modal or toast that already exists.
 - If you genuinely need a component that is NOT preinstalled, install it rather than hand-rolling it: run `npx shadcn@latest add <name> --yes` from the `frontend` directory (e.g. `npx shadcn@latest add accordion --yes`). The project is already configured for shadcn (components.json, "@/components/ui" alias, design tokens), so the CLI drops the component in with correct imports and theme support. Common useful additions: accordion, avatar, calendar, chart, command, drawer, form, hover-card, popover, progress, radio-group, scroll-area, slider, tooltip, carousel, pagination, breadcrumb, collapsible, aspect-ratio, alert-dialog. Never invent an import path under "@/components/ui" for a component you did not install. If installing is not possible in your environment, fall back to composing the preinstalled set plus a small local component - never block the build and never leave a dangling import.
 - The premade components are yours to PERSONALISE. Tweak them for the app's look - pass className, adjust variants, restyle via the Tailwind tokens - so the UI feels designed for this product rather than default-library. Prefer composing and passing className over forking a component file; only edit a component in "@/components/ui" when the app genuinely needs a new variant that composition cannot express, and keep every existing export intact so other screens keep working.
@@ -617,7 +617,33 @@ UI quality (the generated frontend is judged on this):
 
 
 def _spec_schema_hint() -> str:
-    return json.dumps(AppSpec.model_json_schema(), separators=(",", ":"))[:6000]
+    # A compact hand-written shape instead of a JSON Schema dump. The dump was
+    # ~1500 prompt tokens of mostly-optional metadata, and under Groq's 8000
+    # TPM ceiling that left too little budget for the completion — responses came
+    # back `finish_reason: length` with truncated JSON, and when they did parse
+    # the model omitted the buried required scalars (`app_name`, `one_liner`).
+    # Listing only what must be present makes the contract explicit and cheap.
+    return (
+        'Required shape:\n'
+        '{"app_name": str, "one_liner": str, "core_value": str, '
+        '"entities": [{"name": str, "plural": str, "description": str, '
+        '"fields": [{"name": str, "type": "string|text|int|float|bool|date|datetime|enum|ref", '
+        '"required": true, "description": str, "ref": str?}]}], '
+        '"screens": [{"name": str, "route": str, "purpose": str, '
+        '"uses_entities": [str], "uses_actions": [str], "key_interactions": [str]}], '
+        '"actions": [{"name": str, "method": "GET|POST", "path": "/actions/<name>", '
+        '"summary": str, "input_fields": [<field>], "rules": [str], '
+        '"output_example": {}}], '
+        '"acceptance_tests": [{"name": str, "description": str, '
+        '"steps": [{"method": "GET|POST|PATCH|DELETE", "path": str, "body": {}, '
+        '"expect_status": 200, "expect": {}, "save": {}}]}]}\n'
+        "Required scalars: app_name, one_liner, core_value.\n"
+        "Bounded: 1-6 entities, 1-6 screens, 3-10 acceptance_tests, 0-8 actions.\n"
+        "Entity field types may only be: string, text, int, float, bool, date, "
+        "datetime, enum, ref.\n"
+        "An `enum` field MUST include >=2 `enum_values`; a `ref` field MUST include "
+        "`ref` set to a valid entity name and a name ending in `_id`."
+    )
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -629,7 +655,386 @@ def _extract_json(text: str) -> dict[str, Any]:
     start, end = t.find("{"), t.rfind("}")
     if start < 0 or end < 0:
         raise ValueError("no JSON object in response")
-    return json.loads(t[start : end + 1])  # type: ignore[no-any-return]
+    return _repair_spec_dict(_loads_lenient(t[start : end + 1]))  # type: ignore[no-any-return]
+
+
+def _loads_lenient(raw: str) -> dict[str, Any]:
+    """Parse JSON, salvaging output truncated by ``finish_reason: length``.
+
+    The spec call budgets 5000 tokens, and a reasoning model spends ~900 of them
+    before writing a byte, so the model still runs out mid-object. That produced
+    `Unterminated string` on every attempt and silently degraded the build to the
+    deterministic stub. Dropping back to the last complete value and closing the
+    open containers recovers a usable — if shorter — spec from what did arrive.
+    """
+    try:
+        return json.loads(raw)  # type: ignore[no-any-return]
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Trim to the last character that can end a value.
+    cut = len(raw)
+    while cut > 1 and raw[cut - 1] not in '}],"0123456789truefalsnl':
+        cut -= 1
+    fragment = raw[:cut]
+
+    # Re-close what the truncation left open: strings first, then containers,
+    # tracked in order so the result is well-formed.
+    open_stack: list[str] = []
+    in_string = False
+    escaped = False
+    for ch in fragment:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "{[":
+            open_stack.append("}" if ch == "{" else "]")
+        elif ch in "}]" and open_stack:
+            open_stack.pop()
+
+    repaired = fragment
+    if in_string:
+        repaired += '"'
+    repaired += "".join(reversed(open_stack))
+
+    try:
+        return json.loads(repaired)  # type: ignore[no-any-return]
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Last resort: walk backwards until the containers balance, dropping the
+    # half-written value that truncation left behind.
+    for i in range(len(fragment) - 1, max(len(fragment) - 600, 0), -1):
+        candidate = fragment[: i + 1].rstrip().rstrip(",")
+        stack: list[str] = []
+        instr = esc = False
+        for ch in candidate:
+            if instr:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    instr = False
+                continue
+            if ch == '"':
+                instr = True
+            elif ch in "{[":
+                stack.append("}" if ch == "{" else "]")
+            elif ch in "}]" and stack:
+                stack.pop()
+        if instr:
+            candidate += '"'
+        candidate += "".join(reversed(stack))
+        try:
+            return json.loads(candidate)  # type: ignore[no-any-return]
+        except (json.JSONDecodeError, ValueError):
+            continue
+    raise ValueError("unparseable JSON even after truncation repair")
+
+
+def _ensure_required_collections(data: dict[str, Any]) -> None:
+    """Guarantee the required collections exist before validation.
+
+    Two failures showed up on an out-of-the-box prompt ("rooftop beekeeping apiary"):
+    the model omitted ``acceptance_tests`` entirely, and it proposed theme colours
+    (honey-yellow ``#d4a411``) that fail the WCAG AA contrast rule. Both are
+    mechanical, so repair them here rather than spending a whole LLM repair turn —
+    on a rate-limited tier that turn is what broke the build.
+    """
+    entities = data.get("entities")
+    if not isinstance(entities, list) or not [
+        e for e in entities if isinstance(e, dict) and e.get("name")
+    ]:
+        data["entities"] = [
+            {
+                "name": "record",
+                "plural": "records",
+                "description": "Primary record",
+                "fields": [
+                    {"name": "title", "type": "string", "required": True},
+                    {"name": "details", "type": "text", "required": True},
+                ],
+            }
+        ]
+        entities = data["entities"]
+
+    valid_entities = [e for e in entities if isinstance(e, dict) and e.get("name")]
+    first = valid_entities[0] if valid_entities else {"name": "record", "plural": "records"}
+
+    if not data.get("screens"):
+        data["screens"] = [
+            {
+                "name": "dashboard",
+                "route": "/",
+                "purpose": "Overview",
+                "uses_entities": [first.get("name")],
+                "key_interactions": ["summary", "navigate"],
+            },
+            *[
+                {
+                    "name": f"{e.get('name')}_mgmt",
+                    "route": f"/{e.get('plural') or str(e.get('name')) + 's'}",
+                    "purpose": f"Manage {e.get('plural')}",
+                    "uses_entities": [e.get("name")],
+                    "key_interactions": ["create", "list", "view"],
+                }
+                for e in valid_entities[:6]
+            ],
+        ]
+
+    if not data.get("acceptance_tests"):
+        # The schema requires at least three; reuse the create/list/get shape the
+        # deterministic fallback already uses for the first entity.
+        name = str(first.get("name") or "record")
+        plural = str(first.get("plural") or f"{name}s")
+        body = {
+            f.get("name"): "sample" if str(f.get("type")) == "string" else 1
+            for f in (first.get("fields") or [])[:3]
+            if isinstance(f, dict)
+        }
+        data["acceptance_tests"] = [
+            {
+                "name": f"create_{name}",
+                "description": f"Creating a {name} returns HTTP 201",
+                "steps": [
+                    {
+                        "method": "POST",
+                        "path": f"/{plural}",
+                        "body": body,
+                        "expect_status": 201,
+                        "expect": body,
+                        "save": {"id": "id"},
+                    }
+                ],
+            },
+            {
+                "name": f"list_{plural}",
+                "description": f"Listing {plural} returns HTTP 200",
+                "steps": [
+                    {"method": "GET", "path": f"/{plural}", "expect_status": 200}
+                ],
+            },
+            {
+                "name": f"get_{name}",
+                "description": f"A single {name} can be created and retrieved",
+                "steps": [
+                    {
+                        "method": "POST",
+                        "path": f"/{plural}",
+                        "body": body,
+                        "expect_status": 201,
+                        "save": {"id": "id"},
+                    },
+                    {
+                        "method": "GET",
+                        "path": f"/{plural}/{{id}}",
+                        "expect_status": 200,
+                    },
+                ],
+            },
+        ]
+
+    # The model picks thematically apt colours (honey yellow for a beekeeping app)
+    # without checking contrast. An unusable theme must not discard a good spec:
+    # drop it and let the caller apply a deterministic, contrast-safe palette.
+    theme = data.get("theme")
+    if theme and theme != "":
+        try:
+            ThemeSpec.model_validate(theme)
+        except Exception:
+            data.pop("theme", None)
+
+
+def _repair_spec_dict(data: dict[str, Any]) -> dict[str, Any]:
+    """Coerce near-miss model output into a validatable spec, in memory.
+
+    Repairs the failures that recur on every generation, each of which would
+    otherwise cost a whole LLM repair turn — and on a rate-limited tier that turn
+    is exactly what blew the token budget and degraded the build to stubs:
+    an `enum` field with no ``enum_values``, a `ref` field with no target, a
+    `ref` name not ending in ``_id``, a theme whose colours fail the WCAG AA
+    contrast check, and missing required collections.
+    """
+    _ensure_required_collections(data)
+    _resolve_test_variables(data)
+
+    entity_names = {
+        str(e.get("name", "")).lower()
+        for e in data.get("entities", [])
+        if isinstance(e, dict) and e.get("name")
+    }
+    for entity in data.get("entities", []):
+        if not isinstance(entity, dict):
+            continue
+        for field in entity.get("fields", []):
+            if not isinstance(field, dict):
+                continue
+            ftype = str(field.get("type", "")).lower()
+            if ftype == "enum" and len(field.get("enum_values") or []) < 2:
+                # No values supplied: degrade to a plain string rather than
+                # reject the whole spec over one field.
+                field["type"] = "string"
+                field.pop("enum_values", None)
+            elif ftype == "ref":
+                ref = str(field.get("ref") or "").lower()
+                if ref not in entity_names:
+                    field.pop("ref", None)
+                    field["type"] = "string"
+                elif not str(field.get("name", "")).endswith("_id"):
+                    field["name"] = f"{field['name']}_id"
+
+    for action in data.get("actions", []):
+        if not isinstance(action, dict):
+            continue
+        # `path` is derivable from the name (it must start with /actions/).
+        if not action.get("path"):
+            slug = re.sub(r"[^a-z0-9]+", "_", str(action.get("name", "action")).lower()).strip("_")
+            action["path"] = f"/actions/{slug or 'action'}"
+        if not action.get("summary"):
+            action["summary"] = str(action.get("description") or "Custom business action")
+        action.pop("description", None)
+        if not action.get("rules"):
+            action["rules"] = ["Implement the described behaviour generally."]
+
+    for test in data.get("acceptance_tests", []):
+        if not isinstance(test, dict):
+            continue
+        # One smoke step is enough to satisfy the schema; richer steps are better
+        # but their absence should not discard an otherwise good spec.
+        if not test.get("steps"):
+            plural = str(
+                (data.get("entities") or [{}])[0].get("plural") or "items"
+            )
+            test["steps"] = [
+                {
+                    "method": "GET",
+                    "path": f"/{plural}",
+                    "expect_status": 200,
+                }
+            ]
+    _resolve_test_variables(data)
+    return data
+
+
+def _resolve_test_variables(data: dict[str, Any]) -> None:
+    """Make every ``{var}`` in an acceptance test resolvable by an earlier step.
+
+    The model writes step bodies like ``{"hive_id": "{hive_id}"}`` without the
+    prerequisite step that created the hive and saved ``hive_id``. The placeholder
+    then posts as a literal string, the FK lookup 404s, and the acceptance test
+    fails for a reason that has nothing to do with the business logic it was
+    meant to exercise.
+    """
+    entities = {
+        str(e.get("name")).lower(): e
+        for e in data.get("entities", [])
+        if isinstance(e, dict) and e.get("name")
+    }
+    if not entities:
+        return
+
+    for test in data.get("acceptance_tests", []):
+        if not isinstance(test, dict):
+            continue
+        steps = test.get("steps")
+        if not isinstance(steps, list) or not steps:
+            continue
+
+        saved: set[str] = set()
+        wanted: list[str] = []
+        seen_wanted: set[str] = set()
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            for var in (step.get("save") or {}).values():
+                saved.add(var)
+
+        def _collect(payload: Any) -> None:
+            if isinstance(payload, dict):
+                for value in payload.values():
+                    _collect(value)
+            elif isinstance(payload, list):
+                for value in payload:
+                    _collect(value)
+            elif isinstance(payload, str):
+                m = re.fullmatch(r"[{<](\w+)[}>]", payload.strip())
+                if m and m.group(1) not in saved and m.group(1) not in seen_wanted:
+                    seen_wanted.add(m.group(1))
+                    wanted.append(m.group(1))
+
+        for step in steps:
+            if isinstance(step, dict):
+                _collect(step.get("body"))
+                _collect(step.get("path"))
+
+        if not wanted:
+            continue
+
+        # Synthesize the prerequisite creations, in order, so the ids exist before
+        # the original steps run.
+        prefixes: list[dict[str, Any]] = []
+        for var in wanted:
+            stem = var
+            ent = entities.get(stem)
+            if ent is None:
+                # `hive_id` -> `hive`
+                stripped = re.sub(r"_id$", "", var)
+                ent = entities.get(stripped)
+            if ent is None:
+                continue
+            plural = str(ent.get("plural") or f"{stem}s")
+            body = {}
+            for f in (ent.get("fields") or [])[:4]:
+                if not isinstance(f, dict) or not f.get("name"):
+                    continue
+                body[str(f["name"])] = _sample_field_value(f)
+            if not body:
+                body = {"name": "seed"}
+            prefixes.append(
+                {
+                    "method": "POST",
+                    "path": f"/{plural}",
+                    "body": body,
+                    "expect_status": 201,
+                    "save": {var: "id"},
+                }
+            )
+        if prefixes:
+            test["steps"] = prefixes + [s for s in steps if isinstance(s, dict)]
+
+
+def _sample_field_value(field: dict[str, Any]) -> Any:
+    """A type-correct sample value for a generated spec field."""
+    ftype = str(field.get("type") or "string").lower()
+    name = str(field.get("name") or "").lower()
+    if "email" in name:
+        return "seed@example.com"
+    if "date" in name or "time" in name or "at" in name:
+        return "2024-09-01T10:00:00Z"
+    return _SAMPLE_VALUES.get(ftype, "seed")
+
+
+_SAMPLE_VALUES: dict[str, Any] = {
+    "string": "seed",
+    "text": "seed",
+    "int": 1,
+    "integer": 1,
+    "float": 1.0,
+    "bool": True,
+    "boolean": True,
+    "date": "2024-09-01",
+    "datetime": "2024-09-01T10:00:00Z",
+    "enum": "active",
+    "ref": 1,
+}
 
 
 def _context_from_state(
@@ -769,11 +1174,50 @@ _KIND_HINTS: tuple[tuple[AppKind, tuple[str, ...]], ...] = (
 _STAGE_HINTS: tuple[tuple[LifecycleStage, tuple[str, ...]], ...] = (
     (
         "operate",
-        ("dashboard", "admin", "reporting", "analytics", "manage staff", "back office", "kpi"),
+        (
+            "dashboard",
+            "admin",
+            "reporting",
+            "analytics",
+            "manage staff",
+            "back office",
+            "kpi",
+            "approval",
+            "approve",
+            "approved",
+            "workflow",
+            "assign",
+            "schedule",
+            "tracker",
+            "tracking",
+            "management system",
+            "payroll",
+            "attendance",
+            "timesheet",
+            "leave request",
+            "leave tracker",
+            "request",
+            "review",
+            "escalation",
+            "audit",
+        ),
     ),
     (
         "transact",
-        ("checkout", "cart", "payment", "order", "buy", "sell", "booking", "book a", "pay"),
+        (
+            "checkout",
+            "cart",
+            "payment",
+            "order",
+            "buy",
+            "sell",
+            "booking",
+            "book a",
+            "pay",
+            "reservation",
+            "appointment",
+            "invoice",
+        ),
     ),
 )
 
@@ -1012,6 +1456,10 @@ def fallback_app_spec(
     )
     app_kind, lifecycle_stage = infer_growth_curve(growth_text)
 
+    # The workflow the user asked for, if any. Without this a "manager approval
+    # workflow" prompt built a read-only app.
+    spec_actions = _derive_fallback_actions(user_prompt, spec_entities)
+
     # Imported lazily: theme_engine builds on the AppSpec types defined above,
     # so a module-level import here would be circular.
     from app.services.theme_engine import theme_for_spec
@@ -1022,6 +1470,7 @@ def fallback_app_spec(
         core_value=f"Automated management and workflows for {clean_name}",
         entities=spec_entities,
         screens=screens,
+        actions=spec_actions,
         acceptance_tests=tests,
         app_kind=app_kind,
         lifecycle_stage=lifecycle_stage,
@@ -1031,6 +1480,100 @@ def fallback_app_spec(
         analytics=resolve_analytics_module(AnalyticsModule(), spec_entities),
         theme=theme_for_spec(growth_text, app_name=clean_name),
     )
+
+
+# State transitions a request can name, mapped to the action they imply. A build
+# that skips these ships a read-only app for a request that was explicitly a
+# workflow ("manager approval workflow", "cancel my booking").
+_WORKFLOW_HINTS: tuple[tuple[str, str, str], ...] = (
+    ("approve", "approve", "approved"),
+    ("approval", "approve", "approved"),
+    ("reject", "reject", "rejected"),
+    ("decline", "reject", "rejected"),
+    ("deny", "reject", "rejected"),
+    ("cancel", "cancel", "cancelled"),
+    ("complete", "complete", "completed"),
+    ("fulfil", "fulfil", "fulfilled"),
+    ("submit", "submit", "submitted"),
+    ("book", "book", "booked"),
+    ("books", "book", "booked"),
+    ("booking", "book", "booked"),
+    ("slot", "book", "booked"),
+    ("slots", "book", "booked"),
+    ("reserve", "reserve", "reserved"),
+    ("reserves", "reserve", "reserved"),
+    ("reservation", "reserve", "reserved"),
+    ("reservations", "reserve", "reserved"),
+    ("checkout", "checkout", "checked_out"),
+)
+
+
+def _derive_fallback_actions(user_prompt: str, entities: list[Entity]) -> list[Action]:
+    """Derive business actions from the request text.
+
+    An approval or tracking workflow is a state transition the user explicitly
+    asked for. The deterministic fallback used to emit no actions at all, so such
+    an app shipped as read-only CRUD that silently dropped the workflow — the build
+    "succeeded" while ignoring what was requested.
+    """
+    lowered = f" {user_prompt.lower()} "
+    if not entities:
+        return []
+
+    from app.services.domain_lexicon import _keyword_matches
+
+    # The action must act on the record the workflow is *about*, not on a party
+    # that merely happens to have a status column. Prefer a request-like entity
+    # (request/booking/order/application/ticket), then any status-bearing entity
+    # that is not a party (employee/doctor/customer), and only then the last one.
+    _REQUESTY = ("request", "booking", "order", "application", "ticket", "appointment", "reservation")
+    _PARTYISH = ("employee", "doctor", "customer", "patient", "member", "user", "client", "supplier")
+    has_status = [e for e in entities if any(f.name == "status" for f in e.fields)]
+    target = next(
+        (e for e in has_status if any(k in e.name for k in _REQUESTY)),
+        None,
+    )
+    if target is None:
+        target = next(
+            (e for e in has_status if not any(p in e.name for p in _PARTYISH)),
+            None,
+        )
+    if target is None:
+        target = has_status[-1] if has_status else entities[-1]
+
+    actions: list[Action] = []
+    seen: set[str] = set()
+    for keyword, verb, resulting in _WORKFLOW_HINTS:
+        if not _keyword_matches(keyword, lowered):
+            continue
+        name = f"{verb}_{target.name}"
+        if name in seen:
+            continue
+        seen.add(name)
+        actions.append(
+            Action(
+                name=name,
+                method="POST",
+                path=f"/actions/{name}",
+                summary=f"{verb.capitalize()} a {target.name} and record the outcome",
+                input_fields=[
+                    SpecField(
+                        name=f"{target.name}_id",
+                        type="int",
+                        description=f"The {target.name} being {verb}d",
+                    )
+                ],
+                rules=[
+                    f"A {target.name} must exist before it can be {verb}d.",
+                    f"Set the {target.name} status to '{resulting}'.",
+                    "Refuse the transition when the record is already in that state.",
+                ],
+                output_example={"id": 1, "status": resulting, "updated": True},
+            )
+        )
+        if len(actions) >= 3:
+            break
+    return actions
 
 
 def normalize_spec(spec: AppSpec) -> AppSpec:
@@ -1085,6 +1628,7 @@ async def generate_app_spec(
     """LLM → AppSpec with validation-error feedback loop and deterministic fallback on rate limits."""
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
+    from app.core.config import settings
     from app.core.llm import get_llm, has_llm_credentials
 
     if not has_llm_credentials():
@@ -1095,8 +1639,13 @@ async def generate_app_spec(
             conversation_history=conversation_history,
         )
 
-    # Use compact 2500 max_tokens to stay well within Groq TPM limits
-    llm = get_llm(temperature=0.2, max_tokens=2500)
+    # 2500 was silently fatal: this is a *reasoning* model (gpt-oss-120b burns
+    # ~900 completion tokens on hidden reasoning), leaving only ~1600 for the
+    # spec, so every response returned `finish_reason: length` with truncated
+    # JSON and the build silently degraded to the deterministic stub. Budget for
+    # that overhead, but keep prompt+completion under Groq's 8000 TPM ceiling
+    # (the compact schema hint holds the prompt near ~800 tokens).
+    llm = get_llm(temperature=0.2, max_tokens=5000)
     messages: list[Any] = [
         SystemMessage(content=SPEC_SYSTEM + "\nJSON schema:\n" + _spec_schema_hint()),
         HumanMessage(
@@ -1109,9 +1658,13 @@ async def generate_app_spec(
         ),
     ]
     last_err = ""
+    # A 12s cap here was shorter than a real model response, so every build fell
+    # back to the deterministic stub spec and the app never became what was asked
+    # for. Use the same generous budget as a generation pass.
+    spec_timeout = max(12.0, float(getattr(settings, "MVP_BUILD_TIMEOUT", 2700)) / 30.0)
     for attempt in range(1, max_attempts + 1):
         try:
-            resp = await asyncio.wait_for(llm.ainvoke(messages), timeout=12.0)
+            resp = await asyncio.wait_for(llm.ainvoke(messages), timeout=spec_timeout)
         except Exception as exc:
             logger.warning(
                 "generate_app_spec LLM error on attempt %d (%s); using smart fallback AppSpec",
@@ -1133,10 +1686,18 @@ async def generate_app_spec(
         except (ValidationError, ValueError, json.JSONDecodeError) as err:
             last_err = str(err)[:2000]
             logger.warning("AppSpec attempt %d invalid: %s", attempt, last_err[:300])
-            messages += [
-                AIMessage(content=raw[:4000]),
+            # Do NOT re-send `raw` plus the whole history on a retry: on Groq that
+            # pushed past the 8000-token-per-minute ceiling and the retry died
+            # with 413/429, so the spec fell back to stubs. Only the error text is
+            # needed for the model to correct itself.
+            messages = [
+                SystemMessage(content=SPEC_SYSTEM + "\nJSON schema:\n" + _spec_schema_hint()),
+                *messages[1:2],
                 HumanMessage(
-                    content=f"Invalid spec. Fix ALL errors and return full JSON only:\n{last_err}"
+                    content=(
+                        "Your previous answer was not a valid spec. Return the COMPLETE "
+                        f"JSON object only, fixing ALL of these errors:\n{last_err}"
+                    )
                 ),
             ]
 

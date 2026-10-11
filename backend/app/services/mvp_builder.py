@@ -2874,7 +2874,7 @@ collapse this into one Next.js deployment and never put API logic in Next.js rou
    function names and signatures. Return plain JSON-serialisable dicts.
 {actions}
 
-2. **frontend** (Next.js App Router, Tailwind CSS, Framer Motion, Skiper UI):
+2. **frontend** (Next.js App Router, Tailwind CSS, Framer Motion):
    create one `page.tsx` per screen at `frontend/src/app/<route>/page.tsx` ("use client").
    Each page loads and mutates REAL data through the API (`@/lib/api`) and types (`@/lib/types`).
    QUALITY & MOTION: Web applications must have polished visual animations and feel alive.
@@ -2895,9 +2895,8 @@ collapse this into one Next.js deployment and never put API logic in Next.js rou
      bg-primary, bg-destructive, border-border) so the app looks designed for this product, not
      default-library. Prefer composing over forking a file in `ui/`; if you do edit one, keep
      every existing export so the other screens keep working.
-   - Animated primitives are preinstalled too: `@/components/ui/skiper-ui` (`Link000`, `Link001`,
-     `SkiperCard`, `SkiperButton`, `SkiperBadge`, `SkiperCounter`) plus `framer-motion` and
-     `lucide-react`. Use them as accents on top of the shadcn components, not instead of them.
+   - `framer-motion` and `lucide-react` are preinstalled. Compose motion accents directly with
+     them on top of the shadcn components, not instead of them.
    - Motion: staggered card entrances (`motion.div`), hover elevation, slide-over drawers with
      backdrop blur for modals/forms, animated status pills.
    - Responsive and mobile-first at 375px: stack cards, or wrap tables in `overflow-x-auto` and
@@ -2927,12 +2926,16 @@ Run them yourself if bash is available: `cd backend && python -m pytest -q`.
 - Validation errors → HTTPException(400); missing rows → 404; conflicts → 409.
 - Install what you need. The scaffold's pinned dependencies are a baseline, not a
   ceiling: `npm install <pkg>` in `frontend` (and `pip install <pkg>` in `backend`) when
-  the spec genuinely needs it, then verify the build still passes. Pin exact versions in
-  package.json / requirements.txt, never use a registry alias. Do not add a dependency just
-  to re-implement something already installed — compose first, install second.
-- No secrets, tokens or credentials in the code. Do not start long-running servers
-  (`npm run dev`, `uvicorn`) and leave them running; a build/verify command that exits is fine.
-- Use Framer Motion and Skiper UI for animation and visual excellence.
+  the spec genuinely needs it. Pin exact versions in package.json / requirements.txt, never
+  use a registry alias. Do not add a dependency just to re-implement something already
+  installed — compose first, install second.
+- Verify CHEAPLY. You own the backend acceptance tests; run them with pytest. For the
+  frontend, check syntax/types rather than the whole toolchain — do NOT run `npm install`,
+  `npm run build`, `next dev` or any watch/server process here. The build platform installs
+  dependencies and runs the production build itself, so doing it again wastes 5-10 minutes
+  per build and changes nothing about the outcome.
+- No secrets, tokens or credentials in the code. Do not start long-running servers.
+- Use Framer Motion for animation and visual excellence.
 - Finish with: files changed + which tests you expect to pass.
 """
 
@@ -3018,9 +3021,9 @@ Run them yourself if bash is available: `cd backend && python -m pytest -q`.
             "4. **demo auth** — keep the provided JWT helper; add a simple `auth/login` + "
             "`auth/register` endpoint if the API spec includes one.",
             "5. **frontend** — build a high-quality, animated domain app in `src/app/page.tsx` "
-            "and `src/app/{module_slug}/`. Use Framer Motion and Skiper UI (`@skiper-ui` in `@/components/ui/skiper-ui` "
-            "or `npx shadcn add @skiper-ui/<name>`): staggered entrances, hover glow, slide-over drawers with blur, "
-            "pulsing radar badges, and animated counters. No barebones todo or plain tables.",
+            "and `src/app/{module_slug}/`. Use Framer Motion: staggered entrances, hover glow, "
+            "slide-over drawers with blur, pulsing status badges, and animated counters. "
+            "No barebones todo or plain tables.",
             "6. **Alembic** — one initial migration for the full schema.",
             "",
             "## Architecture context",

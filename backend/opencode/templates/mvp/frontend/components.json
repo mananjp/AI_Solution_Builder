@@ -16,9 +16,5 @@
     "ui": "@/components/ui",
     "lib": "@/lib",
     "hooks": "@/hooks"
-  },
-  "registries": {
-    "@skiper-ui": "https://skiper-ui.com/r/{name}.json",
-    "@skipper-ui": "https://skiper-ui.com/r/{name}.json"
   }
 }

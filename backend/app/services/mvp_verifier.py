@@ -324,6 +324,11 @@ def verify_screens(workspace_dir: Path) -> list[str]:
     errors = []
     for screen in json.loads(spec_file.read_text()).get("screens", []):
         route = str(screen.get("route", "/")).strip("/")
+        # Routes may use `{var}` placeholder syntax, but Next.js App Router
+        # serves `[var]`. spec_codegen writes the bracketed form, so the check
+        # must resolve it the same way or every parameterised screen reports
+        # missing even though the page was generated correctly.
+        route = re.sub(r"[{<](\w+)[}>]", r"[\1]", route)
         page = app_dir / route / "page.tsx" if route else app_dir / "page.tsx"
         if not page.exists():
             errors.append(

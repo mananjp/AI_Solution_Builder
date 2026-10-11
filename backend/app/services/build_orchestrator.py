@@ -149,10 +149,24 @@ async def run_build_pipeline(ctx: BuildContext) -> dict[str, Any]:
             prompt = builder.build_mvp_prompt(spec, ctx.target_dir, app_title=spec.app_name)
             await builder.send_build_prompt(session_id, prompt, seed=str(ctx.solution_id))
         except Exception as exc:
-            logger.warning("Sidecar synthesis error (%s); falling back to deterministic synthesis", exc)
+            # A build that silently falls back to canned stubs looks complete while
+            # shipping none of the generated code, which is the worst possible
+            # failure mode: the user pays and receives a scaffold. Re-raise so the
+            # build aborts (credits are refunded on terminal failure) unless the
+            # operator has explicitly opted into offline synthesis.
             if session_id and session_id != "auto-synthesized":
                 with contextlib.suppress(Exception):
                     await builder.abort_session(session_id, seed=str(ctx.solution_id))
+            if not getattr(settings, "MVP_ALLOW_OFFLINE_SYNTHESIS", False):
+                logger.error(
+                    "OpenCode synthesis failed (%s: %s); aborting build %s instead of "
+                    "shipping ungenerated scaffold output",
+                    type(exc).__name__,
+                    exc,
+                    ctx.solution_id,
+                )
+                raise
+            logger.warning("Sidecar synthesis error (%s); falling back to deterministic synthesis", exc)
 
     # ── Phase 4: Verification & Quality Gate ──
     await _notify("verifying", 4, 85, "Verifying code integrity, type checks & acceptance tests...")

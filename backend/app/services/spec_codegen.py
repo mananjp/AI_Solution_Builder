@@ -14,10 +14,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
+import shutil
 from pathlib import Path
+from typing import Any
 
 from app.services.app_spec import AppSpec, Entity, SpecField
+
+logger = logging.getLogger(__name__)
 
 LOCKED_FILES = (
     "backend/models.py",
@@ -678,26 +683,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { api } from "@/lib/api";
-import { Layers, Database, Sparkles, Activity, Search } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-} from "recharts";
-
+import { LayersTwo01, Database01, Zap, Activity, SearchLg } from "@untitledui/icons";
+import { Input } from "react-aria-components";
+@@RECHARTS_IMPORT@@
 const ENTITY_ROUTES: [string, string][] = @@ENTITY_ROUTES@@;
 
 function KpiCard({
@@ -710,17 +698,17 @@ function KpiCard({
   icon?: React.ReactNode;
 }) {
   return (
-    <Card className="gap-2">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+    <div className="rounded-2xl border border-secondary bg-primary shadow-xs gap-2">
+      <div className="flex flex-col gap-1.5 flex-row items-center justify-between space-y-0 pb-2">
+        <h3 className="text-lg font-semibold text-primary text-xs font-medium uppercase tracking-wider text-tertiary">
           {label}
-        </CardTitle>
+        </h3>
         {icon}
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-bold tabular-nums text-foreground">{value}</div>
-      </CardContent>
-    </Card>
+      </div>
+      <div>
+        <div className="text-2xl font-bold tabular-nums text-brand-primary">{value}</div>
+      </div>
+    </div>
   );
 }
 
@@ -766,7 +754,7 @@ export default function Dashboard() {
   );
 
   return (
-    <main className="min-h-screen bg-background px-4 py-8 text-foreground sm:px-6 md:py-12">
+    <main className="min-h-screen bg-brand-solid px-4 py-8 text-brand-primary sm:px-6 md:py-12">
       <div className="mx-auto max-w-6xl">
         {/* Animated Hero Header */}
         <motion.div
@@ -774,105 +762,80 @@ export default function Dashboard() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }}
         >
-          <Card className="gap-6 overflow-hidden p-6 md:p-8">
+          <div className="rounded-2xl border border-secondary bg-primary shadow-xs gap-6 overflow-hidden p-6 md:p-8">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <Badge>Production Prototype</Badge>
-                  <Badge variant="secondary">Live API</Badge>
+                  <span className="inline-flex items-center rounded-full bg-brand-primary px-2.5 py-0.5 text-xs font-medium text-brand-secondary">Production Prototype</span>
+                  <span className="inline-flex items-center rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-secondary ring-1 ring-border-secondary ring-inset">Live API</span>
                 </div>
-                <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl md:text-4xl">
+                <h1 className="text-2xl font-bold tracking-tight text-brand-primary sm:text-3xl md:text-4xl">
                   @@TITLE@@
                 </h1>
-                <p className="mt-2 max-w-2xl text-sm text-muted-foreground">@@PURPOSE@@</p>
+                <p className="mt-2 max-w-2xl text-sm text-tertiary">@@PURPOSE@@</p>
               </div>
 
-              <Button asChild variant="outline" size="sm" className="shrink-0">
-                <Link href="/api/docs">API Docs</Link>
-              </Button>
+               <Link href="/api/docs" className="rounded-lg bg-brand-solid px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-solid_hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring">API Docs</Link>
+
             </div>
 
             {/* Real Analytics KPIs & Chart or Quick Metrics Bar */}
             {analytics?.available ? (
-              <div className="border-t border-border pt-6">
+              <div className="border-t border-secondary pt-6">
                 <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
                   <KpiCard
                     label={`Total ${analytics.metric || "Volume"}`}
                     value={analytics.total.toLocaleString()}
-                    icon={<Layers className="h-4 w-4 text-primary" />}
+                    icon={<LayersTwo01 className="h-4 w-4 text-brand-primary" />}
                   />
                   <KpiCard
                     label="Average"
                     value={analytics.average.toFixed(2)}
-                    icon={<Activity className="h-4 w-4 text-primary" />}
+                    icon={<Activity className="h-4 w-4 text-brand-primary" />}
                   />
                   <KpiCard
                     label="Records"
                     value={analytics.count.toLocaleString()}
-                    icon={<Database className="h-4 w-4 text-primary" />}
+                    icon={<Database01 className="h-4 w-4 text-brand-primary" />}
                   />
                 </div>
-                {analytics.trend && analytics.trend.length > 0 && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-xs font-medium text-muted-foreground">
-                        Activity &amp; Volume Trend
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <ResponsiveContainer width="100%" height={220}>
-                        <LineChart data={analytics.trend}>
-                          <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                          <YAxis tick={{ fontSize: 11 }} />
-                          <Tooltip />
-                          <Line
-                            type="monotone"
-                            dataKey="total"
-                            stroke="hsl(var(--primary))"
-                            strokeWidth={2}
-                            dot={false}
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </CardContent>
-                  </Card>
-                )}
+@@TREND_CHART@@
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-4 border-t border-border pt-6 sm:grid-cols-3">
+              <div className="grid grid-cols-2 gap-4 border-t border-secondary pt-6 sm:grid-cols-3">
                 <KpiCard
                   label="Modules"
                   value={ENTITY_ROUTES.length}
-                  icon={<Layers className="h-4 w-4 text-primary" />}
+                  icon={<LayersTwo01 className="h-4 w-4 text-brand-primary" />}
                 />
                 <KpiCard
                   label="Total Records"
                   value={totalRecords}
-                  icon={<Database className="h-4 w-4 text-primary" />}
+                  icon={<Database01 className="h-4 w-4 text-brand-primary" />}
                 />
                 <KpiCard
                   label="API Status"
                   value="Live"
-                  icon={<Activity className="h-4 w-4 text-primary" />}
+                  icon={<Activity className="h-4 w-4 text-brand-primary" />}
                 />
               </div>
             )}
-          </Card>
+          </div>
         </motion.div>
 
         {/* Search & Header */}
         <div className="mt-10 flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h2 className="text-xl font-bold tracking-tight text-foreground">
+            <h2 className="text-xl font-bold tracking-tight text-brand-primary">
               Application Modules
             </h2>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-tertiary">
               Manage data models and business logic workflows
             </p>
           </div>
 
           <div className="relative w-full max-w-xs">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <SearchLg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-tertiary" />
             <Input
               type="text"
               placeholder="Search modules..."
@@ -886,13 +849,13 @@ export default function Dashboard() {
 
         {/* Animated Cards Grid */}
         {visibleRoutes.length === 0 ? (
-          <Card className="mt-6">
-            <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
-              <Search className="h-6 w-6 text-muted-foreground" />
-              <CardTitle className="text-base">No modules match "{filter}"</CardTitle>
-              <CardDescription>Clear the search to see every module in this app.</CardDescription>
-            </CardContent>
-          </Card>
+          <div className="rounded-2xl border border-secondary bg-primary shadow-xs mt-6">
+            <div className="flex flex-col items-center gap-2 py-12 text-center">
+              <SearchLg className="h-6 w-6 text-tertiary" />
+              <h3 className="text-lg font-semibold text-primary text-base">No modules match "{filter}"</h3>
+              <p className="text-sm text-tertiary">Clear the search to see every module in this app.</p>
+            </div>
+          </div>
         ) : (
         <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {visibleRoutes.map(([name, path], idx) => (
@@ -903,27 +866,27 @@ export default function Dashboard() {
               transition={{ delay: idx * 0.05, duration: 0.3 }}
             >
               <Link href={`/${path}`} className="group block h-full">
-                <Card className="h-full gap-4 transition-colors group-hover:border-primary/50">
-                  <CardHeader>
+                <div className="rounded-2xl border border-secondary bg-primary shadow-xs h-full gap-4 transition-colors group-hover:border-brand/50">
+                  <div className="flex flex-col gap-1.5">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary">
-                        <Sparkles className="h-5 w-5" />
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-tertiary text-brand-primary transition-colors group-hover:bg-brand-solid/10 group-hover:text-brand-primary">
+                        <Zap className="h-5 w-5" />
                       </div>
-                      <Badge variant="secondary">{counts[name] ?? "…"} records</Badge>
+                      <span className="inline-flex items-center rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-secondary ring-1 ring-border-secondary ring-inset">{counts[name] ?? "…"} records</span>
                     </div>
-                    <CardTitle className="capitalize transition-colors group-hover:text-primary">
+                    <h3 className="text-lg font-semibold text-primary capitalize transition-colors group-hover:text-brand-primary">
                       {name.replaceAll("_", " ")}
-                    </CardTitle>
-                    <CardDescription>
+                    </h3>
+                    <p className="text-sm text-tertiary">
                       Access data records, creation forms, and API actions for{" "}
                       {name.replaceAll("_", " ")}.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="mt-auto flex items-center justify-between border-t border-border pt-4 text-xs font-semibold text-primary">
+                    </p>
+                  </div>
+                  <div className="mt-auto flex items-center justify-between border-t border-secondary pt-4 text-xs font-semibold text-brand-primary">
                     <span>Manage {name.replaceAll("_", " ")}</span>
                     <span className="transition-transform group-hover:translate-x-1">→</span>
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
               </Link>
             </motion.div>
           ))}
@@ -935,513 +898,6 @@ export default function Dashboard() {
 }
 """
 
-_LANDING_PAGE_TSX = """\
-"use client";
-
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
-import { api } from "@/lib/api";
-import {
-  Sparkles,
-  ShoppingBag,
-  Star,
-  Clock,
-  MapPin,
-  Phone,
-  ShieldCheck,
-  Check,
-  Plus,
-  Minus,
-  ArrowRight,
-  Database,
-  Layers,
-  Activity,
-  Heart,
-  X,
-  Send,
-  ExternalLink,
-} from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-
-const ENTITY_ROUTES: [string, string][] = @@ENTITY_ROUTES@@;
-const PRIMARY_PLURAL = @@PRIMARY_PLURAL@@;
-const PRIMARY_LABEL = @@PRIMARY_LABEL@@;
-
-interface ProductItem {
-  id: number;
-  name: string;
-  flavor?: string;
-  price: number;
-  description: string;
-  image_url: string;
-  badge?: string;
-}
-
-const DEFAULT_PRODUCTS: ProductItem[] = @@INITIAL_PRODUCTS_JSON@@;
-const TESTIMONIALS = @@TESTIMONIALS_JSON@@;
-
-export default function LandingPage() {
-  const [products, setProducts] = useState<ProductItem[]>(DEFAULT_PRODUCTS);
-  const [counts, setCounts] = useState<Record<string, number>>({});
-  const [cart, setCart] = useState<{ item: ProductItem; quantity: number }[]>([]);
-  const [orderModalOpen, setOrderModalOpen] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<ProductItem | null>(null);
-  const [orderQuantity, setOrderQuantity] = useState(1);
-  const [customerName, setCustomerName] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
-  const [orderPlaced, setOrderPlaced] = useState(false);
-  const [orderLoading, setOrderLoading] = useState(false);
-  const [adminOpen, setAdminOpen] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      for (const [name, path] of ENTITY_ROUTES) {
-        try {
-          const rows = await api.get<any[]>(`/${path}`);
-          setCounts((c) => ({ ...c, [name]: rows.length }));
-          if (path === PRIMARY_PLURAL && rows.length > 0) {
-            const mapped = rows.map((r, idx) => ({
-              id: r.id || idx + 1,
-              name: r.name || r.title || `${PRIMARY_LABEL} #${idx + 1}`,
-              flavor: r.flavor || r.tag || r.category || "Signature",
-              price: Number(r.price) || Number(r.cost) || 15,
-              description: r.description || "Curated and handcrafted with premium standards.",
-              image_url:
-                r.image_url ||
-                DEFAULT_PRODUCTS[idx % Math.max(1, DEFAULT_PRODUCTS.length)]?.image_url ||
-                "https://images.unsplash.com/photo-1570197788417-0e82375c9371?auto=format&fit=crop&w=800&q=80",
-              badge: Number(r.price) >= 20 ? "Signature" : "Featured",
-            }));
-            setProducts(mapped);
-          }
-        } catch {
-          setCounts((c) => ({ ...c, [name]: 2 }));
-        }
-      }
-    })();
-  }, []);
-
-  const totalCartItems = cart.reduce((sum, item) => sum + item.quantity, 0);
-
-  const openOrderDrawer = (product: ProductItem) => {
-    setSelectedProduct(product);
-    setOrderQuantity(1);
-    setOrderPlaced(false);
-    setOrderModalOpen(true);
-  };
-
-  const handlePlaceOrder = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedProduct || !customerName.trim()) return;
-    setOrderLoading(true);
-    try {
-      await api.post("/orders", {
-        customer_name: customerName,
-        item_name: selectedProduct.name,
-        quantity: orderQuantity,
-        total_price: selectedProduct.price * orderQuantity,
-        status: "confirmed",
-      });
-    } catch {
-      // Best effort fallback
-    } finally {
-      setOrderLoading(false);
-      setOrderPlaced(true);
-      setCart((prev) => [...prev, { item: selectedProduct, quantity: orderQuantity }]);
-      setCounts((c) => ({ ...c, orders: (c.orders || 0) + 1 }));
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-background text-foreground selection:bg-primary/20">
-      {/* ── Top Navigation Bar ── */}
-      <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary shadow-sm">
-              <Sparkles className="h-5 w-5" />
-            </div>
-            <div>
-              <span className="font-bold tracking-tight text-foreground sm:text-lg">@@TITLE@@</span>
-              <span className="block text-[11px] text-muted-foreground">Artisanal Creamery &amp; Scoops</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 sm:gap-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setAdminOpen(!adminOpen)}
-              className="text-xs text-muted-foreground hover:text-foreground"
-            >
-              <Database className="mr-1.5 h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Admin System</span>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                if (products[0]) openOrderDrawer(products[0]);
-              }}
-              className="relative gap-1.5 border-primary/30 text-xs font-semibold hover:border-primary"
-            >
-              <ShoppingBag className="h-3.5 w-3.5 text-primary" />
-              <span>Bag</span>
-              {totalCartItems > 0 && (
-                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
-                  {totalCartItems}
-                </span>
-              )}
-            </Button>
-          </div>
-        </div>
-      </header>
-
-      {/* ── Admin / Modules Quick Access Drawer ── */}
-      <AnimatePresence>
-        {adminOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="border-b border-border bg-muted/40 px-4 py-4"
-          >
-            <div className="mx-auto max-w-6xl">
-              <div className="flex items-center justify-between pb-3">
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary">API &amp; Backend Modules</Badge>
-                  <span className="text-xs text-muted-foreground">Live endpoints serving this storefront</span>
-                </div>
-                <Button asChild variant="outline" size="sm" className="h-7 text-xs">
-                  <Link href="/api/docs" target="_blank">
-                    API Docs <ExternalLink className="ml-1 h-3 w-3" />
-                  </Link>
-                </Button>
-              </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                {ENTITY_ROUTES.map(([name, path]) => (
-                  <Link key={name} href={`/${path}`} className="group block">
-                    <Card className="p-3 transition-colors hover:border-primary/50">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold capitalize group-hover:text-primary">
-                          {name.replaceAll("_", " ")}
-                        </span>
-                        <Badge variant="outline" className="text-[10px]">
-                          {counts[name] ?? "2"} records
-                        </Badge>
-                      </div>
-                    </Card>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ── Hero Section ── */}
-      <section className="relative overflow-hidden px-4 py-16 sm:px-6 sm:py-24">
-        <div className="mx-auto max-w-4xl text-center">
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="space-y-4"
-          >
-            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-semibold text-primary">
-              <Sparkles className="h-3.5 w-3.5" />
-              <span>Small-Batch · Fresh Daily · 100% Organic Cream</span>
-            </div>
-            <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl md:text-6xl text-foreground">
-              Pure Ingredients. <br />
-              <span className="bg-gradient-to-r from-amber-500 via-primary to-rose-500 bg-clip-text text-transparent">
-                Unforgettable Scoops.
-              </span>
-            </h1>
-            <p className="mx-auto max-w-2xl text-base text-muted-foreground sm:text-lg">
-              Indulge in artisanal ice cream hand-crafted to velvety perfection. Order our signature Vanilla and decadent Dark Chocolate for fresh pickup or delivery.
-            </p>
-            <div className="flex flex-wrap items-center justify-center gap-3 pt-4">
-              <Button
-                size="lg"
-                onClick={() => {
-                  const el = document.getElementById("flavors");
-                  el?.scrollIntoView({ behavior: "smooth" });
-                }}
-                className="gap-2 shadow-lg"
-              >
-                <ShoppingBag className="h-4 w-4" />
-                <span>Explore Flavors</span>
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                onClick={() => openOrderDrawer(products[0])}
-                className="gap-2"
-              >
-                <span>Quick Order</span>
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* ── Featured Flavors Grid ── */}
-      <section id="flavors" className="border-t border-border/60 bg-muted/20 px-4 py-16 sm:px-6">
-        <div className="mx-auto max-w-6xl">
-          <div className="mb-10 text-center">
-            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl text-foreground">Signature Scoops</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Our iconic signature selections, crafted daily with all-natural organic cream
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:gap-12">
-            {products.map((item, idx) => (
-              <motion.div
-                key={item.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.1, duration: 0.4 }}
-              >
-                <Card className="group flex h-full flex-col overflow-hidden border border-border/80 shadow-md transition-all hover:shadow-xl hover:border-primary/50">
-                  <div className="relative h-64 w-full overflow-hidden bg-muted sm:h-72">
-                    <img
-                      src={item.image_url}
-                      alt={item.name}
-                      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                    />
-                    <div className="absolute right-3 top-3">
-                      <Badge className="bg-background/90 text-foreground font-bold shadow-md backdrop-blur-sm">
-                        {item.badge || (item.price >= 20 ? "Signature" : "Classic")}
-                      </Badge>
-                    </div>
-                    <div className="absolute bottom-3 left-3 rounded-lg bg-background/95 px-3 py-1.5 font-bold shadow-md backdrop-blur-sm">
-                      <span className="text-2xl font-extrabold text-foreground">${item.price}</span>
-                      <span className="text-xs text-muted-foreground ml-1 font-normal">/ scoop</span>
-                    </div>
-                  </div>
-
-                  <CardHeader className="space-y-1 pb-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs uppercase tracking-wider font-semibold text-primary">
-                        {item.flavor || "Artisanal Flavor"}
-                      </span>
-                      <div className="flex items-center text-amber-500">
-                        <Star className="h-3.5 w-3.5 fill-current" />
-                        <span className="ml-1 text-xs font-bold">5.0</span>
-                      </div>
-                    </div>
-                    <CardTitle className="text-xl font-bold text-foreground">{item.name}</CardTitle>
-                    <CardDescription className="text-sm leading-relaxed text-muted-foreground">
-                      {item.description}
-                    </CardDescription>
-                  </CardHeader>
-
-                  <CardContent className="mt-auto pt-4 border-t border-border">
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="text-xs text-muted-foreground">
-                        <span className="inline-flex items-center gap-1 font-medium text-emerald-600">
-                          <Check className="h-3.5 w-3.5" /> Fresh in stock
-                        </span>
-                      </div>
-                      <Button onClick={() => openOrderDrawer(item)} className="gap-1.5 font-semibold">
-                        <ShoppingBag className="h-4 w-4" />
-                        <span>Order Now · ${item.price}</span>
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Testimonials ── */}
-      <section className="border-t border-border px-4 py-16 sm:px-6">
-        <div className="mx-auto max-w-6xl">
-          <div className="mb-10 text-center">
-            <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Lover Reviews</h2>
-            <p className="mt-2 text-sm text-muted-foreground">What our ice cream lovers are saying</p>
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-            {TESTIMONIALS.map((t, idx) => (
-              <Card key={idx} className="p-6 space-y-3 bg-muted/20 border-border">
-                <div className="flex text-amber-500 gap-0.5">
-                  {[...Array(t.rating)].map((_, i) => (
-                    <Star key={i} className="h-4 w-4 fill-current" />
-                  ))}
-                </div>
-                <p className="text-sm italic text-foreground/90 leading-relaxed">"{t.text}"</p>
-                <div className="border-t border-border pt-3">
-                  <p className="text-xs font-bold text-foreground">{t.name}</p>
-                  <p className="text-[11px] text-muted-foreground">{t.role}</p>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Interactive Order Drawer / Modal ── */}
-      <AnimatePresence>
-        {orderModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-foreground/50 backdrop-blur-sm">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="relative w-full max-w-md overflow-hidden rounded-2xl border border-border bg-background p-6 shadow-2xl space-y-4"
-            >
-              <div className="flex items-start justify-between">
-                <div>
-                  <Badge variant="secondary" className="mb-1">Quick Checkout</Badge>
-                  <h3 className="text-lg font-bold text-foreground">
-                    {orderPlaced ? "Order Confirmed!" : "Order Artisanal Scoop"}
-                  </h3>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setOrderModalOpen(false)}
-                  className="h-8 w-8"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-
-              {orderPlaced ? (
-                <div className="py-6 text-center space-y-3 animate-fade-in">
-                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600">
-                    <Check className="h-8 w-8" />
-                  </div>
-                  <h4 className="text-base font-bold text-foreground">Thank you, {customerName}!</h4>
-                  <p className="text-xs text-muted-foreground">
-                    Your order for {orderQuantity}x {selectedProduct?.name} ($
-                    {(selectedProduct ? selectedProduct.price * orderQuantity : 0)}) has been sent to our parlor kitchen.
-                  </p>
-                  <div className="pt-3">
-                    <Button onClick={() => setOrderModalOpen(false)} className="w-full">
-                      Done
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <form onSubmit={handlePlaceOrder} className="space-y-4">
-                  {selectedProduct ? (
-                    <div className="flex items-center gap-3 rounded-lg border border-border p-3 bg-muted/20">
-                      <img
-                        src={selectedProduct.image_url}
-                        alt={selectedProduct.name}
-                        className="h-12 w-12 rounded-lg object-cover"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-bold truncate text-foreground">{selectedProduct.name}</p>
-                        <p className="text-[11px] text-muted-foreground">${selectedProduct.price} per scoop</p>
-                      </div>
-                      <span className="font-bold text-sm text-foreground">
-                        ${selectedProduct.price * orderQuantity}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <Label>Select Flavor</Label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {products.map((p) => (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => setSelectedProduct(p)}
-                            className={`p-2.5 rounded-lg border text-left text-xs font-medium transition-colors ${
-                              selectedProduct?.id === p.id
-                                ? "border-primary bg-primary/10 text-primary font-bold"
-                                : "border-border hover:bg-muted"
-                            }`}
-                          >
-                            {p.flavor} (${p.price})
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between border-y border-border py-3">
-                    <span className="text-xs font-medium text-foreground">Quantity</span>
-                    <div className="flex items-center gap-3">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        className="h-7 w-7"
-                        disabled={orderQuantity <= 1}
-                        onClick={() => setOrderQuantity((q) => Math.max(1, q - 1))}
-                      >
-                        <Minus className="h-3 w-3" />
-                      </Button>
-                      <span className="text-sm font-bold w-4 text-center">{orderQuantity}</span>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={() => setOrderQuantity((q) => q + 1)}
-                      >
-                        <Plus className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="custName">Your Name</Label>
-                    <Input
-                      id="custName"
-                      placeholder="e.g. Sarah Jenkins"
-                      required
-                      value={customerName}
-                      onChange={(e) => setCustomerName(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="custPhone">Phone or Address (Optional)</Label>
-                    <Input
-                      id="custPhone"
-                      placeholder="e.g. +1 555-0199 or Table #4"
-                      value={customerPhone}
-                      onChange={(e) => setCustomerPhone(e.target.value)}
-                    />
-                  </div>
-
-                  <Button type="submit" disabled={orderLoading || !selectedProduct} className="w-full">
-                    {orderLoading ? "Processing..." : `Confirm Order · $${(selectedProduct?.price || 0) * orderQuantity}`}
-                  </Button>
-                </form>
-              )}
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* ── Footer ── */}
-      <footer className="border-t border-border bg-muted/40 py-10 px-4 text-center text-xs text-muted-foreground">
-        <div className="mx-auto max-w-6xl space-y-3">
-          <p className="font-bold text-foreground text-sm">@@TITLE@@</p>
-          <p>@@PURPOSE@@</p>
-          <p className="text-[11px]">Powered by AI Solution Builder Fullstack Architecture</p>
-        </div>
-      </footer>
-    </div>
-  );
-}
-"""
 
 _ENTITY_PAGE_TSX = """\
 "use client";
@@ -1451,36 +907,8 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import type { @@TYPE@@ as @@TYPE@@Type } from "@/lib/types";
 import { api } from "@/lib/api";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Plus, ArrowLeft, Trash2, Search, CheckCircle2, AlertCircle, RefreshCw } from "lucide-react";
+import { Plus, ArrowLeft, Trash01, SearchLg, CheckCircle, AlertCircle, RefreshCcw05 } from "@untitledui/icons";
+import { Button, Input } from "react-aria-components";
 
 export default function @@PAGE_NAME@@() {
   const [rows, setRows] = useState<@@TYPE@@Type[]>([]);
@@ -1545,18 +973,17 @@ export default function @@PAGE_NAME@@() {
   });
 
   return (
-    <main className="min-h-screen bg-background px-4 py-8 text-foreground sm:px-6 md:py-12">
+    <main className="min-h-screen bg-brand-solid px-4 py-8 text-brand-primary sm:px-6 md:py-12">
       <div className="mx-auto max-w-6xl">
         {/* Navigation Breadcrumb & Actions */}
         <div className="flex items-center justify-between gap-2">
-          <Button asChild variant="ghost" size="sm" className="text-muted-foreground">
-            <Link href="/">
+           <Link href="/" className="rounded-lg bg-brand-solid px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-solid_hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring">
               <ArrowLeft className="h-3.5 w-3.5" />
               Back to Dashboard
             </Link>
-          </Button>
 
-          <Badge variant="secondary">Module: @@PLURAL@@</Badge>
+
+          <span className="inline-flex items-center rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-secondary ring-1 ring-border-secondary ring-inset">Module: @@PLURAL@@</span>
         </div>
 
         {/* Header Hero */}
@@ -1565,32 +992,26 @@ export default function @@PAGE_NAME@@() {
           animate={{ opacity: 1, y: 0 }}
           className="mt-4"
         >
-          <Card>
-            <CardHeader>
+          <div className="rounded-2xl border border-secondary bg-primary shadow-xs">
+            <div className="flex flex-col gap-1.5">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="min-w-0">
-                  <CardTitle className="text-2xl md:text-3xl">@@TITLE@@</CardTitle>
-                  <CardDescription className="mt-1">@@PURPOSE@@</CardDescription>
+                  <h3 className="text-lg font-semibold text-primary text-2xl md:text-3xl">@@TITLE@@</h3>
+                  <p className="text-sm text-tertiary mt-1">@@PURPOSE@@</p>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => void load()}
-                    title="Refresh records"
-                    aria-label="Refresh records"
-                  >
-                    <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+                  <Button className="rounded-lg border border-primary bg-primary h-9 w-9 p-0 font-semibold text-secondary shadow-xs transition-colors hover:bg-primary_hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring" onClick={() => void load()} aria-label="Refresh records">
+                    <RefreshCcw05 className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
                   </Button>
-                  <Button onClick={() => setShowDrawer(true)}>
+                  <Button className="rounded-lg bg-brand-solid px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-solid_hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring" onClick={() => setShowDrawer(true)}>
                     <Plus className="h-4 w-4" />
                     New @@SINGULAR@@
                   </Button>
                 </div>
               </div>
-            </CardHeader>
-          </Card>
+            </div>
+          </div>
         </motion.div>
 
         {/* Notices and Alerts */}
@@ -1602,10 +1023,10 @@ export default function @@PAGE_NAME@@() {
               exit={{ opacity: 0, y: -8 }}
               className="mt-4"
             >
-              <Alert>
-                <CheckCircle2 className="h-4 w-4" />
-                <AlertDescription>{notice}</AlertDescription>
-              </Alert>
+              <div role="alert" className="rounded-lg border border-secondary bg-secondary p-4 text-sm">
+                <CheckCircle className="h-4 w-4" />
+                <div className="text-sm text-tertiary">{notice}</div>
+              </div>
             </motion.div>
           )}
           {error && (
@@ -1615,10 +1036,10 @@ export default function @@PAGE_NAME@@() {
               exit={{ opacity: 0, y: -8 }}
               className="mt-4"
             >
-              <Alert variant="destructive">
+              <div role="alert" className="rounded-lg border border-secondary bg-secondary p-4 text-sm">
                 <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
+                <div className="text-sm text-tertiary">{error}</div>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -1630,18 +1051,18 @@ export default function @@PAGE_NAME@@() {
           transition={{ delay: 0.1 }}
           className="mt-8"
         >
-          <Card>
-            <CardHeader>
+          <div className="rounded-2xl border border-secondary bg-primary shadow-xs">
+            <div className="flex flex-col gap-1.5">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
-                  <CardTitle>Registered Records</CardTitle>
-                  <CardDescription>
+                  <h3 className="text-lg font-semibold text-primary">Registered Records</h3>
+                  <p className="text-sm text-tertiary">
                     {rows.length} total entries recorded in database
-                  </CardDescription>
+                  </p>
                 </div>
 
                 <div className="relative w-full max-w-xs">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <SearchLg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-tertiary" />
                   <Input
                     type="text"
                     placeholder="Filter records..."
@@ -1652,70 +1073,64 @@ export default function @@PAGE_NAME@@() {
                   />
                 </div>
               </div>
-            </CardHeader>
+            </div>
 
-            <CardContent>
+            <div>
               {/* A table of records has to stay usable on a phone, so the
                   wrapper scrolls horizontally instead of forcing the page wide. */}
               <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-24">ID</TableHead>
+                <table className="w-full caption-bottom text-sm">
+                  <thead className="[&_tr]:border-b">
+                    <tr className="border-b border-secondary transition-colors hover:bg-primary_hover">
+                      <th className="h-10 px-2 text-left align-middle font-medium text-tertiary [&:has([role=checkbox])]:w-4 w-24">ID</th>
                       @@HEADERS@@
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+                      <th className="h-10 px-2 text-left align-middle font-medium text-tertiary [&:has([role=checkbox])]:w-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
                     {filteredRows.map((row) => (
-                      <TableRow key={row.id}>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
+                      <tr className="border-b border-secondary transition-colors hover:bg-primary_hover" key={row.id}>
+                        <td className="p-2 align-middle font-mono text-xs text-tertiary">
                           {String(row.id).slice(0, 8)}
-                        </TableCell>
+                        </td>
                         @@CELLS@@
-                        <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => void remove(row.id)}
-                            title="Delete record"
-                            className="text-destructive hover:text-destructive"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
+                        <td className="p-2 align-middle text-right">
+                          <Button className="rounded-lg px-3 py-1.5 text-xs font-semibold text-secondary transition-colors hover:bg-primary_hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring text-error-primary hover:text-error-primary" onClick={() => void remove(row.id)}>
+                            <Trash01 className="h-3.5 w-3.5" />
                             <span className="sr-only sm:not-sr-only">Delete</span>
                           </Button>
-                        </TableCell>
-                      </TableRow>
+                        </td>
+                      </tr>
                     ))}
-                  </TableBody>
-                </Table>
+                  </tbody>
+                </table>
               </div>
 
               {loading && (
                 <div className="space-y-2 py-6">
                   {[0, 1, 2].map((i) => (
-                    <Skeleton key={i} className="h-9 w-full" />
+                    <div className="h-4 w-full animate-pulse rounded-md bg-quaternary h-9" key={i}/>
                   ))}
                 </div>
               )}
 
               {!loading && filteredRows.length === 0 && (
                 <div className="flex flex-col items-center gap-2 py-12 text-center">
-                  <Search className="h-6 w-6 text-muted-foreground" />
-                  <CardTitle className="text-base">No records found</CardTitle>
-                  <CardDescription>
+                  <SearchLg className="h-6 w-6 text-tertiary" />
+                  <h3 className="text-lg font-semibold text-primary text-base">No records found</h3>
+                  <p className="text-sm text-tertiary">
                     {search
                       ? "No records match your filter."
                       : "Get started by creating your first record."}
-                  </CardDescription>
-                  <Button className="mt-2" size="sm" onClick={() => setShowDrawer(true)}>
+                  </p>
+                  <Button className="rounded-lg bg-brand-solid px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-brand-solid_hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring mt-2" onClick={() => setShowDrawer(true)}>
                     <Plus className="h-4 w-4" />
                     Create First Record
                   </Button>
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </motion.section>
 
         {/* Slide-over Create Record Drawer */}
@@ -1727,7 +1142,7 @@ export default function @@PAGE_NAME@@() {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 onClick={() => setShowDrawer(false)}
-                className="fixed inset-0 bg-foreground/40 backdrop-blur-sm"
+                className="fixed inset-0 bg-overlay/40 backdrop-blur-sm"
               />
 
               <motion.div
@@ -1735,24 +1150,19 @@ export default function @@PAGE_NAME@@() {
                 animate={{ x: 0 }}
                 exit={{ x: "100%" }}
                 transition={{ type: "spring", damping: 28, stiffness: 300 }}
-                className="relative z-10 w-full max-w-md overflow-y-auto border-l border-border bg-background p-6 shadow-2xl"
+                className="relative z-10 w-full max-w-md overflow-y-auto border-l border-secondary bg-brand-solid p-6 shadow-2xl"
                 role="dialog"
                 aria-modal="true"
                 aria-label="New @@SINGULAR@@"
               >
-                <div className="flex items-start justify-between gap-2 border-b border-border pb-4">
+                <div className="flex items-start justify-between gap-2 border-b border-secondary pb-4">
                   <div>
-                    <h3 className="text-lg font-bold text-foreground">New @@SINGULAR@@</h3>
-                    <p className="text-xs text-muted-foreground">
+                    <h3 className="text-lg font-bold text-brand-primary">New @@SINGULAR@@</h3>
+                    <p className="text-xs text-tertiary">
                       Fill in the fields to create a record
                     </p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setShowDrawer(false)}
-                    aria-label="Close"
-                  >
+                  <Button className="rounded-lg h-9 w-9 p-0 font-semibold text-secondary transition-colors hover:bg-primary_hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring" onClick={() => setShowDrawer(false)} aria-label="Close">
                     <ArrowLeft className="h-4 w-4 rotate-90" />
                   </Button>
                 </div>
@@ -1766,15 +1176,11 @@ export default function @@PAGE_NAME@@() {
                 >
                   @@FORM_FIELDS@@
 
-                  <div className="flex items-center justify-end gap-2 border-t border-border pt-6">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => setShowDrawer(false)}
-                    >
+                  <div className="flex items-center justify-end gap-2 border-t border-secondary pt-6">
+                    <Button className="rounded-lg px-4 py-2 text-sm font-semibold text-secondary transition-colors hover:bg-primary_hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring" type="button" onClick={() => setShowDrawer(false)}>
                       Cancel
                     </Button>
-                    <Button type="submit">Save Record</Button>
+                    <Button className="rounded-lg bg-brand-solid px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-solid_hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring" type="submit">Save Record</Button>
                   </div>
                 </form>
               </motion.div>
@@ -1792,10 +1198,411 @@ def _label(name: str) -> str:
     return name.replace("_", " ").title()
 
 
+_LANDING_KINDS = frozenset({
+    "landing",
+    "catalog",
+    "marketplace",
+    "portfolio",
+    "social",
+    "booking",
+})
+
+
+def _primary_entity(spec: AppSpec) -> Entity | None:
+    """The entity a visitor sees first: the one with a human-readable name field."""
+    for entity in spec.entities:
+        if any(f.name in ("name", "title", "label") for f in entity.fields):
+            return entity
+    return spec.entities[0] if spec.entities else None
+
+
+_LANDING_TSX = """\
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { motion } from "framer-motion";
+import type { @@PRIMARY_TYPE@@ as PrimaryType } from "@/lib/types";
+import { api } from "@/lib/api";
+import { Button, Input, Label } from "react-aria-components";
+import { Activity, ArrowRight, Database01, LayersTwo01 } from "@untitledui/icons";
+import { cn } from "@/lib/utils";
+
+type PrimaryField = {
+  key: string;
+  label: string;
+  kind: string;
+  required: boolean;
+  options: string[];
+};
+
+const PRIMARY_PLURAL: string = @@PRIMARY_PLURAL@@;
+const PRIMARY_ROUTE: string = @@PRIMARY_ROUTE@@;
+const OTHER_CARDS: Array<{ label: string; plural: string; route: string; count: number }> = @@OTHER_CARDS@@;
+const PRIMARY_FIELDS: PrimaryField[] = @@PRIMARY_FIELDS@@;
+const APP_NAME: string = @@APP_NAME@@;
+const ONE_LINER: string = @@ONE_LINER@@;
+const CORE_VALUE: string = @@CORE_VALUE@@;
+const STAGE: string = @@STAGE@@;
+const CHART_METRIC: string = @@CHART_METRIC@@;
+
+function recordTitle(row: object, fallback: string): string {
+  const rec = row as unknown as Record<string, unknown>;
+  const named = rec.name ?? rec.title ?? rec.label;
+  if (named !== undefined && named !== null && String(named).trim() !== "") {
+    return String(named);
+  }
+  return fallback;
+}
+
+export default function Home() {
+  const [rows, setRows] = useState<PrimaryType[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [form, setForm] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState("");
+
+  const canCreate = STAGE !== "showcase";
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  async function load() {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await api.get<PrimaryType[]>(`/${PRIMARY_PLURAL}`);
+      setRows(Array.isArray(data) ? data : []);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : `Could not load ${PRIMARY_PLURAL}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((row) =>
+      Object.values(row).some((value) =>
+        String(value).toLowerCase().includes(q),
+      ),
+    );
+  }, [rows, query]);
+
+  async function onCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canCreate) return;
+    setSaving(true);
+    setNotice("");
+    setError("");
+    try {
+      await api.post(`/${PRIMARY_PLURAL}`, form);
+      setForm({});
+      setNotice("Saved.");
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Could not save");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <main className="min-h-screen bg-primary text-primary">
+      {/* Hero — driven by the spec's own name and value proposition */}
+      <motion.section
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+        className="border-b border-secondary bg-secondary"
+      >
+        <div className="mx-auto max-w-container px-6 py-14 md:py-20">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-primary px-2.5 py-0.5 text-xs font-medium text-brand-secondary">
+            <Activity className="h-3.5 w-3.5" />
+            {APP_NAME}
+          </span>
+          <h1 className="mt-4 max-w-3xl text-display-sm font-semibold text-primary md:text-display-md">
+            {ONE_LINER}
+          </h1>
+          <p className="mt-4 max-w-2xl text-md text-tertiary">{CORE_VALUE}</p>
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <Button
+              className="rounded-lg bg-brand-solid px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-solid_hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              onPress={() => {
+                window.location.href = PRIMARY_ROUTE;
+              }}
+            >
+              Explore {APP_NAME}
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+            <Link
+              href={PRIMARY_ROUTE}
+              className="rounded-lg border border-primary bg-primary px-4 py-2.5 text-sm font-semibold text-secondary shadow-xs transition-colors hover:bg-primary_hover"
+            >
+              Browse all {PRIMARY_PLURAL}
+            </Link>
+          </div>
+        </div>
+      </motion.section>
+
+      {/* Live figures — real API counts, not sample data */}
+      <section className="mx-auto max-w-container px-6 py-10">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="rounded-2xl border border-secondary bg-primary p-6 shadow-xs">
+            <div className="flex items-center gap-2 text-tertiary">
+              <Database01 className="h-4 w-4" />
+              <span className="text-sm font-medium">{PRIMARY_PLURAL}</span>
+            </div>
+            <div className="mt-2 text-display-sm font-semibold text-primary">
+              {loading ? "…" : rows.length}
+            </div>
+            <p className="mt-1 text-sm text-tertiary">records loaded from your workspace</p>
+          </div>
+          <div className="rounded-2xl border border-secondary bg-primary p-6 shadow-xs">
+            <div className="flex items-center gap-2 text-tertiary">
+              <LayersTwo01 className="h-4 w-4" />
+              <span className="text-sm font-medium">Modules</span>
+            </div>
+            <div className="mt-2 text-display-sm font-semibold text-primary">
+              {OTHER_CARDS.length + 1}
+            </div>
+            <p className="mt-1 text-sm text-tertiary">screens wired to the API</p>
+          </div>
+          <div className="rounded-2xl border border-secondary bg-primary p-6 shadow-xs">
+            <div className="flex items-center gap-2 text-tertiary">
+              <Activity className="h-4 w-4" />
+              <span className="text-sm font-medium">{CHART_METRIC || "Status"}</span>
+            </div>
+            <div className="mt-2 text-display-sm font-semibold text-primary">
+              {CHART_METRIC ? "Live" : "—"}
+            </div>
+            <p className="mt-1 text-sm text-tertiary">
+              {CHART_METRIC ? "tracked across your records" : "no metric configured"}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Records — the primary entity, filtered live */}
+      <section className="mx-auto max-w-container px-6 pb-10">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <h2 className="text-lg font-semibold text-primary">
+            {PRIMARY_PLURAL}
+          </h2>
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={`Search ${PRIMARY_PLURAL}`}
+            className="h-9 w-full max-w-xs rounded-lg border border-primary bg-primary px-3 py-2 text-sm text-primary shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          />
+        </div>
+
+        {error && (
+          <div
+            role="alert"
+            className="mt-4 rounded-lg border border-error bg-secondary p-4 text-sm text-error-primary"
+          >
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="h-28 animate-pulse rounded-2xl border border-secondary bg-quaternary"
+              />
+            ))}
+          </div>
+        ) : visible.length === 0 ? (
+          <div className="mt-6 rounded-2xl border border-secondary bg-secondary p-10 text-center">
+            <p className="text-base font-semibold text-primary">
+              No {PRIMARY_PLURAL} yet
+            </p>
+            <p className="mt-1 text-sm text-tertiary">
+              {query ? "Try a different search." : "Records you create will appear here."}
+            </p>
+          </div>
+        ) : (
+          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {visible.map((row, idx) => (
+              <motion.div
+                key={idx}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: Math.min(idx * 0.03, 0.3) }}
+                className="group rounded-2xl border border-secondary bg-primary p-5 shadow-xs transition-all hover:shadow-md"
+              >
+                <h3 className="text-base font-semibold text-primary transition-colors group-hover:text-brand-primary">
+                  {recordTitle(row, `Record ${idx + 1}`)}
+                </h3>
+                <dl className="mt-3 space-y-1.5">
+                  {PRIMARY_FIELDS.filter((f) => f.key !== "name" && f.key !== "title")
+                    .slice(0, 3)
+                    .map((f) => (
+                      <div key={f.key} className="flex justify-between gap-3 text-sm">
+                        <dt className="text-tertiary">{f.label}</dt>
+                        <dd className="font-medium text-secondary">
+                          {String(
+                            (row as unknown as Record<string, unknown>)[f.key] ?? "—",
+                          )}
+                        </dd>
+                      </div>
+                    ))}
+                </dl>
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Create — only when the spec says the app transacts or operates */}
+      {canCreate && (
+        <section className="mx-auto max-w-container px-6 pb-10">
+          <form
+            onSubmit={onCreate}
+            className="rounded-2xl border border-secondary bg-secondary p-6"
+          >
+            <h2 className="text-lg font-semibold text-primary">
+              Add a {PRIMARY_FIELDS.length ? "" : "record"}
+            </h2>
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {PRIMARY_FIELDS.map((f) => (
+                <div key={f.key} className="flex flex-col gap-2">
+                  <Label htmlFor={f.key} className="text-sm font-medium text-secondary">
+                    {f.label}
+                  </Label>
+                  {f.kind === "bool" ? (
+                    <input
+                      id={f.key}
+                      type="checkbox"
+                      checked={form[f.key] === "true"}
+                      onChange={(e) =>
+                        setForm({ ...form, [f.key]: e.target.checked ? "true" : "false" })
+                      }
+                      className="h-4 w-4"
+                    />
+                  ) : f.kind === "enum" ? (
+                    <select
+                      id={f.key}
+                      value={form[f.key] ?? ""}
+                      onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
+                      className="h-9 w-full rounded-lg border border-primary bg-primary px-3 py-2 text-sm text-primary shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                    >
+                      <option value="">Select…</option>
+                      {f.options.map((o) => (
+                        <option key={o} value={o}>
+                          {o}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input
+                      id={f.key}
+                      type={f.kind === "int" || f.kind === "float" ? "number" : f.kind === "date" ? "date" : f.kind === "datetime" ? "datetime-local" : "text"}
+                      value={form[f.key] ?? ""}
+                      onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
+                      required={f.required}
+                      className="h-9 w-full rounded-lg border border-primary bg-primary px-3 py-2 text-sm text-primary shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+            {notice && <p className="mt-4 text-sm text-success-primary">{notice}</p>}
+            <Button
+              type="submit"
+              isDisabled={saving}
+              className={cn(
+                "mt-5 rounded-lg bg-brand-solid px-4 py-2 text-sm font-semibold text-white",
+                "transition-colors hover:bg-brand-solid_hover",
+              )}
+            >
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </form>
+        </section>
+      )}
+
+      {/* Module navigation — every other entity in the spec */}
+      {OTHER_CARDS.length > 0 && (
+        <section className="mx-auto max-w-container px-6 pb-16">
+          <h2 className="text-lg font-semibold text-primary">Modules</h2>
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {OTHER_CARDS.map((c) => (
+              <Link
+                key={c.route}
+                href={c.route}
+                className="group rounded-2xl border border-secondary bg-primary p-5 shadow-xs transition-all hover:border-brand hover:shadow-md"
+              >
+                <h3 className="text-base font-semibold text-primary transition-colors group-hover:text-brand-primary">
+                  {c.label}
+                </h3>
+                <p className="mt-1 text-sm text-tertiary">
+                  {c.count} fields · /{c.plural}
+                </p>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+    </main>
+  );
+}
+"""
+
+# Emitted only when the spec opts into analytics. Pairing this with the
+# `recharts` import in _DASHBOARD_TSX keeps both sides on one flag.
+_TREND_CHART_TSX = """\
+                {analytics.trend && analytics.trend.length > 0 && (
+                  <div className="rounded-2xl border border-secondary bg-primary shadow-xs">
+                    <div className="flex flex-col gap-1.5">
+                      <h3 className="text-lg font-semibold text-primary text-xs font-medium text-tertiary">
+                        Activity &amp; Volume Trend
+                      </h3>
+                    </div>
+                    <div>
+                      <ResponsiveContainer width="100%" height={220}>
+                        <LineChart data={analytics.trend}>
+                          <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} />
+                          <Tooltip />
+                          <Line
+                            type="monotone"
+                            dataKey="total"
+                            stroke="hsl(var(--primary))"
+                            strokeWidth={2}
+                            dot={false}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}"""
+
+
 def _gen_dashboard(spec: AppSpec) -> str:
     routes = json.dumps([[e.plural, e.plural] for e in spec.entities])
+    # The chart dependency and the chart JSX are gated by the same flag that
+    # decides whether package.json ships `recharts` (see write_generated). Gating
+    # only one side is what previously produced a dashboard importing a package
+    # that had just been stripped out of package.json.
+    analytics_enabled = bool(getattr(spec, "analytics", None) and spec.analytics.enabled)
+    if analytics_enabled:
+        chart_import = 'import {\n  ResponsiveContainer,\n  LineChart,\n  Line,\n  XAxis,\n  YAxis,\n  Tooltip,\n} from "recharts";'
+        trend_chart = _TREND_CHART_TSX
+    else:
+        chart_import = ""
+        trend_chart = ""
     return (
         _DASHBOARD_TSX.replace("@@ENTITY_ROUTES@@", routes)
+        .replace("@@RECHARTS_IMPORT@@", chart_import)
+        .replace("@@TREND_CHART@@", trend_chart)
         .replace("@@TITLE@@", _label(spec.app_name))
         .replace("@@PURPOSE@@", _label(spec.app_name) + " dashboard")
     )
@@ -1820,36 +1627,36 @@ def _gen_entity_page(spec: AppSpec, entity: Entity, route: str) -> str:
         label = _label(f.name)
         input_type = _TSX_INPUT.get(f.type, "text")
         key = js_key(f.name)
-        headers.append(f'<TableHead className="px-3 py-2">{label}</TableHead>')
+        headers.append(f'<th className="h-10 px-2 text-left align-middle font-medium text-tertiary [&:has([role=checkbox])]:w-4 px-3 py-2">{label}</th>')
         if f.type == "bool":
             cells.append(
-                f'<TableCell className="px-3 py-2">{{row.{f.name} ? "Yes" : "No"}}</TableCell>'
+                f'<td className="p-2 align-middle px-3 py-2">{{row.{f.name} ? "Yes" : "No"}}</td>'
             )
             assigns.append(f"      body[{key}] = form[{key}] === true;")
             form_fields.append(
                 '<div className="flex items-center gap-2">\n'
-                f"          <Checkbox id={key} "
-                f"checked={{field({key}) === true}} "
-                f"onCheckedChange={{(v) => set({key}, v === true)}} />\n"
+                f"          <Checkbox  id={key} "
+                f"isSelected={{field({key}) === true}} "
+                f"onChange={{(v) => set({key}, v === true)}} />\n"
                 f'          <Label htmlFor={key} className="cursor-pointer">{label}</Label>\n'
                 "        </div>"
             )
         elif f.type == "enum":
             options = "\n            ".join(
-                f"<SelectItem value={js_key(v)}>{_label(v)}</SelectItem>" for v in f.enum_values
+                f"<option value={js_key(v)}>{_label(v)}</option>" for v in f.enum_values
             )
             form_fields.append(
                 '<div className="flex flex-col gap-2">\n'
                 f"          <Label htmlFor={key}>{label}</Label>\n"
-                f'          <Select value={{String(field({key}) ?? "")}} '
-                f"onValueChange={{(v) => set({key}, v)}}>\n"
-                f"            <SelectTrigger id={key}>\n"
-                f'              <SelectValue placeholder="Select {label.lower()}" />\n'
-                "            </SelectTrigger>\n"
-                "            <SelectContent>\n"
+                f'          <select\n'
+                f'            id={{{key}}}\n'
+                f'            value={{String(field({key}) ?? "")}}\n'
+                f'            onChange={{(e) => set({key}, e.target.value)}}\n'
+                f'            className="h-9 w-full rounded-lg border border-primary bg-primary px-3 py-2 text-sm text-primary shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"\n'
+                "          >\n"
+                '            ><option value="">Select…</option>\n'
                 f"            {options}\n"
-                "            </SelectContent>\n"
-                "          </Select>\n"
+                "          </select>\n"
                 "        </div>"
             )
         else:
@@ -1879,7 +1686,7 @@ def _gen_entity_page(spec: AppSpec, entity: Entity, route: str) -> str:
                 "        </div>"
             )
             cells.append(
-                f'<TableCell className="px-3 py-2">{{String(row.{f.name} ?? "—")}}</TableCell>'
+                f'><td className="p-2 align-middle px-3 py-2">{{String(row.{f.name} ?? "—")}}</td>'
             )
 
     page = _ENTITY_PAGE_TSX
@@ -1897,28 +1704,8 @@ def _gen_entity_page(spec: AppSpec, entity: Entity, route: str) -> str:
 
 
 def _is_landing_or_storefront(spec: AppSpec) -> bool:
-    screen_purposes = " ".join(getattr(s, "purpose", "") for s in getattr(spec, "screens", []))
-    text = f"{getattr(spec, 'app_name', '')} {getattr(spec, 'one_liner', '')} {getattr(spec, 'core_value', '')} {screen_purposes}".lower()
-    return any(
-        k in text
-        for k in (
-            "landing",
-            "ice cream",
-            "icecream",
-            "ice-cream",
-            "gelato",
-            "storefront",
-            "shop",
-            "cafe",
-            "bakery",
-            "dessert",
-            "parlor",
-            "restaurant",
-            "menu",
-            "vendor",
-            "catalog",
-        )
-    )
+    """True when `/` should lead with content about the domain rather than an admin console."""
+    return getattr(spec, "app_kind", "internal") in _LANDING_KINDS
 
 
 def plan_schema_delta(old_spec: AppSpec | None, new_spec: AppSpec) -> dict[str, Any]:
@@ -1952,105 +1739,77 @@ def plan_schema_delta(old_spec: AppSpec | None, new_spec: AppSpec) -> dict[str, 
 
 
 def _gen_landing_page(spec: AppSpec) -> str:
-    routes = json.dumps([[e.plural, _label(e.name)] for e in spec.entities])
-    primary_entity = spec.entities[0]
-    primary_plural = primary_entity.plural
-    primary_label = _label(primary_entity.name)
+    """Compose `/` from the spec itself.
 
-    items: list[dict[str, Any]] = []
-    if getattr(spec, "seed_data", None):
-        for idx, s in enumerate(spec.seed_data):
-            p_val = s.values.get("price") or s.values.get("amount") or s.values.get("cost") or (10 * (idx + 1))
-            try:
-                p_num = float(p_val)
-            except (ValueError, TypeError):
-                p_num = 15.0
-            items.append({
-                "id": idx + 1,
-                "name": s.label or s.values.get("name") or s.values.get("title") or f"{primary_label} #{idx+1}",
-                "flavor": s.values.get("flavor") or s.values.get("tag") or s.values.get("category") or "Signature",
-                "price": p_num,
-                "description": s.values.get("description") or f"Curated handcrafted {s.label or primary_entity.name} with premium quality.",
-                "image_url": s.values.get("image_url") or "https://images.unsplash.com/photo-1570197788417-0e82375c9371?auto=format&fit=crop&w=800&q=80",
-                "badge": "Popular" if idx == 0 else "Featured",
-            })
+    The page shape follows `app_kind` (what the app is) and `lifecycle_stage`
+    (how far it goes): a showcase reads its entities, an `operate` app also
+    manages them. Nothing here assumes a domain — no carts, no flavours, no
+    fixed endpoints — every string, route and metric comes from the spec.
+    """
+    app_name = _label(spec.app_name)
+    one_liner = getattr(spec, "one_liner", "") or f"Welcome to {app_name}"
+    core_value = (
+        getattr(spec, "core_value", "")
+        or "A focused workspace built around the data that matters."
+    )
+    kind = getattr(spec, "app_kind", "internal")
+    stage = getattr(spec, "lifecycle_stage", "showcase")
 
-    if not items:
-        domain_text = f"{spec.app_name} {getattr(spec, 'one_liner', '')}".lower()
-        if any(k in domain_text for k in ("ice cream", "icecream", "gelato", "sorbet", "dessert")):
-            items = [
-                {
-                    "id": 1,
-                    "name": "Classic Madagascar Vanilla",
-                    "flavor": "Vanilla",
-                    "price": 10,
-                    "description": "Slow-churned pure bourbon vanilla bean infused into velvety sweet organic cream.",
-                    "image_url": "https://images.unsplash.com/photo-1570197788417-0e82375c9371?auto=format&fit=crop&w=800&q=80",
-                    "badge": "Most Popular",
-                },
-                {
-                    "id": 2,
-                    "name": "Decadent Belgian Dark Chocolate",
-                    "flavor": "Chocolate",
-                    "price": 20,
-                    "description": "Intense 70% dark Belgian cocoa blended into luxurious, decadent dark chocolate perfection.",
-                    "image_url": "https://images.unsplash.com/photo-1563805042-7684c019e1cb?auto=format&fit=crop&w=800&q=80",
-                    "badge": "Artisanal Reserve",
-                },
-            ]
-        else:
-            items = [
-                {
-                    "id": 1,
-                    "name": f"Essential {primary_label}",
-                    "flavor": "Standard",
-                    "price": 19,
-                    "description": f"Standard tier {primary_label} configured with all core capabilities and immediate support.",
-                    "image_url": "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=800&q=80",
-                    "badge": "Popular",
-                },
-                {
-                    "id": 2,
-                    "name": f"Premium {primary_label}",
-                    "flavor": "Enterprise",
-                    "price": 49,
-                    "description": f"High-performance {primary_label} with advanced features, enhanced limits, and dedicated priority.",
-                    "image_url": "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=800&q=80",
-                    "badge": "Best Value",
-                },
-            ]
+    # The "primary" entity drives the hero stat, the card grid and the CTA.
+    primary = _primary_entity(spec)
+    primary_plural = primary.plural if primary else "records"
+    primary_label = _label(primary.name) if primary else "Record"
+    primary_route = f"/{primary_plural}" if primary else "/"
 
-    testimonials = [
+    # Every other real entity becomes a nav card, so the page is a router too.
+    other_cards = [
         {
-            "name": "Sarah Jenkins",
-            "role": "Verified Customer",
-            "rating": 5,
-            "text": f"Outstanding experience with {_label(spec.app_name)}. The quality and seamless interaction exceeded all expectations!",
-        },
+            "label": _label(e.name),
+            "plural": e.plural,
+            "route": f"/{e.plural}",
+            "count": len(e.fields),
+        }
+        for e in spec.entities
+        if primary is None or e.name != primary.name
+    ]
+
+    # Analytics is opt-in on the spec; when present the spec names the metric.
+    analytics = getattr(spec, "analytics", None)
+    chart_metric = ""
+    if analytics and getattr(analytics, "enabled", False) and primary:
+        numeric = next(
+            (f for f in primary.fields if f.type in ("int", "float")), None
+        )
+        if numeric:
+            chart_metric = numeric.name
+
+    # A showcase only reads; transact/operate add the primary action.
+    entity_fields = [
         {
-            "name": "Marcus Vance",
-            "role": "Frequent Patron",
-            "rating": 5,
-            "text": f"{getattr(spec, 'core_value', 'High quality execution')} is evident in every single detail. Fast and exceptionally reliable.",
-        },
-        {
-            "name": "Aisha Patel",
-            "role": "Verified Order",
-            "rating": 5,
-            "text": f"Super easy to place an order and track updates. Truly a delightful modern application.",
-        },
+            "key": f.name,
+            "label": _label(f.name),
+            "kind": f.type,
+            "required": bool(f.required and f.default is None),
+            "options": list(getattr(f, "enum_values", []) or []),
+        }
+        for f in (primary.fields if primary else [])
     ]
 
     return (
-        _LANDING_PAGE_TSX.replace("@@ENTITY_ROUTES@@", routes)
-        .replace("@@TITLE@@", _label(spec.app_name))
-        .replace("@@PURPOSE@@", getattr(spec, "one_liner", "") or getattr(spec, "core_value", "") or f"Welcome to {_label(spec.app_name)}")
-        .replace("@@CORE_VALUE@@", getattr(spec, "core_value", "") or "Experience uncompromised quality and dedicated service.")
-        .replace("@@PRIMARY_PLURAL@@", json.dumps(primary_plural))
-        .replace("@@PRIMARY_LABEL@@", json.dumps(primary_label))
-        .replace("@@INITIAL_PRODUCTS_JSON@@", json.dumps(items, indent=2))
-        .replace("@@TESTIMONIALS_JSON@@", json.dumps(testimonials, indent=2))
+        _LANDING_TSX.replace("@@APP_NAME@@", json.dumps(app_name))
+    .replace("@@ONE_LINER@@", json.dumps(one_liner))
+    .replace("@@CORE_VALUE@@", json.dumps(core_value))
+    .replace("@@KIND@@", json.dumps(kind))
+    .replace("@@STAGE@@", json.dumps(stage))
+    .replace("@@PRIMARY_LABEL@@", json.dumps(primary_label))
+    .replace("@@PRIMARY_PLURAL@@", json.dumps(primary_plural))
+    .replace("@@PRIMARY_ROUTE@@", json.dumps(primary_route))
+    .replace("@@PRIMARY_TYPE@@", _cls(primary.name) if primary else "Record")
+    .replace("@@PRIMARY_FIELDS@@", json.dumps(entity_fields, indent=2))
+    .replace("@@OTHER_CARDS@@", json.dumps(other_cards, indent=2))
+        .replace("@@CHART_METRIC@@", json.dumps(chart_metric))
     )
+
 
 
 def gen_frontend_pages(spec: AppSpec, fe: Path) -> None:
@@ -2065,6 +1824,11 @@ def gen_frontend_pages(spec: AppSpec, fe: Path) -> None:
         route = str(screen.route or "/").strip("/")
         if route in written:
             continue
+        # The spec (and the LLM that writes it) may use `{var}` or `<var>`
+        # placeholder syntax for a route parameter. Next.js App Router only
+        # recognises `[var]`, so a literal `{id}` segment would create a directory
+        # that is never served and a route that always 404s.
+        route = re.sub(r"[{<](\w+)[}>]", r"[\1]", route)
         page_path = (app_dir / route / "page.tsx") if route else (app_dir / "page.tsx")
         page_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -2072,7 +1836,24 @@ def gen_frontend_pages(spec: AppSpec, fe: Path) -> None:
         if page_path.exists():
             existing = page_path.read_text(encoding="utf-8", errors="replace")
             # If the user edited this page manually without our generated-by stamp, preserve it!
-            if "// @generated by AI Solution Builder" not in existing and "generated-by" not in existing:
+            has_our_stamp = (
+                "// @generated by AI Solution Builder" in existing or "generated-by" in existing
+            )
+            # A page that still contains scaffold placeholders was never edited by anyone:
+            # the template ships one precisely so it gets replaced. Treating it as a user
+            # edit would divert the generated page to `page.generated.tsx`, which nothing
+            # imports — the app would render the un-replaced placeholder instead.
+            still_a_placeholder = any(
+                marker in existing
+                for marker in (
+                    "__MODULE_LINKS__",
+                    "__APP_TITLE__",
+                    "__APP_NAME__",
+                    "__APP_SLUG__",
+                    "__APP_DESCRIPTION__",
+                )
+            )
+            if not has_our_stamp and not still_a_placeholder:
                 target_path = page_path.with_name("page.generated.tsx")
 
         stamp = "// @generated by AI Solution Builder (non-destructive)\n"
@@ -2094,186 +1875,63 @@ def gen_frontend_pages(spec: AppSpec, fe: Path) -> None:
 
 # ── Next.js Fullstack Route Handlers & Data Store ────────────────────────
 
-_NEXT_DB_TS = """// In-memory data store for Next.js Route Handlers
-// State is preserved across requests via globalThis in development.
+_NEXT_DB_TS = """// In-memory data store for Next.js Route Handlers.
+// Deliberately EMPTY: the app starts with real empty states and the records
+// a user creates are the ones it renders. No sample/example data is invented.
+type Row = Record<string, unknown>;
 
-type Row = Record<string, any>;
+export class Database {
+  private tables = new Map<string, Row[]>();
+  private nextIds = new Map<string, number>();
 
-class DataStore {
-  private tables: Map<string, Row[]> = new Map();
-  private nextIds: Map<string, number> = new Map();
-
-  constructor() {
-    this.seedDefaults();
-  }
-
-  private seedDefaults() {
-    const icecreams = [
-      {
-        id: 1,
-        name: "Classic Madagascar Vanilla",
-        flavor: "Vanilla",
-        price: 10,
-        description: "Slow-churned pure bourbon vanilla bean infused into velvety sweet organic cream. Silky, aromatic, and timelessly delightful.",
-        image_url: "https://images.unsplash.com/photo-1570197788417-0e82375c9371?auto=format&fit=crop&w=800&q=80",
-        is_available: true,
-        category: "Classic",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: 2,
-        name: "Decadent Belgian Dark Chocolate",
-        flavor: "Chocolate",
-        price: 20,
-        description: "Intense 70% dark Belgian cocoa blended into luxurious, decadent dark chocolate perfection. Rich, velvety, and deeply satisfying.",
-        image_url: "https://images.unsplash.com/photo-1563805042-7684c019e1cb?auto=format&fit=crop&w=800&q=80",
-        is_available: true,
-        category: "Signature",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-    ];
-
-    this.tables.set("menu_items", [...icecreams]);
-    this.tables.set("icecreams", [...icecreams]);
-    this.tables.set("products", [...icecreams]);
-    this.nextIds.set("menu_items", 3);
-    this.nextIds.set("icecreams", 3);
-    this.nextIds.set("products", 3);
-
-    const orders = [
-      {
-        id: 1,
-        customer_name: "Sarah Jenkins",
-        item_name: "Classic Madagascar Vanilla",
-        quantity: 2,
-        total_price: 20,
-        status: "completed",
-        created_at: new Date(Date.now() - 3600000).toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: 2,
-        customer_name: "David Chen",
-        item_name: "Decadent Belgian Dark Chocolate",
-        quantity: 1,
-        total_price: 20,
-        status: "preparing",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-    ];
-    this.tables.set("orders", orders);
-    this.nextIds.set("orders", 3);
-
-    const reviews = [
-      {
-        id: 1,
-        customer_name: "Elena Rostova",
-        rating: 5,
-        comment: "The Madagascar Vanilla is out of this world! You can taste the real vanilla bean in every bite.",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: 2,
-        customer_name: "Marcus Vance",
-        rating: 5,
-        comment: "The Belgian Dark Chocolate is rich, velvety, and pure indulgence. Worth every penny of $20.",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-    ];
-    this.tables.set("customer_reviews", reviews);
-    this.nextIds.set("customer_reviews", 3);
+  seedTable(table: string) {
+    if (!this.tables.has(table)) this.tables.set(table, []);
+    if (!this.nextIds.has(table)) this.nextIds.set(table, 1);
   }
 
   list(table: string): Row[] {
-    const existing = this.tables.get(table);
-    if (existing && existing.length > 0) return existing;
-
-    // Seed realistic records on the fly for any newly requested domain entity
-    const singular = table.replace(/s$/, "");
-    const label = singular.charAt(0).toUpperCase() + singular.slice(1);
-    const defaults = [
-      {
-        id: 1,
-        name: `${label} Alpha`,
-        title: `${label} Alpha`,
-        status: "active",
-        created_at: new Date(Date.now() - 86400000).toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: 2,
-        name: `${label} Beta`,
-        title: `${label} Beta`,
-        status: "active",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-    ];
-    this.tables.set(table, defaults);
-    this.nextIds.set(table, 3);
-    return defaults;
+    return this.tables.get(table) ?? [];
   }
 
-  getById(table: string, id: number): Row | null {
-    const rows = this.list(table);
-    return rows.find((r) => r.id === id) || null;
-  }
-
-  insert(table: string, data: Row): Row {
-    const rows = this.list(table);
-    const nextId = this.nextIds.get(table) || (rows.length + 1);
-    this.nextIds.set(table, nextId + 1);
-
-    const now = new Date().toISOString();
-    const record = {
-      id: nextId,
-      ...data,
-      created_at: now,
-      updated_at: now,
-    };
-    rows.push(record);
-    this.tables.set(table, rows);
+  insert(table: string, row: Row): Row {
+    this.seedTable(table);
+    const id = this.nextIds.get(table) ?? 1;
+    this.nextIds.set(table, id + 1);
+    const record: Row = { id, ...row, created_at: new Date().toISOString() };
+    this.tables.get(table)!.push(record);
     return record;
   }
 
-  update(table: string, id: number, patch: Partial<Row>): Row | null {
-    const rows = this.list(table);
-    const idx = rows.findIndex((r) => r.id === id);
-    if (idx === -1) return null;
+  update(table: string, id: number, patch: Row): Row | null {
+    const rows = this.tables.get(table);
+    const found = rows?.find((r) => Number(r.id) === id);
+    if (!found) return null;
+    Object.assign(found, patch, { updated_at: new Date().toISOString() });
+    return found;
+  }
 
-    rows[idx] = {
-      ...rows[idx],
-      ...patch,
-      id,
-      updated_at: new Date().toISOString(),
-    };
-    return rows[idx];
+  getById(table: string, id: number): Row | null {
+    return this.tables.get(table)?.find((r) => Number(r.id) === id) ?? null;
   }
 
   delete(table: string, id: number): boolean {
-    const rows = this.list(table);
-    const idx = rows.findIndex((r) => r.id === id);
+    const rows = this.tables.get(table);
+    if (!rows) return false;
+    const idx = rows.findIndex((r) => Number(r.id) === id);
     if (idx === -1) return false;
     rows.splice(idx, 1);
     return true;
   }
 }
 
-const globalForDb = globalThis as unknown as { __dataStore?: DataStore };
-export const db = globalForDb.__dataStore || new DataStore();
-if (process.env.NODE_ENV !== "production") globalForDb.__dataStore = db;
-
-export function getDb(): DataStore {
-  return db;
-}
+export const getDb = (() => {
+  let db: Database | null = null;
+  return () => (db ??= new Database());
+})();
 """
 
-_NEXT_COLLECTION_ROUTE_TS = """import { NextRequest, NextResponse } from "next/server";
+_NEXT_COLLECTION_ROUTE_TS = """// @generated by AI Solution Builder (non-destructive)
+import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 
 export async function GET() {
@@ -2293,7 +1951,8 @@ export async function POST(req: NextRequest) {
 }
 """
 
-_NEXT_ITEM_ROUTE_TS = """import { NextRequest, NextResponse } from "next/server";
+_NEXT_ITEM_ROUTE_TS = """// @generated by AI Solution Builder (non-destructive)
+import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 
 type RouteContext = { params: Promise<{ id: string }> | { id: string } };
@@ -2411,7 +2070,8 @@ def gen_next_route_handlers(spec: AppSpec, fe: Path) -> None:
         act_dir = api_dir / "actions" / action_name
         act_dir.mkdir(parents=True, exist_ok=True)
         example_json = json.dumps(action.output_example or {"status": "success"})
-        act_code = f"""import {{ NextRequest, NextResponse }} from "next/server";
+        act_code = f"""// @generated by AI Solution Builder (non-destructive)
+import {{ NextRequest, NextResponse }} from "next/server";
 
 export async function POST(req: NextRequest) {{
   try {{
@@ -2440,7 +2100,8 @@ export async function POST(req: NextRequest) {{
             c_plural = target.entity.plural
             f_name = target.metric_field.name
             e_name = target.entity.name
-            analytics_code = f"""import {{ NextResponse }} from "next/server";
+            analytics_code = f"""// @generated by AI Solution Builder (non-destructive)
+import {{ NextResponse }} from "next/server";
 import {{ getDb }} from "@/lib/db";
 
 export async function GET() {{
@@ -2461,7 +2122,8 @@ export async function GET() {{
 }}
 """
         else:
-            analytics_code = """import { NextResponse } from "next/server";
+            analytics_code = """// @generated by AI Solution Builder (non-destructive)
+import { NextResponse } from "next/server";
 
 export async function GET() {
   return NextResponse.json({
@@ -2478,6 +2140,93 @@ export async function GET() {
 
 def _hash(p: Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else ""
+
+
+_GEN_STAMP = "@generated by AI Solution Builder"
+
+# Files the scaffold owns unconditionally — never pruned even if the spec stops
+# referencing them, because the app cannot run without them.
+_PRUNE_EXEMPT = {"api", "health", "actions", "[id]", "globals.css", "theme.css", "layout.tsx"}
+
+
+def _is_generated(path: Path) -> bool:
+    """True when ``path`` carries our generated stamp (so it is safe to rewrite/remove)."""
+    try:
+        head = path.read_text(encoding="utf-8", errors="replace")[:400]
+    except OSError:
+        return False
+    return _GEN_STAMP in head or "generated-by" in head
+
+
+def _prune_stale_routes(spec: AppSpec, root: Path) -> list[str]:
+    """Delete generated pages/API routes that the current spec no longer declares.
+
+    A build directory can be scaffolded more than once (a fallback spec first, the
+    real LLM spec second). The second pass used to only ever *add* files, leaving
+    orphan pages whose API routes pointed at tables that no longer existed.
+
+    Non-destructive: only directories whose files carry our generated stamp are
+    removed. Anything a user authored or edited is left untouched.
+    """
+    removed: list[str] = []
+    fe = root / "frontend"
+    app_dir = fe / "src" / "app"
+    if not app_dir.is_dir():
+        return removed
+
+    # Routes the spec currently wants, as directory names under src/app.
+    wanted_pages: set[str] = {""}
+    for screen in spec.screens:
+        route = str(screen.route or "").strip("/")
+        wanted_pages.add(route.split("/")[0] if route else "")
+    wanted_pages |= _PRUNE_EXEMPT
+
+    wanted_api: set[str] = {"health", "actions"}
+    for entity in spec.entities:
+        wanted_api.add(entity.plural)
+    for action in spec.actions:
+        wanted_api.add(_clean_ident(action.name))
+    if getattr(spec, "analytics", None) and spec.analytics.enabled:
+        wanted_api.add("analytics")
+    wanted_api |= {"[id]"}
+
+    checks = (
+        (app_dir, wanted_pages),
+        (app_dir / "api" / "v1", wanted_api),
+        (app_dir / "api" / "v1" / "actions", {_clean_ident(a.name) for a in spec.actions}),
+    )
+    for dir_path, keep in checks:
+        if not dir_path.is_dir():
+            continue
+        for child in sorted(dir_path.iterdir()):
+            if not child.is_dir() or child.name in keep:
+                continue
+            # Only prune a directory we own: its page/route file must be stamped
+            # and it must not contain any user-authored file.
+            entry = child / "page.tsx"
+            if not entry.exists():
+                entry = child / "route.ts"
+            if not entry.exists():
+                nested = sorted(child.glob("*/route.ts"))
+                entry = nested[0] if nested else entry
+            if entry is None or not entry.exists() or not _is_generated(entry):
+                continue
+            if any(
+                not _is_generated(f)
+                for f in child.rglob("*")
+                if f.is_file() and f.suffix in {".ts", ".tsx"}
+            ):
+                continue
+            shutil.rmtree(child)
+            removed.append(str(child.relative_to(fe)))
+
+    for stale in ("routers_analytics.py",):
+        path = root / "backend" / stale
+        if path.exists() and not (getattr(spec, "analytics", None) and spec.analytics.enabled):
+            if _is_generated(path):
+                path.unlink()
+                removed.append(f"backend/{stale}")
+    return removed
 
 
 def write_generated(root: Path | str, spec: AppSpec) -> dict[str, str]:
@@ -2505,6 +2254,11 @@ def write_generated(root: Path | str, spec: AppSpec) -> dict[str, str]:
     if fe.exists():
         gen_frontend_pages(spec, fe)
         gen_next_route_handlers(spec, fe)
+        # Second-and-later passes: drop generated routes the current spec no
+        # longer declares, so a re-scaffold never leaves orphan pages behind.
+        pruned = _prune_stale_routes(spec, root)
+        if pruned:
+            logger.info("Pruned stale generated routes: %s", ", ".join(pruned))
         pkg_file = fe / "package.json"
         if pkg_file.exists():
             try:

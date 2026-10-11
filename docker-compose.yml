@@ -165,7 +165,11 @@ services:
     ports:
       - "4096:4096"
     volumes:
-      - mvp_workspace:/workspace
+      # Default is the shared named volume, which the API/worker also mount — the
+      # agent's output and the worker's reads then hit the same directory.
+      # Local dev that runs the worker on the HOST cannot share a named volume;
+      # set MVP_LOCAL_BUILD_BIND to that host path to bind it in instead.
+      - ${MVP_LOCAL_BUILD_BIND:-mvp_workspace}:/workspace
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://localhost:4096/api/info').then(r=>{if(r.ok)process.exit(0);return fetch('http://localhost:4096/global/health')}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 10s
